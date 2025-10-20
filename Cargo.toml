@@ -1,0 +1,49 @@
+[package]
+name = "op-dbus"
+version = "0.1.0"
+edition = "2021"
+authors = ["GhostBridge Team"]
+description = "Operation D-Bus - Declarative system state management via native protocols"
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "signal"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# D-Bus
+zbus = { version = "4", features = ["tokio"] }
+
+# Netlink (native kernel networking)
+rtnetlink = { version = "0.14", features = ["tokio_socket"] }
+netlink-packet-route = "0.19"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+log = "0.4"
+
+# Async utilities
+async-trait = "0.1"
+
+# Hashing & crypto
+sha2 = "0.10"
+md5 = "0.7"
+
+# Time
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[[bin]]
+name = "op-dbus"
+path = "src/main.rs"

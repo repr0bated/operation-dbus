@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "vmbr0",
+          "type": "ovs-bridge",
+          "ports": ["ens1"],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [
+              {
+                "ip": "80.209.240.244",
+                "prefix": 25
+              }
+            ],
+            "gateway": "80.209.240.129"
+          }
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "active_state": "active",
+          "enabled": true
+        }
+      }
+    }
+  }
+}
