@@ -46,6 +46,19 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 # System info
 gethostname = "0.5"
+num_cpus = "1.16"
+
+# ML/Transformers (optional, for advanced vectorization)
+ort = { version = "2.0.0-rc.10", optional = true, features = ["download-binaries"] }
+tokenizers = { version = "0.20", optional = true }
+ndarray = { version = "0.16", optional = true }
+once_cell = { version = "1.19", optional = true }
+hf-hub = { version = "0.3", optional = true, features = ["tokio"] }
+indicatif = { version = "0.17", optional = true }
+
+[features]
+default = []
+ml = ["ort", "tokenizers", "ndarray", "once_cell", "hf-hub", "indicatif"]
 
 [[bin]]
 name = "op-dbus"

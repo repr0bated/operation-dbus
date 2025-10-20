@@ -1,7 +1,7 @@
 // State manager orchestrator - coordinates plugins and provides atomic operations
 // Note: Ledger functionality has been replaced with streaming blockchain
-use crate::state::plugin::{ApplyResult, Checkpoint, StateDiff, StatePlugin};
 use crate::blockchain::plugin_footprint::FootprintGenerator;
+use crate::state::plugin::{ApplyResult, Checkpoint, StateDiff, StatePlugin};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,7 +34,8 @@ pub struct ApplyReport {
 /// State manager coordinates all plugins and provides atomic operations
 pub struct StateManager {
     plugins: Arc<RwLock<HashMap<String, Box<dyn StatePlugin>>>>,
-    blockchain_sender: Option<tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>>,    
+    blockchain_sender:
+        Option<tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>>,
 }
 
 impl Default for StateManager {
@@ -53,7 +54,10 @@ impl StateManager {
     }
 
     /// Enable blockchain footprints by providing a sender to a StreamingBlockchain receiver
-    pub fn set_blockchain_sender(&mut self, sender: tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>) {
+    pub fn set_blockchain_sender(
+        &mut self,
+        sender: tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>,
+    ) {
         self.blockchain_sender = Some(sender);
     }
 
@@ -140,7 +144,6 @@ impl StateManager {
         Ok(diffs)
     }
 
-
     /// Apply desired state atomically across all plugins
     pub async fn apply_state(&self, desired: DesiredState) -> Result<ApplyReport> {
         let mut checkpoints = Vec::new();
@@ -211,8 +214,12 @@ impl StateManager {
             match apply_result {
                 Some(Ok(result)) => {
                     log::info!("Applied state for plugin: {}", diff.plugin);
-                    log::info!("Result success: {}, changes: {:?}, errors: {:?}",
-                        result.success, result.changes_applied, result.errors);
+                    log::info!(
+                        "Result success: {}, changes: {:?}, errors: {:?}",
+                        result.success,
+                        result.changes_applied,
+                        result.errors
+                    );
 
                     // Record blockchain footprint (apply)
                     let data = serde_json::json!({
@@ -303,7 +310,6 @@ impl StateManager {
             checkpoints,
         })
     }
-
 
     /// Show diff between current and desired state
     pub async fn show_diff(&self, desired: DesiredState) -> Result<Vec<StateDiff>> {

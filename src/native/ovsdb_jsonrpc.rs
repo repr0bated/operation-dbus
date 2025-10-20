@@ -60,8 +60,7 @@ impl OvsdbClient {
 
     /// Get schema for Open_vSwitch database
     pub async fn get_schema(&self) -> Result<Value> {
-        self.rpc_call("get_schema", json!(["Open_vSwitch"]))
-            .await
+        self.rpc_call("get_schema", json!(["Open_vSwitch"])).await
     }
 
     /// Dump entire Open_vSwitch database: table -> rows (JSON)
@@ -298,7 +297,8 @@ impl OvsdbClient {
                             for port in port_set {
                                 if let Some(uuid_array) = port.as_array() {
                                     if uuid_array.len() == 2 && uuid_array[0] == "uuid" {
-                                        port_uuids.push(uuid_array[1].as_str().unwrap().to_string());
+                                        port_uuids
+                                            .push(uuid_array[1].as_str().unwrap().to_string());
                                     }
                                 }
                             }

@@ -133,7 +133,9 @@ impl NetStatePlugin {
         let ovs_bridges = self.query_ovs_bridges().await?;
         network_interfaces.extend(ovs_bridges);
 
-        Ok(NetworkConfig { interfaces: network_interfaces })
+        Ok(NetworkConfig {
+            interfaces: network_interfaces,
+        })
     }
 
     /// Parse IPv4 configuration from ip addr show output
@@ -223,19 +225,25 @@ impl NetStatePlugin {
             };
 
             // Parse JSON string to HashMap
-            let mut bridge_info: HashMap<String, Value> = match serde_json::from_str(&bridge_info_json) {
-                Ok(info) => info,
-                Err(_) => {
-                    log::debug!("Failed to parse bridge info JSON for: {}", bridge_name);
-                    continue;
-                }
-            };
+            let mut bridge_info: HashMap<String, Value> =
+                match serde_json::from_str(&bridge_info_json) {
+                    Ok(info) => info,
+                    Err(_) => {
+                        log::debug!("Failed to parse bridge info JSON for: {}", bridge_name);
+                        continue;
+                    }
+                };
 
             // Enrich with routing info (via rtnetlink) for this bridge
-            if let Ok(routes) = crate::native::rtnetlink_helpers::list_routes_for_interface(&bridge_name).await {
-                bridge_info.insert("routing".to_string(), serde_json::json!({
-                    "ipv4_routes": routes
-                }));
+            if let Ok(routes) =
+                crate::native::rtnetlink_helpers::list_routes_for_interface(&bridge_name).await
+            {
+                bridge_info.insert(
+                    "routing".to_string(),
+                    serde_json::json!({
+                        "ipv4_routes": routes
+                    }),
+                );
             }
 
             // Get ports for this bridge via JSON-RPC
@@ -251,7 +259,8 @@ impl NetStatePlugin {
             if let Some(ref port_list) = ports {
                 let mut tags: HashMap<String, String> = HashMap::new();
                 for p in port_list {
-                    let role = if p.starts_with("vi") { // vi{VMID}
+                    let role = if p.starts_with("vi") {
+                        // vi{VMID}
                         "container"
                     } else if p.starts_with("nm") || p.contains("wg") {
                         "netmaker"
@@ -264,7 +273,10 @@ impl NetStatePlugin {
                     };
                     tags.insert(p.clone(), role.to_string());
                 }
-                bridge_info.insert("port_tags".to_string(), serde_json::to_value(tags).unwrap_or(Value::Null));
+                bridge_info.insert(
+                    "port_tags".to_string(),
+                    serde_json::to_value(tags).unwrap_or(Value::Null),
+                );
             }
 
             bridges.push(InterfaceConfig {
@@ -287,9 +299,14 @@ impl NetStatePlugin {
         let client = crate::native::OvsdbClient::new();
 
         // Ensure bridge exists via OVSDB JSON-RPC
-        if !client.bridge_exists(&config.name).await
-            .context("Failed to check bridge existence")? {
-            client.create_bridge(&config.name).await
+        if !client
+            .bridge_exists(&config.name)
+            .await
+            .context("Failed to check bridge existence")?
+        {
+            client
+                .create_bridge(&config.name)
+                .await
                 .context("Failed to create OVS bridge via JSON-RPC")?;
             log::info!("Created OVS bridge via JSON-RPC: {}", config.name);
         }
@@ -301,24 +318,33 @@ impl NetStatePlugin {
             for port in ports {
                 // Skip netmaker/wireguard interfaces - netclient manages them
                 if port.starts_with("nm-") || port.starts_with("wg") {
-                    log::info!("Skipping netmaker interface {} (managed by netclient)", port);
+                    log::info!(
+                        "Skipping netmaker interface {} (managed by netclient)",
+                        port
+                    );
                     continue;
                 }
 
                 if !current_ports.contains(port) {
-                    client.add_port(&config.name, port).await
-                        .context(format!("Failed to add port {} to bridge {} via JSON-RPC", port, config.name))?;
+                    client.add_port(&config.name, port).await.context(format!(
+                        "Failed to add port {} to bridge {} via JSON-RPC",
+                        port, config.name
+                    ))?;
                     log::info!("Added port {} to bridge {} via JSON-RPC", port, config.name);
                 }
             }
             // Return first non-netmaker port as uplink
-            ports.iter().find(|p| !p.starts_with("nm-") && !p.starts_with("wg")).map(|s| s.as_str())
+            ports
+                .iter()
+                .find(|p| !p.starts_with("nm-") && !p.starts_with("wg"))
+                .map(|s| s.as_str())
         } else {
             None
         };
 
         // Update /etc/network/interfaces with bridge and IP configuration
-        self.update_interfaces_file(&config.name, uplink_port, &config.ipv4).await?;
+        self.update_interfaces_file(&config.name, uplink_port, &config.ipv4)
+            .await?;
 
         // Bring bridge up via rtnetlink (native netlink)
         if let Err(e) = crate::native::rtnetlink_helpers::link_up(&config.name).await {
@@ -330,12 +356,27 @@ impl NetStatePlugin {
             if ipv4.enabled {
                 if let Some(ref addresses) = ipv4.address {
                     for addr in addresses {
-                        match crate::native::rtnetlink_helpers::add_ipv4_address(&config.name, &addr.ip, addr.prefix).await {
+                        match crate::native::rtnetlink_helpers::add_ipv4_address(
+                            &config.name,
+                            &addr.ip,
+                            addr.prefix,
+                        )
+                        .await
+                        {
                             Ok(_) => {
-                                log::info!("Added IP {}/{} to {} via rtnetlink", addr.ip, addr.prefix, config.name);
+                                log::info!(
+                                    "Added IP {}/{} to {} via rtnetlink",
+                                    addr.ip,
+                                    addr.prefix,
+                                    config.name
+                                );
                             }
                             Err(e) => {
-                                log::warn!("Failed to add IP {} (may already exist): {}", addr.ip, e);
+                                log::warn!(
+                                    "Failed to add IP {} (may already exist): {}",
+                                    addr.ip,
+                                    e
+                                );
                             }
                         }
                     }
@@ -347,9 +388,15 @@ impl NetStatePlugin {
                     let _ = crate::native::rtnetlink_helpers::del_default_route().await;
 
                     // Add new default route
-                    match crate::native::rtnetlink_helpers::add_default_route(&config.name, gateway).await {
+                    match crate::native::rtnetlink_helpers::add_default_route(&config.name, gateway)
+                        .await
+                    {
                         Ok(_) => {
-                            log::info!("Added default route via {} on {} via rtnetlink", gateway, config.name);
+                            log::info!(
+                                "Added default route via {} on {} via rtnetlink",
+                                gateway,
+                                config.name
+                            );
                         }
                         Err(e) => {
                             log::warn!("Failed to add default route: {}", e);
@@ -366,14 +413,21 @@ impl NetStatePlugin {
     pub async fn delete_ovs_bridge(&self, name: &str) -> Result<()> {
         let client = crate::native::OvsdbClient::new();
 
-        client.delete_bridge(name).await
+        client
+            .delete_bridge(name)
+            .await
             .context("Failed to delete OVS bridge via JSON-RPC")?;
 
         Ok(())
     }
 
     /// Update /etc/network/interfaces with bridge configuration
-    async fn update_interfaces_file(&self, bridge: &str, uplink: Option<&str>, ipv4: &Option<Ipv4Config>) -> Result<()> {
+    async fn update_interfaces_file(
+        &self,
+        bridge: &str,
+        uplink: Option<&str>,
+        ipv4: &Option<Ipv4Config>,
+    ) -> Result<()> {
         let interfaces_path = std::path::Path::new("/etc/network/interfaces");
         let tag = "ovs-port-agent-managed";
         let begin_marker = format!("# BEGIN {}\n", tag);
@@ -396,7 +450,10 @@ impl NetStatePlugin {
                     if let Some(addr) = addresses.first() {
                         block.push_str("static\n");
                         block.push_str(&format!("    address {}\n", addr.ip));
-                        block.push_str(&format!("    netmask {}\n", Self::prefix_to_netmask(addr.prefix)));
+                        block.push_str(&format!(
+                            "    netmask {}\n",
+                            Self::prefix_to_netmask(addr.prefix)
+                        ));
 
                         if let Some(ref gateway) = ipv4_cfg.gateway {
                             block.push_str(&format!("    gateway {}\n", gateway));
@@ -465,7 +522,12 @@ impl NetStatePlugin {
     }
 
     /// Replace a marked block in text content
-    fn replace_block(content: &str, begin_marker: &str, end_marker: &str, new_block: &str) -> String {
+    fn replace_block(
+        content: &str,
+        begin_marker: &str,
+        end_marker: &str,
+        new_block: &str,
+    ) -> String {
         if let Some(start) = content.find(begin_marker) {
             if let Some(end) = content[start..].find(end_marker) {
                 let end_idx = start + end + end_marker.len();
@@ -486,7 +548,6 @@ impl NetStatePlugin {
         result.push_str(new_block);
         result
     }
-
 }
 #[async_trait]
 impl StatePlugin for NetStatePlugin {
@@ -579,7 +640,10 @@ impl StatePlugin for NetStatePlugin {
                             changes_applied.push(format!("Applied OVS config for: {}", resource));
                         }
                         Err(e) => {
-                            errors.push(format!("Failed to apply OVS config for {}: {}", resource, e));
+                            errors.push(format!(
+                                "Failed to apply OVS config for {}: {}",
+                                resource, e
+                            ));
                         }
                     }
                 }
@@ -664,8 +728,6 @@ impl StatePlugin for NetStatePlugin {
             atomic_operations: true, // D-Bus operations are atomic
         }
     }
-
-
 }
 
 // impl Default for NetStatePlugin {

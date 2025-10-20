@@ -2,19 +2,24 @@
 //! Declarative system state management via native protocols
 
 mod blockchain;
+mod ml;
 mod native;
-mod state;
 mod nonnet_db;
+mod state;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, warn};
 use tokio::fs;
+use tracing::{info, warn};
 
 #[derive(Parser)]
-#[command(name = "op-dbus", version, about = "Declarative system state via native protocols")]
+#[command(
+    name = "op-dbus",
+    version,
+    about = "Declarative system state via native protocols"
+)]
 struct Cli {
     #[arg(short, long)]
     state_file: Option<PathBuf>,
@@ -38,12 +43,19 @@ enum Commands {
 fn init_logging() -> Result<()> {
     use tracing_subscriber::{fmt, EnvFilter};
     let filter = EnvFilter::from_default_env().add_directive("op_dbus=info".parse().unwrap());
-    let subscriber = fmt::Subscriber::builder().with_env_filter(filter).with_target(false).finish();
-    tracing::subscriber::set_global_default(subscriber).context("Failed to set tracing subscriber")?;
+    let subscriber = fmt::Subscriber::builder()
+        .with_env_filter(filter)
+        .with_target(false)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .context("Failed to set tracing subscriber")?;
     Ok(())
 }
 
-async fn apply_state_from_file(state_manager: &state::StateManager, state_file: &PathBuf) -> Result<()> {
+async fn apply_state_from_file(
+    state_manager: &state::StateManager,
+    state_file: &PathBuf,
+) -> Result<()> {
     info!("Loading desired state from: {}", state_file.display());
     let desired_state = state_manager.load_desired_state(state_file).await?;
     let report = state_manager.apply_state(desired_state).await?;
@@ -113,10 +125,12 @@ dhcp-authoritative
 async fn main() -> Result<()> {
     init_logging()?;
     let args = Cli::parse();
-    
+
     let mut sm = state::StateManager::new();
     // Initialize blockchain footprint streaming (best-effort)
-    if let Ok(blockchain) = crate::blockchain::StreamingBlockchain::new("/var/lib/op-dbus/blockchain").await {
+    if let Ok(blockchain) =
+        crate::blockchain::StreamingBlockchain::new("/var/lib/op-dbus/blockchain").await
+    {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         sm.set_blockchain_sender(tx);
         tokio::spawn(async move {
@@ -126,10 +140,18 @@ async fn main() -> Result<()> {
         info!("Blockchain storage not initialized; footprints disabled");
     }
     let state_manager = Arc::new(sm);
-    state_manager.register_plugin(Box::new(state::plugins::NetStatePlugin::new())).await;
-    state_manager.register_plugin(Box::new(state::plugins::SystemdStatePlugin::new())).await;
-    state_manager.register_plugin(Box::new(state::plugins::Login1Plugin::new())).await;
-    state_manager.register_plugin(Box::new(state::plugins::LxcPlugin::new())).await;
+    state_manager
+        .register_plugin(Box::new(state::plugins::NetStatePlugin::new()))
+        .await;
+    state_manager
+        .register_plugin(Box::new(state::plugins::SystemdStatePlugin::new()))
+        .await;
+    state_manager
+        .register_plugin(Box::new(state::plugins::Login1Plugin::new()))
+        .await;
+    state_manager
+        .register_plugin(Box::new(state::plugins::LxcPlugin::new()))
+        .await;
 
     // Start non-network JSON-RPC DB (unix socket) for plugin state, OVSDB-like, read-only
     {
@@ -140,7 +162,7 @@ async fn main() -> Result<()> {
             }
         });
     }
-    
+
     match args.command.unwrap_or(Commands::Run) {
         Commands::Run => {
             // Set up DHCP server if requested
@@ -148,7 +170,9 @@ async fn main() -> Result<()> {
                 setup_dhcp_server().await?;
             }
 
-            let state_file = args.state_file.unwrap_or_else(|| PathBuf::from("/etc/op-dbus/state.json"));
+            let state_file = args
+                .state_file
+                .unwrap_or_else(|| PathBuf::from("/etc/op-dbus/state.json"));
             if state_file.exists() {
                 apply_state_from_file(&state_manager, &state_file).await?;
             }
@@ -171,6 +195,5 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&diffs)?);
             Ok(())
         }
-        
     }
 }

@@ -6,7 +6,9 @@
 //! - No CLI; native OVSDB JSON-RPC and filesystem reads only.
 //! - Read-only for now (apply is a no-op). StateManager will still produce footprints on apply.
 
-use crate::state::plugin::{ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin};
+use crate::state::plugin::{
+    ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -33,18 +35,25 @@ pub struct ContainerInfo {
 pub struct LxcPlugin;
 
 impl LxcPlugin {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     fn is_running(ct_id: &str) -> Option<bool> {
         // Proxmox systemd service path: pve-container@{vmid}.service (cgroup v2)
-        let path = format!("/sys/fs/cgroup/system.slice/pve-container@{}.service", ct_id);
+        let path = format!(
+            "/sys/fs/cgroup/system.slice/pve-container@{}.service",
+            ct_id
+        );
         Some(fs::metadata(path).is_ok())
     }
 
     async fn discover_from_ovs(&self) -> Result<Vec<ContainerInfo>> {
         let client = crate::native::OvsdbClient::new();
         // If OVSDB is not reachable, return empty list
-        if client.list_dbs().await.is_err() { return Ok(Vec::new()); }
+        if client.list_dbs().await.is_err() {
+            return Ok(Vec::new());
+        }
 
         let mut results = Vec::new();
         let bridges = client.list_bridges().await.unwrap_or_default();
@@ -70,49 +79,35 @@ impl LxcPlugin {
     }
 }
 
-impl Default for LxcPlugin { fn default() -> Self { Self::new() } }
-
-#[async_trait]
-impl StatePlugin for LxcPlugin {
-    fn name(&self) -> &str { "lxc" }
-    fn version(&self) -> &str { "1.0.0" }
-
-    async fn query_current_state(&self) -> Result<Value> {
-        let containers = self.discover_from_ovs().await?;
-        Ok(serde_json::to_value(LxcState { containers })?)
+impl Default for LxcPlugin {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    async fn calculate_diff(&self, current: &Value, desired: &Value) -> Result<StateDiff> {
-        // For now, emit a single modify if different; once lifecycle is defined, compute granular actions.
-        let actions = if current != desired {
-            vec![StateAction::Modify { resource: "lxc".into(), changes: desired.clone() }]
-        } else { vec![] };
-        Ok(StateDiff {
-            plugin: self.name().to_string(),
-            actions,
-            metadata: DiffMetadata {
-                timestamp: chrono::Utc::now().timestamp(),
-                current_hash: format!("{:x}", md5::compute(serde_json::to_string(current)?)),
-                desired_hash: format!("{:x}", md5::compute(serde_json::to_string(desired)?)),
-            },
-        })
-    }
-
+impl LxcPlugin {
     /// Find container's veth interface name
     async fn find_container_veth(ct_id: &str) -> Result<String> {
         // Container network namespace path
-        let netns_path = format!("/run/netns/ct{}", ct_id);
+        let _netns_path = format!("/run/netns/ct{}", ct_id);
 
         // List all interfaces and find veth peer
         let output = tokio::process::Command::new("ip")
-            .args(&["netns", "exec", &format!("ct{}", ct_id), "ip", "link", "show"])
+            .args([
+                "netns",
+                "exec",
+                &format!("ct{}", ct_id),
+                "ip",
+                "link",
+                "show",
+            ])
             .output()
             .await?;
 
         if !output.status.success() {
             // Try alternative: check host for veth pairs
             let output = tokio::process::Command::new("ip")
-                .args(&["link", "show", "type", "veth"])
+                .args(["link", "show", "type", "veth"])
                 .output()
                 .await?;
 
@@ -120,13 +115,16 @@ impl StatePlugin for LxcPlugin {
             // Parse output to find veth matching container
             // Format: "vethXXX@if" - we want the host side
             for line in stdout.lines() {
-                if line.contains(&format!("@if")) && line.contains("veth") {
+                if line.contains("@if") && line.contains("veth") {
                     if let Some(name) = line.split(':').nth(1) {
                         return Ok(name.split('@').next().unwrap_or("").trim().to_string());
                     }
                 }
             }
-            return Err(anyhow::anyhow!("Could not find veth for container {}", ct_id));
+            return Err(anyhow::anyhow!(
+                "Could not find veth for container {}",
+                ct_id
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -138,20 +136,25 @@ impl StatePlugin for LxcPlugin {
             }
         }
 
-        Err(anyhow::anyhow!("Could not determine veth name for container {}", ct_id))
+        Err(anyhow::anyhow!(
+            "Could not determine veth name for container {}",
+            ct_id
+        ))
     }
 
     /// Determine bridge based on network type
     fn get_bridge_for_network_type(container: &ContainerInfo) -> String {
-        let network_type = container.properties
+        let network_type = container
+            .properties
             .as_ref()
             .and_then(|p| p.get("network_type"))
             .and_then(|v| v.as_str())
             .unwrap_or("bridge");
 
         match network_type {
-            "netmaker" => "mesh".to_string(),      // Netmaker mesh bridge
-            "bridge" | _ => container.bridge.clone(), // Traditional bridge (vmbr0)
+            "netmaker" => "mesh".to_string(),     // Netmaker mesh bridge
+            "bridge" => container.bridge.clone(), // Traditional bridge (vmbr0)
+            _ => container.bridge.clone(),
         }
     }
 
@@ -166,15 +169,20 @@ impl StatePlugin for LxcPlugin {
         // Use pct create (Proxmox Container Toolkit)
         // Basic template - user should customize via Proxmox UI or pct config
         let output = tokio::process::Command::new("pct")
-            .args(&[
+            .args([
                 "create",
                 &container.id,
                 "local:vztmpl/debian-11-standard_11.7-1_amd64.tar.zst",
-                "--hostname", &format!("ct{}", container.id),
-                "--memory", "512",
-                "--swap", "512",
-                "--net0", &format!("name=eth0,bridge={},firewall=1", bridge),
-                "--unprivileged", "1",
+                "--hostname",
+                &format!("ct{}", container.id),
+                "--memory",
+                "512",
+                "--swap",
+                "512",
+                "--net0",
+                &format!("name=eth0,bridge={},firewall=1", bridge),
+                "--unprivileged",
+                "1",
             ])
             .output()
             .await?;
@@ -184,14 +192,18 @@ impl StatePlugin for LxcPlugin {
             return Err(anyhow::anyhow!("pct create failed: {}", stderr));
         }
 
-        log::info!("Container {} created successfully on bridge {}", container.id, bridge);
+        log::info!(
+            "Container {} created successfully on bridge {}",
+            container.id,
+            bridge
+        );
         Ok(())
     }
 
     /// Start LXC container
     async fn start_container(ct_id: &str) -> Result<()> {
         let output = tokio::process::Command::new("pct")
-            .args(&["start", ct_id])
+            .args(["start", ct_id])
             .output()
             .await?;
 
@@ -202,6 +214,42 @@ impl StatePlugin for LxcPlugin {
 
         Ok(())
     }
+}
+
+#[async_trait]
+impl StatePlugin for LxcPlugin {
+    fn name(&self) -> &str {
+        "lxc"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+
+    async fn query_current_state(&self) -> Result<Value> {
+        let containers = self.discover_from_ovs().await?;
+        Ok(serde_json::to_value(LxcState { containers })?)
+    }
+
+    async fn calculate_diff(&self, current: &Value, desired: &Value) -> Result<StateDiff> {
+        // For now, emit a single modify if different; once lifecycle is defined, compute granular actions.
+        let actions = if current != desired {
+            vec![StateAction::Modify {
+                resource: "lxc".into(),
+                changes: desired.clone(),
+            }]
+        } else {
+            vec![]
+        };
+        Ok(StateDiff {
+            plugin: self.name().to_string(),
+            actions,
+            metadata: DiffMetadata {
+                timestamp: chrono::Utc::now().timestamp(),
+                current_hash: format!("{:x}", md5::compute(serde_json::to_string(current)?)),
+                desired_hash: format!("{:x}", md5::compute(serde_json::to_string(desired)?)),
+            },
+        })
+    }
 
     async fn apply_state(&self, diff: &StateDiff) -> Result<ApplyResult> {
         let mut changes_applied = Vec::new();
@@ -209,7 +257,10 @@ impl StatePlugin for LxcPlugin {
 
         for action in &diff.actions {
             match action {
-                StateAction::Create { resource, config } => {
+                StateAction::Create {
+                    resource: _,
+                    config,
+                } => {
                     let container: ContainerInfo = serde_json::from_value(config.clone())?;
 
                     // 1. Create LXC container
@@ -219,7 +270,10 @@ impl StatePlugin for LxcPlugin {
 
                             // 2. Start container to create veth interface
                             if let Err(e) = Self::start_container(&container.id).await {
-                                errors.push(format!("Failed to start container {}: {}", container.id, e));
+                                errors.push(format!(
+                                    "Failed to start container {}: {}",
+                                    container.id, e
+                                ));
                                 continue;
                             }
 
@@ -230,14 +284,26 @@ impl StatePlugin for LxcPlugin {
                             let veth_name = format!("vi{}", container.id);
                             match Self::find_container_veth(&container.id).await {
                                 Ok(old_veth) => {
-                                    log::info!("Found veth {} for container {}", old_veth, container.id);
+                                    log::info!(
+                                        "Found veth {} for container {}",
+                                        old_veth,
+                                        container.id
+                                    );
 
-                                    match crate::native::rtnetlink_helpers::link_set_name(&old_veth, &veth_name).await {
+                                    match crate::native::rtnetlink_helpers::link_set_name(
+                                        &old_veth, &veth_name,
+                                    )
+                                    .await
+                                    {
                                         Ok(_) => {
-                                            changes_applied.push(format!("Renamed {} to {}", old_veth, veth_name));
+                                            changes_applied.push(format!(
+                                                "Renamed {} to {}",
+                                                old_veth, veth_name
+                                            ));
 
                                             // 4. Network enrollment based on type
-                                            let network_type = container.properties
+                                            let network_type = container
+                                                .properties
                                                 .as_ref()
                                                 .and_then(|p| p.get("network_type"))
                                                 .and_then(|v| v.as_str())
@@ -247,23 +313,33 @@ impl StatePlugin for LxcPlugin {
                                                 "netmaker" => {
                                                     // Add to mesh (netmaker mesh bridge)
                                                     let client = crate::native::OvsdbClient::new();
-                                                    match client.add_port("mesh", &veth_name).await {
+                                                    match client.add_port("mesh", &veth_name).await
+                                                    {
                                                         Ok(_) => {
-                                                            log::info!("Container {} on mesh bridge", container.id);
+                                                            log::info!(
+                                                                "Container {} on mesh bridge",
+                                                                container.id
+                                                            );
                                                             changes_applied.push(format!(
                                                                 "Added {} to mesh (netmaker bridge)",
                                                                 veth_name
                                                             ));
                                                         }
                                                         Err(e) => {
-                                                            errors.push(format!("Failed to add {} to mesh: {}", veth_name, e));
+                                                            errors.push(format!(
+                                                                "Failed to add {} to mesh: {}",
+                                                                veth_name, e
+                                                            ));
                                                         }
                                                     }
                                                 }
-                                                "bridge" | _ => {
+                                                "bridge" => {
                                                     // Add to traditional bridge (vmbr0)
                                                     let client = crate::native::OvsdbClient::new();
-                                                    match client.add_port(&container.bridge, &veth_name).await {
+                                                    match client
+                                                        .add_port(&container.bridge, &veth_name)
+                                                        .await
+                                                    {
                                                         Ok(_) => {
                                                             changes_applied.push(format!(
                                                                 "Added {} to bridge {}",
@@ -271,7 +347,31 @@ impl StatePlugin for LxcPlugin {
                                                             ));
                                                         }
                                                         Err(e) => {
-                                                            errors.push(format!("Failed to add port to bridge: {}", e));
+                                                            errors.push(format!(
+                                                                "Failed to add port to bridge: {}",
+                                                                e
+                                                            ));
+                                                        }
+                                                    }
+                                                }
+                                                _ => {
+                                                    // Default to traditional bridge
+                                                    let client = crate::native::OvsdbClient::new();
+                                                    match client
+                                                        .add_port(&container.bridge, &veth_name)
+                                                        .await
+                                                    {
+                                                        Ok(_) => {
+                                                            changes_applied.push(format!(
+                                                                "Added {} to bridge {}",
+                                                                veth_name, container.bridge
+                                                            ));
+                                                        }
+                                                        Err(e) => {
+                                                            errors.push(format!(
+                                                                "Failed to add port to bridge: {}",
+                                                                e
+                                                            ));
                                                         }
                                                     }
                                                 }
@@ -283,25 +383,37 @@ impl StatePlugin for LxcPlugin {
                                     }
                                 }
                                 Err(e) => {
-                                    errors.push(format!("Failed to find veth for container {}: {}", container.id, e));
+                                    errors.push(format!(
+                                        "Failed to find veth for container {}: {}",
+                                        container.id, e
+                                    ));
                                 }
                             }
                         }
                         Err(e) => {
-                            errors.push(format!("Failed to create container {}: {}", container.id, e));
+                            errors.push(format!(
+                                "Failed to create container {}: {}",
+                                container.id, e
+                            ));
                         }
                     }
                 }
-                StateAction::Modify { resource, changes } => {
+                StateAction::Modify {
+                    resource,
+                    changes: _,
+                } => {
                     // Handle container state changes (start/stop)
-                    log::info!("Modify operation for container {} (not yet implemented)", resource);
+                    log::info!(
+                        "Modify operation for container {} (not yet implemented)",
+                        resource
+                    );
                     changes_applied.push(format!("Skipped modify for {}", resource));
                 }
                 StateAction::Delete { resource } => {
                     // Delete container
                     log::info!("Deleting container {}", resource);
                     let output = tokio::process::Command::new("pct")
-                        .args(&["destroy", resource])
+                        .args(["destroy", resource])
                         .output()
                         .await;
 
@@ -326,16 +438,30 @@ impl StatePlugin for LxcPlugin {
         })
     }
 
-    async fn verify_state(&self, _desired: &Value) -> Result<bool> { Ok(true) }
+    async fn verify_state(&self, _desired: &Value) -> Result<bool> {
+        Ok(true)
+    }
 
     async fn create_checkpoint(&self) -> Result<Checkpoint> {
-        Ok(Checkpoint { id: format!("lxc-{}", chrono::Utc::now().timestamp()), plugin: self.name().into(), timestamp: chrono::Utc::now().timestamp(), state_snapshot: json!({}), backend_checkpoint: None })
+        Ok(Checkpoint {
+            id: format!("lxc-{}", chrono::Utc::now().timestamp()),
+            plugin: self.name().into(),
+            timestamp: chrono::Utc::now().timestamp(),
+            state_snapshot: json!({}),
+            backend_checkpoint: None,
+        })
     }
 
-    async fn rollback(&self, _checkpoint: &Checkpoint) -> Result<()> { Ok(()) }
+    async fn rollback(&self, _checkpoint: &Checkpoint) -> Result<()> {
+        Ok(())
+    }
 
     fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities { supports_rollback: false, supports_checkpoints: false, supports_verification: false, atomic_operations: false }
+        PluginCapabilities {
+            supports_rollback: false,
+            supports_checkpoints: false,
+            supports_verification: false,
+            atomic_operations: false,
+        }
     }
 }
-

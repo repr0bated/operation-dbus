@@ -165,7 +165,9 @@ impl SystemdStatePlugin {
         // Apply active state
         if let Some(ref desired_state) = config.active_state {
             let current = self.query_unit(unit_name).await?;
-            let current_state = current.active_state.unwrap_or_else(|| "unknown".to_string());
+            let current_state = current
+                .active_state
+                .unwrap_or_else(|| "unknown".to_string());
 
             if desired_state == "active" && current_state != "active" {
                 self.start_unit(unit_name).await?;
@@ -220,10 +222,7 @@ impl StatePlugin for SystemdStatePlugin {
 
         if let Some(desired_units) = &desired_config.units {
             for (unit_name, desired_unit) in desired_units {
-                let current_unit = current_config
-                    .units
-                    .as_ref()
-                    .and_then(|u| u.get(unit_name));
+                let current_unit = current_config.units.as_ref().and_then(|u| u.get(unit_name));
 
                 if current_unit != Some(desired_unit) {
                     actions.push(StateAction::Modify {
@@ -256,7 +255,8 @@ impl StatePlugin for SystemdStatePlugin {
 
                     match self.apply_unit_config(resource, &unit_config).await {
                         Ok(_) => {
-                            changes_applied.push(format!("Applied systemd config for: {}", resource));
+                            changes_applied
+                                .push(format!("Applied systemd config for: {}", resource));
                         }
                         Err(e) => {
                             errors.push(format!("Failed to apply config for {}: {}", resource, e));

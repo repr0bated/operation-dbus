@@ -1,12 +1,14 @@
 //! login1 plugin - read-only D-Bus snapshot for sessions/seats
 
-use crate::state::plugin::{ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin};
+use crate::state::plugin::{
+    ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use zbus::{Connection, Proxy};
 use zbus::zvariant::OwnedObjectPath;
+use zbus::{Connection, Proxy};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Login1State {
@@ -25,7 +27,9 @@ pub struct SessionInfo {
 pub struct Login1Plugin;
 
 impl Login1Plugin {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     async fn connect_manager(&self) -> Result<Proxy<'static>> {
         let conn = Connection::system().await?;
@@ -34,32 +38,54 @@ impl Login1Plugin {
             "org.freedesktop.login1",
             "/org/freedesktop/login1",
             "org.freedesktop.login1.Manager",
-        ).await?;
+        )
+        .await?;
         Ok(p)
     }
 }
 
-impl Default for Login1Plugin { fn default() -> Self { Self::new() } }
+impl Default for Login1Plugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait]
 impl StatePlugin for Login1Plugin {
-    fn name(&self) -> &str { "login1" }
-    fn version(&self) -> &str { "1.0.0" }
+    fn name(&self) -> &str {
+        "login1"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
 
     async fn query_current_state(&self) -> Result<Value> {
         let proxy = self.connect_manager().await?;
         // ListSessions -> a(sssso) per docs: (s, u, s, s, o)
-        let raw: Vec<(String, u32, String, String, OwnedObjectPath)> = proxy.call("ListSessions", &()).await?;
-        let sessions: Vec<SessionInfo> = raw.into_iter().map(|(id, uid, user, seat, path)| SessionInfo {
-            id, uid, user, seat, path: path.to_string()
-        }).collect();
+        let raw: Vec<(String, u32, String, String, OwnedObjectPath)> =
+            proxy.call("ListSessions", &()).await?;
+        let sessions: Vec<SessionInfo> = raw
+            .into_iter()
+            .map(|(id, uid, user, seat, path)| SessionInfo {
+                id,
+                uid,
+                user,
+                seat,
+                path: path.to_string(),
+            })
+            .collect();
         Ok(serde_json::to_value(Login1State { sessions })?)
     }
 
     async fn calculate_diff(&self, current: &Value, desired: &Value) -> Result<StateDiff> {
         let actions = if current != desired {
-            vec![StateAction::Modify { resource: "login1".into(), changes: desired.clone() }]
-        } else { vec![] };
+            vec![StateAction::Modify {
+                resource: "login1".into(),
+                changes: desired.clone(),
+            }]
+        } else {
+            vec![]
+        };
         Ok(StateDiff {
             plugin: self.name().to_string(),
             actions,
@@ -72,19 +98,38 @@ impl StatePlugin for Login1Plugin {
     }
 
     async fn apply_state(&self, _diff: &StateDiff) -> Result<ApplyResult> {
-        Ok(ApplyResult { success: true, changes_applied: vec!["read-only".into()], errors: vec![], checkpoint: None })
+        Ok(ApplyResult {
+            success: true,
+            changes_applied: vec!["read-only".into()],
+            errors: vec![],
+            checkpoint: None,
+        })
     }
 
-    async fn verify_state(&self, _desired: &Value) -> Result<bool> { Ok(true) }
+    async fn verify_state(&self, _desired: &Value) -> Result<bool> {
+        Ok(true)
+    }
 
     async fn create_checkpoint(&self) -> Result<Checkpoint> {
-        Ok(Checkpoint { id: format!("login1-{}", chrono::Utc::now().timestamp()), plugin: self.name().into(), timestamp: chrono::Utc::now().timestamp(), state_snapshot: json!({}), backend_checkpoint: None })
+        Ok(Checkpoint {
+            id: format!("login1-{}", chrono::Utc::now().timestamp()),
+            plugin: self.name().into(),
+            timestamp: chrono::Utc::now().timestamp(),
+            state_snapshot: json!({}),
+            backend_checkpoint: None,
+        })
     }
 
-    async fn rollback(&self, _checkpoint: &Checkpoint) -> Result<()> { Ok(()) }
+    async fn rollback(&self, _checkpoint: &Checkpoint) -> Result<()> {
+        Ok(())
+    }
 
     fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities { supports_rollback: false, supports_checkpoints: false, supports_verification: false, atomic_operations: false }
+        PluginCapabilities {
+            supports_rollback: false,
+            supports_checkpoints: false,
+            supports_verification: false,
+            atomic_operations: false,
+        }
     }
 }
-

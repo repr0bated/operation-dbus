@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use futures::TryStreamExt;
 use netlink_packet_route::address::AddressAttribute;
 use netlink_packet_route::route::RouteAttribute;
-use serde_json::json;
 use rtnetlink::{new_connection, Handle, IpVersion};
+use serde_json::json;
 use std::net::{IpAddr, Ipv4Addr};
 
 /// Add IPv4 address to interface
@@ -54,7 +54,11 @@ pub async fn del_ipv4_address(ifname: &str, ip: &str, prefix: u8) -> Result<()> 
     let addr: Ipv4Addr = ip.parse().context("Invalid IPv4 address")?;
 
     // Get addresses to find the exact one to delete
-    let mut addresses = handle.address().get().set_link_index_filter(ifindex).execute();
+    let mut addresses = handle
+        .address()
+        .get()
+        .set_link_index_filter(ifindex)
+        .execute();
 
     while let Some(addr_msg) = addresses.try_next().await? {
         if addr_msg.header.prefix_len == prefix {
@@ -95,7 +99,11 @@ pub async fn flush_addresses(ifname: &str) -> Result<()> {
     let ifindex = link.header.index;
 
     // Get all addresses on this interface
-    let mut addresses = handle.address().get().set_link_index_filter(ifindex).execute();
+    let mut addresses = handle
+        .address()
+        .get()
+        .set_link_index_filter(ifindex)
+        .execute();
 
     while let Some(addr) = addresses.try_next().await? {
         // Delete this address
@@ -258,7 +266,11 @@ pub async fn link_set_name(old_name: &str, new_name: &str) -> Result<()> {
     tokio::spawn(connection);
 
     // Find interface by current name
-    let mut links = handle.link().get().match_name(old_name.to_string()).execute();
+    let mut links = handle
+        .link()
+        .get()
+        .match_name(old_name.to_string())
+        .execute();
     let link = links
         .try_next()
         .await?
@@ -287,7 +299,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_list_routes_for_loopback() {
         let res = list_routes_for_interface("lo").await;
-        assert!(res.is_ok(), "expected Ok from list_routes_for_interface: {:?}", res);
+        assert!(
+            res.is_ok(),
+            "expected Ok from list_routes_for_interface: {:?}",
+            res
+        );
         let routes = res.unwrap();
         // No strict expectation on content; presence/empty is both fine.
         println!("routes on lo: {:?}", routes);

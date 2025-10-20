@@ -7,13 +7,13 @@
 //! 3. Creates snapshots for each block
 //! 4. Streams vector data to remote vector databases via btrfs send/receive
 
+use crate::blockchain::PluginFootprint;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
-use tracing::{debug, info, warn};
-use crate::blockchain::PluginFootprint;
 use tokio::time::{sleep, Duration};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlockEvent {
@@ -56,7 +56,7 @@ impl StreamingBlockchain {
                 .output()
                 .await
                 .context("Failed to execute btrfs command")?;
-            
+
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 anyhow::bail!("btrfs subvolume create failed: {}", stderr);
@@ -117,14 +117,14 @@ impl StreamingBlockchain {
         mut receiver: tokio::sync::mpsc::UnboundedReceiver<PluginFootprint>,
     ) -> Result<()> {
         info!("Starting plugin footprint receiver");
-        
+
         while let Some(footprint) = receiver.recv().await {
             if let Err(e) = self.add_footprint(footprint).await {
                 tracing::error!("Failed to add plugin footprint: {}", e);
                 // Continue processing other footprints instead of failing completely
             }
         }
-        
+
         info!("Plugin footprint receiver shutting down");
         Ok(())
     }
@@ -156,10 +156,13 @@ impl StreamingBlockchain {
     }
 
     pub async fn stream_vectors(&self, block_hash: &str, remote: &str) -> Result<()> {
-        let vector_snapshot = self.base_path.join("snapshots").join(format!("vectors-{}", block_hash));
-        
+        let vector_snapshot = self
+            .base_path
+            .join("snapshots")
+            .join(format!("vectors-{}", block_hash));
+
         info!("Streaming vectors for block {} to {}", block_hash, remote);
-        
+
         let output = Command::new("bash")
             .arg("-c")
             .arg(format!(
@@ -179,21 +182,27 @@ impl StreamingBlockchain {
     }
 
     pub async fn stream_to_replicas(&self, block_hash: &str, replicas: &[String]) -> Result<()> {
-        let vector_snapshot = self.base_path.join("snapshots").join(format!("vectors-{}", block_hash));
-        
+        let vector_snapshot = self
+            .base_path
+            .join("snapshots")
+            .join(format!("vectors-{}", block_hash));
+
         let mut tee_args = Vec::new();
         for replica in replicas {
-            tee_args.push(format!(">(ssh {} 'btrfs receive /var/lib/blockchain/vectors/')", replica));
+            tee_args.push(format!(
+                ">(ssh {} 'btrfs receive /var/lib/blockchain/vectors/')",
+                replica
+            ));
         }
-        
+
         let cmd = format!(
             "btrfs send {} | tee {} > /dev/null",
             vector_snapshot.display(),
             tee_args.join(" ")
         );
-        
+
         info!("Streaming to {} replicas", replicas.len());
-        
+
         let output = Command::new("bash")
             .arg("-c")
             .arg(&cmd)
@@ -202,7 +211,10 @@ impl StreamingBlockchain {
             .context("Failed to stream to replicas")?;
 
         if !output.status.success() {
-            anyhow::bail!("Multi-replica stream failed: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Multi-replica stream failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
 
         Ok(())

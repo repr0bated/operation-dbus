@@ -3,8 +3,8 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginFootprint {
@@ -23,24 +23,24 @@ impl PluginFootprint {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         let data_str = serde_json::to_string(&metadata).unwrap_or_default();
         let mut hasher = Sha256::new();
         hasher.update(data_str.as_bytes());
         let data_hash = format!("{:x}", hasher.finalize());
-        
+
         let content = format!("{}:{}:{}", plugin_id, operation, timestamp);
         let mut content_hasher = Sha256::new();
         content_hasher.update(content.as_bytes());
         let content_hash = format!("{:x}", content_hasher.finalize());
-        
+
         let mut metadata_map = HashMap::new();
         if let serde_json::Value::Object(obj) = metadata {
             for (k, v) in obj {
                 metadata_map.insert(k, v);
             }
         }
-        
+
         Self {
             plugin_id,
             operation,
@@ -77,16 +77,19 @@ impl FootprintGenerator {
             .as_secs();
 
         // Hash the data content
-        let data_str = serde_json::to_string(data)
-            .context("Failed to serialize data for hashing")?;
+        let data_str =
+            serde_json::to_string(data).context("Failed to serialize data for hashing")?;
         let data_hash = format!("{:x}", Sha256::digest(data_str.as_bytes()));
 
         // Hash the entire operation context
-        let context = format!("{}:{}:{}:{}", self.plugin_id, operation, timestamp, data_hash);
+        let context = format!(
+            "{}:{}:{}:{}",
+            self.plugin_id, operation, timestamp, data_hash
+        );
         let content_hash = format!("{:x}", Sha256::digest(context.as_bytes()));
 
         // Generate vector features for blockchain
-        let vector_features = self.generate_vector_features(operation, data, &metadata);
+        let vector_features = self.generate_vector_features(operation, data, &metadata)?;
 
         Ok(PluginFootprint {
             plugin_id: self.plugin_id.clone(),
@@ -105,7 +108,99 @@ impl FootprintGenerator {
         operation: &str,
         data: &serde_json::Value,
         metadata: &Option<HashMap<String, serde_json::Value>>,
-    ) -> Vec<f32> {
+    ) -> Result<Vec<f32>> {
+        // Check vectorization level
+        let model_manager = crate::ml::ModelManager::global();
+
+        if model_manager.is_enabled() {
+            // Use transformer-based vectorization
+            return self.generate_transformer_features(operation, data, metadata);
+        }
+
+        // Fall back to heuristic vectorization
+        self.generate_heuristic_features(operation, data, metadata)
+    }
+
+    /// Generate transformer-based vector features
+    fn generate_transformer_features(
+        &self,
+        operation: &str,
+        data: &serde_json::Value,
+        metadata: &Option<HashMap<String, serde_json::Value>>,
+    ) -> Result<Vec<f32>> {
+        // Prepare text for embedding
+        let text = self.prepare_text_for_embedding(operation, data, metadata);
+
+        // Get model manager and embed
+        let model_manager = crate::ml::ModelManager::global();
+
+        match model_manager.embed(&text) {
+            Ok(vector) => Ok(vector),
+            Err(e) => {
+                log::warn!(
+                    "Transformer embedding failed: {}, falling back to heuristic",
+                    e
+                );
+                // Fall back to heuristic if transformer fails
+                self.generate_heuristic_features(operation, data, metadata)
+            }
+        }
+    }
+
+    /// Prepare text from footprint data for embedding
+    fn prepare_text_for_embedding(
+        &self,
+        operation: &str,
+        data: &serde_json::Value,
+        metadata: &Option<HashMap<String, serde_json::Value>>,
+    ) -> String {
+        let mut parts = Vec::new();
+
+        // Add plugin and operation context
+        parts.push(format!("plugin: {}", self.plugin_id));
+        parts.push(format!("operation: {}", operation));
+
+        // Add data summary
+        match data {
+            serde_json::Value::Object(obj) => {
+                for (key, value) in obj {
+                    let value_str = match value {
+                        serde_json::Value::String(s) => s.clone(),
+                        _ => value.to_string(),
+                    };
+                    parts.push(format!("{}: {}", key, value_str));
+                }
+            }
+            serde_json::Value::String(s) => {
+                parts.push(format!("data: {}", s));
+            }
+            _ => {
+                parts.push(format!("data: {}", data.to_string()));
+            }
+        }
+
+        // Add metadata
+        if let Some(meta) = metadata {
+            for (key, value) in meta {
+                let value_str = match value {
+                    serde_json::Value::String(s) => s.clone(),
+                    _ => value.to_string(),
+                };
+                parts.push(format!("meta.{}: {}", key, value_str));
+            }
+        }
+
+        // Join all parts with newlines
+        parts.join("\n")
+    }
+
+    /// Generate heuristic-based features (original method, now extracted)
+    fn generate_heuristic_features(
+        &self,
+        operation: &str,
+        data: &serde_json::Value,
+        metadata: &Option<HashMap<String, serde_json::Value>>,
+    ) -> Result<Vec<f32>> {
         let mut features = Vec::with_capacity(64);
 
         // Plugin ID hash feature
@@ -126,19 +221,18 @@ impl FootprintGenerator {
             serde_json::Value::Object(obj) => {
                 features.push(1.0); // is_object
                 features.push(obj.len() as f32 / 100.0); // normalized size
-                
+
                 // Key diversity (unique first chars)
-                let unique_chars: std::collections::HashSet<char> = obj.keys()
-                    .filter_map(|k| k.chars().next())
-                    .collect();
+                let unique_chars: std::collections::HashSet<char> =
+                    obj.keys().filter_map(|k| k.chars().next()).collect();
                 features.push(unique_chars.len() as f32 / 26.0);
-                
+
                 // Value type distribution
                 let mut string_count = 0;
                 let mut number_count = 0;
                 let mut bool_count = 0;
                 let mut null_count = 0;
-                
+
                 for value in obj.values() {
                     match value {
                         serde_json::Value::String(_) => string_count += 1,
@@ -148,7 +242,7 @@ impl FootprintGenerator {
                         _ => {}
                     }
                 }
-                
+
                 let total = obj.len() as f32;
                 features.push(string_count as f32 / total);
                 features.push(number_count as f32 / total);
@@ -174,7 +268,7 @@ impl FootprintGenerator {
         // Metadata features
         if let Some(meta) = metadata {
             features.push(meta.len() as f32 / 50.0);
-            
+
             // Common metadata keys
             let common_keys = ["user", "host", "process", "version", "source"];
             for key in &common_keys {
@@ -192,11 +286,12 @@ impl FootprintGenerator {
 
         // Pad to fixed size
         features.resize(64, 0.0);
-        features
+        Ok(features)
     }
 
     fn hash_string(&self, s: &str) -> u32 {
-        s.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
+        s.bytes()
+            .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
     }
 
     fn get_current_timestamp(&self) -> u64 {
@@ -210,7 +305,7 @@ impl FootprintGenerator {
 /// Plugin trait with footprint mechanism
 pub trait FootprintPlugin {
     fn plugin_id(&self) -> &str;
-    
+
     /// Create footprint and send to blockchain
     fn create_and_record_footprint(
         &self,
@@ -220,13 +315,13 @@ pub trait FootprintPlugin {
     ) -> Result<PluginFootprint> {
         let generator = FootprintGenerator::new(self.plugin_id());
         let footprint = generator.create_footprint(operation, data, metadata)?;
-        
+
         // Send to blockchain for vectorization
         self.send_to_blockchain(&footprint)?;
-        
+
         Ok(footprint)
     }
-    
+
     /// Send footprint to blockchain (implemented by each plugin)
     fn send_to_blockchain(&self, footprint: &PluginFootprint) -> Result<()>;
 }
@@ -245,12 +340,24 @@ impl NetworkPlugin {
         }
     }
 
-    pub async fn interface_created(&self, interface: &str, config: serde_json::Value) -> Result<()> {
+    pub async fn interface_created(
+        &self,
+        interface: &str,
+        config: serde_json::Value,
+    ) -> Result<()> {
         let mut metadata = HashMap::new();
-        metadata.insert("interface".to_string(), serde_json::Value::String(interface.to_string()));
-        metadata.insert("host".to_string(), serde_json::Value::String(gethostname::gethostname().to_string_lossy().to_string()));
-        
-        let footprint = self.footprint_gen.create_footprint("create", &config, Some(metadata))?;
+        metadata.insert(
+            "interface".to_string(),
+            serde_json::Value::String(interface.to_string()),
+        );
+        metadata.insert(
+            "host".to_string(),
+            serde_json::Value::String(gethostname::gethostname().to_string_lossy().to_string()),
+        );
+
+        let footprint = self
+            .footprint_gen
+            .create_footprint("create", &config, Some(metadata))?;
         self.blockchain_sender.send(footprint)?;
         Ok(())
     }
@@ -281,7 +388,7 @@ mod tests {
         });
 
         let footprint = generator.create_footprint("create", &data, None).unwrap();
-        
+
         assert_eq!(footprint.plugin_id, "test_plugin");
         assert_eq!(footprint.operation, "create");
         assert!(!footprint.data_hash.is_empty());
@@ -293,15 +400,15 @@ mod tests {
     fn test_vector_features() {
         let generator = FootprintGenerator::new("test");
         let data = serde_json::json!({"key": "value"});
-        
+
         let footprint = generator.create_footprint("create", &data, None).unwrap();
-        
+
         // Should have create operation features
         assert_eq!(footprint.vector_features[1], 1.0); // create = [1,0,0,0]
         assert_eq!(footprint.vector_features[2], 0.0);
         assert_eq!(footprint.vector_features[3], 0.0);
         assert_eq!(footprint.vector_features[4], 0.0);
-        
+
         // Should have object features
         assert_eq!(footprint.vector_features[5], 1.0); // is_object
     }

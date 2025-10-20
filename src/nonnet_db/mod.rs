@@ -15,8 +15,12 @@ use crate::state::StateManager;
 
 pub async fn run_unix_jsonrpc(state: Arc<StateManager>, socket_path: &str) -> Result<()> {
     let p = Path::new(socket_path);
-    if let Some(dir) = p.parent() { fs::create_dir_all(dir).await.ok(); }
-    if p.exists() { let _ = fs::remove_file(p).await; }
+    if let Some(dir) = p.parent() {
+        fs::create_dir_all(dir).await.ok();
+    }
+    if p.exists() {
+        let _ = fs::remove_file(p).await;
+    }
 
     let listener = UnixListener::bind(p).context("bind nonnet DB socket")?;
     loop {
@@ -34,7 +38,9 @@ async fn handle_connection(state: Arc<StateManager>, stream: UnixStream) -> Resu
     let mut line = String::new();
     while reader.read_line(&mut line).await? > 0 {
         let response = match serde_json::from_str::<Value>(&line) {
-            Ok(req) => handle_request(&state, req).await.unwrap_or_else(|e| json!({"error": e.to_string()})),
+            Ok(req) => handle_request(&state, req)
+                .await
+                .unwrap_or_else(|e| json!({"error": e.to_string()})),
             Err(e) => json!({"error": format!("invalid json: {}", e)}),
         };
         let s = serde_json::to_string(&response)?;
@@ -62,7 +68,9 @@ async fn handle_request(state: &Arc<StateManager>, req: Value) -> Result<Value> 
             // params: [db, ops]
             let db = params.get(0).and_then(|v| v.as_str()).unwrap_or("OpNonNet");
             let ops = params.get(1).cloned().unwrap_or(json!([]));
-            if db != "OpNonNet" { json!([{ "error": "unknown db" }]) } else {
+            if db != "OpNonNet" {
+                json!([{ "error": "unknown db" }])
+            } else {
                 handle_transact_select(state, ops).await?
             }
         }
@@ -75,7 +83,9 @@ async fn handle_request(state: &Arc<StateManager>, req: Value) -> Result<Value> 
 fn build_tables_schema(plugins: &HashMap<String, Value>) -> Value {
     let mut tables = serde_json::Map::new();
     for (name, val) in plugins {
-        if name == "net" { continue; }
+        if name == "net" {
+            continue;
+        }
         let columns = infer_columns(val);
         tables.insert(name.clone(), json!({"columns": columns}));
     }
@@ -113,7 +123,10 @@ async fn handle_transact_select(state: &Arc<StateManager>, ops: Value) -> Result
     if let Some(arr) = ops.as_array() {
         for op in arr {
             let table = op.get("table").and_then(|v| v.as_str()).unwrap_or("");
-            if table == "net" { out.push(json!({"rows": []})); continue; }
+            if table == "net" {
+                out.push(json!({"rows": []}));
+                continue;
+            }
             let val = plugins.get(table).cloned().unwrap_or(json!(null));
             let rows = rows_from_plugin_value(&val);
             out.push(json!({"rows": rows}));
@@ -127,7 +140,9 @@ fn rows_from_plugin_value(val: &Value) -> Value {
     match val {
         Value::Object(map) => {
             // find first array member
-            if let Some((k, Value::Array(arr))) = map.iter().find(|(_, v)| matches!(v, Value::Array(_))) {
+            if let Some((k, Value::Array(arr))) =
+                map.iter().find(|(_, v)| matches!(v, Value::Array(_)))
+            {
                 let rows: Vec<Value> = arr.clone();
                 Value::Array(rows)
             } else {
@@ -138,4 +153,3 @@ fn rows_from_plugin_value(val: &Value) -> Value {
         _ => Value::Array(vec![val.clone()]),
     }
 }
-
