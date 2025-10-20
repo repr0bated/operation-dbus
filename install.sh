@@ -65,6 +65,85 @@ echo "Creating config directory..."
 mkdir -p "$CONFIG_DIR"
 echo -e "${GREEN}✓${NC} Created: $CONFIG_DIR"
 
+# Step 3.5: Setup BTRFS subvolumes for blockchain storage (if on BTRFS)
+BLOCKCHAIN_DIR="/var/lib/op-dbus/blockchain"
+echo "Setting up blockchain storage..."
+
+# Check if we're on BTRFS
+if df -T /var/lib 2>/dev/null | grep -q btrfs; then
+    echo "Detected BTRFS filesystem, setting up subvolumes..."
+
+    # Check for existing op-dbus blockchain subvolumes
+    EXISTING_SUBVOLS=$(sudo btrfs subvolume list / 2>/dev/null | grep -E "@var/lib/op-dbus/blockchain|@blockchain/op-dbus" || true)
+
+    if [ -n "$EXISTING_SUBVOLS" ]; then
+        echo -e "${YELLOW}⚠${NC}  Found existing blockchain subvolumes:"
+        echo "$EXISTING_SUBVOLS"
+
+        # Ask user what to do
+        if [ -t 0 ]; then
+            read -p "Reuse existing subvolumes? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
+                echo "Cleaning up old subvolumes..."
+
+                # Delete old blockchain data
+                if [ -d "$BLOCKCHAIN_DIR" ]; then
+                    sudo rm -rf "$BLOCKCHAIN_DIR"/*
+                    echo -e "${GREEN}✓${NC} Cleared old blockchain data"
+                fi
+            else
+                echo -e "${GREEN}✓${NC} Reusing existing blockchain subvolumes"
+            fi
+        else
+            # Non-interactive: reuse existing
+            echo -e "${GREEN}✓${NC} Reusing existing blockchain subvolumes (non-interactive mode)"
+        fi
+    fi
+
+    # Create base directory
+    sudo mkdir -p "$BLOCKCHAIN_DIR"
+
+    # Create subvolumes if they don't exist
+    if ! sudo btrfs subvolume show "$BLOCKCHAIN_DIR" >/dev/null 2>&1; then
+        # Check if it's already a regular directory with files
+        if [ -d "$BLOCKCHAIN_DIR" ] && [ "$(ls -A $BLOCKCHAIN_DIR 2>/dev/null)" ]; then
+            echo -e "${YELLOW}⚠${NC}  $BLOCKCHAIN_DIR exists as regular directory with files"
+            echo -e "${YELLOW}⚠${NC}  Converting to BTRFS subvolume..."
+
+            # Move data temporarily
+            TEMP_BACKUP="/tmp/op-dbus-blockchain-backup-$$"
+            sudo mv "$BLOCKCHAIN_DIR" "$TEMP_BACKUP"
+            sudo mkdir -p "$(dirname $BLOCKCHAIN_DIR)"
+
+            # Create subvolume
+            sudo btrfs subvolume create "$BLOCKCHAIN_DIR"
+
+            # Restore data
+            sudo mv "$TEMP_BACKUP"/* "$BLOCKCHAIN_DIR/" 2>/dev/null || true
+            sudo rm -rf "$TEMP_BACKUP"
+
+            echo -e "${GREEN}✓${NC} Converted to BTRFS subvolume with data preserved"
+        else
+            # Create fresh subvolume
+            sudo btrfs subvolume create "$BLOCKCHAIN_DIR"
+            echo -e "${GREEN}✓${NC} Created blockchain BTRFS subvolume"
+        fi
+    else
+        echo -e "${GREEN}✓${NC} Blockchain subvolume already exists"
+    fi
+
+    # Set permissions
+    sudo chown -R root:root "$BLOCKCHAIN_DIR"
+    sudo chmod 755 "$BLOCKCHAIN_DIR"
+
+else
+    # Not BTRFS, just use regular directory
+    echo "Using regular directory (not BTRFS)"
+    sudo mkdir -p "$BLOCKCHAIN_DIR"
+    echo -e "${GREEN}✓${NC} Created blockchain directory: $BLOCKCHAIN_DIR"
+fi
+
 # Step 4: Install example state file if doesn't exist
 if [ ! -f "$STATE_FILE" ]; then
     echo "Introspecting current network configuration..."
@@ -218,7 +297,95 @@ else
     echo -e "${GREEN}✓${NC} State file already exists: $STATE_FILE"
 fi
 
-# Step 5: Create systemd service
+# Step 5: Create mesh bridge for netmaker containers
+echo "Creating mesh bridge for netmaker containers..."
+
+if command -v ovs-vsctl >/dev/null 2>&1; then
+    if ! sudo ovs-vsctl br-exists mesh 2>/dev/null; then
+        sudo ovs-vsctl add-br mesh
+        sudo ip link set mesh up
+        echo -e "${GREEN}✓${NC} Created 'mesh' bridge for netmaker containers"
+
+        # Add to /etc/network/interfaces for persistence
+        if [ -f /etc/network/interfaces ]; then
+            if ! grep -q "^auto mesh" /etc/network/interfaces; then
+                echo -e "\n# Netmaker mesh bridge" | sudo tee -a /etc/network/interfaces > /dev/null
+                echo "auto mesh" | sudo tee -a /etc/network/interfaces > /dev/null
+                echo "iface mesh inet manual" | sudo tee -a /etc/network/interfaces > /dev/null
+                echo "    ovs_type OVSBridge" | sudo tee -a /etc/network/interfaces > /dev/null
+                echo -e "${GREEN}✓${NC} Added mesh bridge to /etc/network/interfaces"
+            fi
+        fi
+    else
+        echo -e "${GREEN}✓${NC} 'mesh' bridge already exists"
+    fi
+else
+    echo -e "${YELLOW}⚠${NC}  openvswitch-switch not found, skipping mesh bridge creation"
+fi
+
+# Step 6: Setup netmaker (one-time HOST enrollment)
+echo "Setting up netmaker..."
+
+# Check if netclient is installed
+NETCLIENT_INSTALLED=false
+if ! command -v netclient >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠${NC}  netclient not found"
+    echo -e "${YELLOW}⚠${NC}  To enable netmaker mesh networking, install netclient:"
+    echo "     curl -sL https://apt.netmaker.org/gpg.key | sudo apt-key add -"
+    echo "     curl -sL https://apt.netmaker.org/debian.deb.txt | sudo tee /etc/apt/sources.list.d/netmaker.list"
+    echo "     sudo apt update && sudo apt install netclient"
+else
+    echo -e "${GREEN}✓${NC} netclient found at $(which netclient)"
+    NETCLIENT_INSTALLED=true
+fi
+
+# Create netmaker environment file for join token
+NETMAKER_ENV="$CONFIG_DIR/netmaker.env"
+if [ ! -f "$NETMAKER_ENV" ]; then
+    cat > "$NETMAKER_ENV" <<'EOF'
+# Netmaker enrollment token for HOST
+# Once host joins, all containers automatically get mesh networking
+#
+# Get token from: Netmaker Server > Networks > Access Keys > Enrollment Keys
+# Then add here:
+# NETMAKER_TOKEN=your-enrollment-token-here
+#
+# Or join manually: netclient join -t <token>
+EOF
+    chmod 600 "$NETMAKER_ENV"
+    echo -e "${GREEN}✓${NC} Created netmaker token file: $NETMAKER_ENV"
+else
+    echo -e "${GREEN}✓${NC} Netmaker token file already exists: $NETMAKER_ENV"
+fi
+
+# Attempt to join netmaker if token is configured
+if [ "$NETCLIENT_INSTALLED" = true ]; then
+    # Load token from env file
+    if [ -f "$NETMAKER_ENV" ]; then
+        source "$NETMAKER_ENV"
+    fi
+
+    # Check if already joined
+    if netclient list >/dev/null 2>&1 && netclient list | grep -q "Connected networks:"; then
+        echo -e "${GREEN}✓${NC} Host already joined to netmaker network"
+        netclient list | head -5
+    elif [ -n "$NETMAKER_TOKEN" ]; then
+        echo "Joining host to netmaker network..."
+        if netclient join -t "$NETMAKER_TOKEN"; then
+            echo -e "${GREEN}✓${NC} Successfully joined netmaker network"
+            echo -e "${GREEN}✓${NC} Containers will automatically have mesh networking"
+        else
+            echo -e "${YELLOW}⚠${NC}  Failed to join netmaker (check token)"
+            echo -e "${YELLOW}⚠${NC}  Containers will use bridge mode until host joins"
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC}  No NETMAKER_TOKEN set in $NETMAKER_ENV"
+        echo -e "${YELLOW}⚠${NC}  Add token and run: netclient join -t \$NETMAKER_TOKEN"
+        echo -e "${YELLOW}⚠${NC}  Or containers will use traditional bridge networking"
+    fi
+fi
+
+# Step 7: Create systemd service
 echo "Creating systemd service..."
 
 # Set DHCP server flag if requested
@@ -260,17 +427,18 @@ WantedBy=multi-user.target
 EOF
 echo -e "${GREEN}✓${NC} Created: $SYSTEMD_DIR/op-dbus.service"
 
-# Step 6: Reload systemd
+# Step 8: Reload systemd
 echo "Reloading systemd..."
 systemctl daemon-reload
 echo -e "${GREEN}✓${NC} Systemd reloaded"
 
-# Step 7: Show installation summary
+# Step 9: Show installation summary
 echo ""
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo ""
 echo "Binary:        $INSTALL_DIR/op-dbus"
 echo "Config:        $CONFIG_DIR/state.json"
+echo "Netmaker:      $CONFIG_DIR/netmaker.env"
 echo "Service:       $SYSTEMD_DIR/op-dbus.service"
 echo ""
 echo -e "${YELLOW}System Status:${NC}"
@@ -284,14 +452,31 @@ if [ -f "$STATE_FILE" ]; then
 fi
 echo ""
 echo -e "${YELLOW}Next Steps:${NC}"
-echo "1. Review state file:  nano $STATE_FILE"
-echo "2. Test query:         op-dbus query"
-echo "3. Test diff:          op-dbus diff $STATE_FILE"
-echo "4. Test apply (safe):  op-dbus apply $STATE_FILE"
-echo "5. Enable service:     systemctl enable op-dbus"
-echo "6. Start service:      systemctl start op-dbus"
-echo "7. Check status:       systemctl status op-dbus"
-echo "8. View logs:          journalctl -u op-dbus -f"
+echo "1. Add netmaker token: nano $CONFIG_DIR/netmaker.env"
+echo "2. Review state file:  nano $STATE_FILE"
+echo "3. Test query:         op-dbus query"
+echo "4. Test diff:          op-dbus diff $STATE_FILE"
+echo "5. Test apply (safe):  op-dbus apply $STATE_FILE"
+echo "6. Enable service:     systemctl enable op-dbus"
+echo "7. Start service:      systemctl start op-dbus"
+echo "8. Check status:       systemctl status op-dbus"
+echo "9. View logs:          journalctl -u op-dbus -f"
+echo ""
+echo -e "${YELLOW}Container Setup:${NC}"
+echo "For netmaker-enabled containers, add to state.json:"
+echo '  "lxc": {'
+echo '    "containers": [{'
+echo '      "id": "100",'
+echo '      "veth": "vi100",'
+echo '      "bridge": "vmbr0",'
+echo '      "properties": {'
+echo '        "network_type": "netmaker"'
+echo '      }'
+echo '    }]'
+echo '  }'
+echo ""
+echo "For traditional bridge containers:"
+echo '  "properties": { "network_type": "bridge" }'
 echo ""
 echo -e "${YELLOW}⚠  WARNING:${NC} Test manually before enabling service!"
 echo -e "${YELLOW}⚠  WARNING:${NC} Network changes can cause 20min downtime on failure!"

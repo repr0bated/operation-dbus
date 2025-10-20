@@ -295,16 +295,24 @@ impl NetStatePlugin {
         }
 
         // Add ports to bridge if specified via OVSDB JSON-RPC
+        // Skip netmaker interfaces (nm-*) - they are managed by netclient
         let uplink_port = if let Some(ref ports) = config.ports {
             let current_ports = client.list_bridge_ports(&config.name).await?;
             for port in ports {
+                // Skip netmaker/wireguard interfaces - netclient manages them
+                if port.starts_with("nm-") || port.starts_with("wg") {
+                    log::info!("Skipping netmaker interface {} (managed by netclient)", port);
+                    continue;
+                }
+
                 if !current_ports.contains(port) {
                     client.add_port(&config.name, port).await
                         .context(format!("Failed to add port {} to bridge {} via JSON-RPC", port, config.name))?;
                     log::info!("Added port {} to bridge {} via JSON-RPC", port, config.name);
                 }
             }
-            ports.first().map(|s| s.as_str())
+            // Return first non-netmaker port as uplink
+            ports.iter().find(|p| !p.starts_with("nm-") && !p.starts_with("wg")).map(|s| s.as_str())
         } else {
             None
         };

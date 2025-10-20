@@ -98,9 +98,232 @@ impl StatePlugin for LxcPlugin {
         })
     }
 
-    async fn apply_state(&self, _diff: &StateDiff) -> Result<ApplyResult> {
-        // Read-only placeholder; lifecycle ops (create/start/stop) can be added later using native APIs.
-        Ok(ApplyResult { success: true, changes_applied: vec!["read-only".into()], errors: vec![], checkpoint: None })
+    /// Find container's veth interface name
+    async fn find_container_veth(ct_id: &str) -> Result<String> {
+        // Container network namespace path
+        let netns_path = format!("/run/netns/ct{}", ct_id);
+
+        // List all interfaces and find veth peer
+        let output = tokio::process::Command::new("ip")
+            .args(&["netns", "exec", &format!("ct{}", ct_id), "ip", "link", "show"])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            // Try alternative: check host for veth pairs
+            let output = tokio::process::Command::new("ip")
+                .args(&["link", "show", "type", "veth"])
+                .output()
+                .await?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Parse output to find veth matching container
+            // Format: "vethXXX@if" - we want the host side
+            for line in stdout.lines() {
+                if line.contains(&format!("@if")) && line.contains("veth") {
+                    if let Some(name) = line.split(':').nth(1) {
+                        return Ok(name.split('@').next().unwrap_or("").trim().to_string());
+                    }
+                }
+            }
+            return Err(anyhow::anyhow!("Could not find veth for container {}", ct_id));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("eth0") {
+                // This is the container's eth0, find its host peer
+                // For now, assume naming pattern vethXXX
+                return Ok(format!("veth{}", ct_id));
+            }
+        }
+
+        Err(anyhow::anyhow!("Could not determine veth name for container {}", ct_id))
+    }
+
+    /// Determine bridge based on network type
+    fn get_bridge_for_network_type(container: &ContainerInfo) -> String {
+        let network_type = container.properties
+            .as_ref()
+            .and_then(|p| p.get("network_type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("bridge");
+
+        match network_type {
+            "netmaker" => "mesh".to_string(),      // Netmaker mesh bridge
+            "bridge" | _ => container.bridge.clone(), // Traditional bridge (vmbr0)
+        }
+    }
+
+    /// Create LXC container via pct (Proxmox)
+    async fn create_container(container: &ContainerInfo) -> Result<()> {
+        log::info!("Creating LXC container {}", container.id);
+
+        // Select bridge based on network type
+        let bridge = Self::get_bridge_for_network_type(container);
+        log::info!("Container {} will use bridge {}", container.id, bridge);
+
+        // Use pct create (Proxmox Container Toolkit)
+        // Basic template - user should customize via Proxmox UI or pct config
+        let output = tokio::process::Command::new("pct")
+            .args(&[
+                "create",
+                &container.id,
+                "local:vztmpl/debian-11-standard_11.7-1_amd64.tar.zst",
+                "--hostname", &format!("ct{}", container.id),
+                "--memory", "512",
+                "--swap", "512",
+                "--net0", &format!("name=eth0,bridge={},firewall=1", bridge),
+                "--unprivileged", "1",
+            ])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("pct create failed: {}", stderr));
+        }
+
+        log::info!("Container {} created successfully on bridge {}", container.id, bridge);
+        Ok(())
+    }
+
+    /// Start LXC container
+    async fn start_container(ct_id: &str) -> Result<()> {
+        let output = tokio::process::Command::new("pct")
+            .args(&["start", ct_id])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("pct start failed: {}", stderr));
+        }
+
+        Ok(())
+    }
+
+    async fn apply_state(&self, diff: &StateDiff) -> Result<ApplyResult> {
+        let mut changes_applied = Vec::new();
+        let mut errors = Vec::new();
+
+        for action in &diff.actions {
+            match action {
+                StateAction::Create { resource, config } => {
+                    let container: ContainerInfo = serde_json::from_value(config.clone())?;
+
+                    // 1. Create LXC container
+                    match Self::create_container(&container).await {
+                        Ok(_) => {
+                            changes_applied.push(format!("Created container {}", container.id));
+
+                            // 2. Start container to create veth interface
+                            if let Err(e) = Self::start_container(&container.id).await {
+                                errors.push(format!("Failed to start container {}: {}", container.id, e));
+                                continue;
+                            }
+
+                            // Wait for veth to appear
+                            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                            // 3. Find and rename veth
+                            let veth_name = format!("vi{}", container.id);
+                            match Self::find_container_veth(&container.id).await {
+                                Ok(old_veth) => {
+                                    log::info!("Found veth {} for container {}", old_veth, container.id);
+
+                                    match crate::native::rtnetlink_helpers::link_set_name(&old_veth, &veth_name).await {
+                                        Ok(_) => {
+                                            changes_applied.push(format!("Renamed {} to {}", old_veth, veth_name));
+
+                                            // 4. Network enrollment based on type
+                                            let network_type = container.properties
+                                                .as_ref()
+                                                .and_then(|p| p.get("network_type"))
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("bridge");
+
+                                            match network_type {
+                                                "netmaker" => {
+                                                    // Add to mesh (netmaker mesh bridge)
+                                                    let client = crate::native::OvsdbClient::new();
+                                                    match client.add_port("mesh", &veth_name).await {
+                                                        Ok(_) => {
+                                                            log::info!("Container {} on mesh bridge", container.id);
+                                                            changes_applied.push(format!(
+                                                                "Added {} to mesh (netmaker bridge)",
+                                                                veth_name
+                                                            ));
+                                                        }
+                                                        Err(e) => {
+                                                            errors.push(format!("Failed to add {} to mesh: {}", veth_name, e));
+                                                        }
+                                                    }
+                                                }
+                                                "bridge" | _ => {
+                                                    // Add to traditional bridge (vmbr0)
+                                                    let client = crate::native::OvsdbClient::new();
+                                                    match client.add_port(&container.bridge, &veth_name).await {
+                                                        Ok(_) => {
+                                                            changes_applied.push(format!(
+                                                                "Added {} to bridge {}",
+                                                                veth_name, container.bridge
+                                                            ));
+                                                        }
+                                                        Err(e) => {
+                                                            errors.push(format!("Failed to add port to bridge: {}", e));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            errors.push(format!("Failed to rename veth: {}", e));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    errors.push(format!("Failed to find veth for container {}: {}", container.id, e));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            errors.push(format!("Failed to create container {}: {}", container.id, e));
+                        }
+                    }
+                }
+                StateAction::Modify { resource, changes } => {
+                    // Handle container state changes (start/stop)
+                    log::info!("Modify operation for container {} (not yet implemented)", resource);
+                    changes_applied.push(format!("Skipped modify for {}", resource));
+                }
+                StateAction::Delete { resource } => {
+                    // Delete container
+                    log::info!("Deleting container {}", resource);
+                    let output = tokio::process::Command::new("pct")
+                        .args(&["destroy", resource])
+                        .output()
+                        .await;
+
+                    match output {
+                        Ok(out) if out.status.success() => {
+                            changes_applied.push(format!("Deleted container {}", resource));
+                        }
+                        _ => {
+                            errors.push(format!("Failed to delete container {}", resource));
+                        }
+                    }
+                }
+                StateAction::NoOp { .. } => {}
+            }
+        }
+
+        Ok(ApplyResult {
+            success: errors.is_empty(),
+            changes_applied,
+            errors,
+            checkpoint: None,
+        })
     }
 
     async fn verify_state(&self, _desired: &Value) -> Result<bool> { Ok(true) }

@@ -252,6 +252,32 @@ pub async fn list_routes_for_interface(ifname: &str) -> Result<Vec<serde_json::V
     Ok(results)
 }
 
+/// Rename network interface
+pub async fn link_set_name(old_name: &str, new_name: &str) -> Result<()> {
+    let (connection, handle, _) = new_connection()?;
+    tokio::spawn(connection);
+
+    // Find interface by current name
+    let mut links = handle.link().get().match_name(old_name.to_string()).execute();
+    let link = links
+        .try_next()
+        .await?
+        .context(format!("Interface '{}' not found", old_name))?;
+
+    let ifindex = link.header.index;
+
+    // Set new name
+    handle
+        .link()
+        .set(ifindex)
+        .name(new_name.to_string())
+        .execute()
+        .await
+        .context(format!("Failed to rename {} to {}", old_name, new_name))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
