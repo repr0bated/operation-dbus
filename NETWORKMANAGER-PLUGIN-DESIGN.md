@@ -1,5 +1,12 @@
 # NetworkManager Plugin Design & Analysis
 
+**STATUS: REFERENCE ONLY - NOT PLANNED FOR IMPLEMENTATION**
+
+op-dbus is **server-focused** and will continue using the OVS/Netlink approach exclusively. This document exists as reference material for:
+- Understanding why we chose OVS/Netlink over NetworkManager
+- Future contributors who might want to fork for desktop use cases
+- Technical comparison for documentation purposes
+
 Design document for a potential NetworkManager plugin and comparison with current OVS/Netlink approach.
 
 ## NetworkManager Plugin Architecture
@@ -828,16 +835,23 @@ async fn is_networkmanager_running() -> bool {
 
 ## Conclusion
 
-**For enterprise server deployment (current focus):** Stick with OVS/Netlink
-- Direct control
-- Better performance
-- Universal compatibility
-- No extra dependencies
+**op-dbus is server-only. We will NOT implement NetworkManager plugin.**
 
-**For desktop/workstation deployment (future):** Add NetworkManager plugin
-- Better UX
-- WiFi/VPN support
-- Native rollback
-- Profile management
+**Why OVS/Netlink is the correct choice:**
+- ✅ Direct control for infrastructure
+- ✅ 10x better performance
+- ✅ Universal compatibility (works on all server distros)
+- ✅ No extra dependencies
+- ✅ Perfect for Proxmox/LXC use case
+- ✅ Full access to kernel networking
+- ✅ Lightweight and deterministic
 
-**Best approach:** Implement NetworkManager as **optional plugin** alongside current net plugin, let users choose based on their use case.
+**Why NetworkManager is wrong for servers:**
+- ❌ Unnecessary abstraction
+- ❌ Performance overhead
+- ❌ Most servers don't run NetworkManager
+- ❌ Adds complexity for no benefit
+- ❌ Desktop-focused features we don't need
+- ❌ Can interfere with static server configs
+
+**This document exists only as reference** for understanding the technical decision and for potential desktop forks in the future.
