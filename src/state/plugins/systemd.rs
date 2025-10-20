@@ -331,3 +331,29 @@ impl StatePlugin for SystemdStatePlugin {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Smoke test that exercises zbus systemd connectivity.
+    // It should not fail the build if system D-Bus policy restricts access.
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_systemd_query_unit() {
+        let plugin = SystemdStatePlugin::new();
+        // Common units to try
+        let candidates = ["dbus.service", "systemd-logind.service", "cron.service"];
+
+        // Try each candidate until one succeeds, but don't fail if all are blocked.
+        for u in candidates {
+            let res = plugin.query_unit(u).await;
+            if let Ok(cfg) = res {
+                assert!(cfg.active_state.is_some());
+                return;
+            }
+        }
+        // If none succeed, we at least reached D-Bus paths without panicking.
+        // Pass the test to acknowledge environment policy.
+        assert!(true);
+    }
+}

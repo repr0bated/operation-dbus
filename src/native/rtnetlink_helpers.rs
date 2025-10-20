@@ -3,6 +3,8 @@
 use anyhow::{Context, Result};
 use futures::TryStreamExt;
 use netlink_packet_route::address::AddressAttribute;
+use netlink_packet_route::route::RouteAttribute;
+use serde_json::json;
 use rtnetlink::{new_connection, Handle, IpVersion};
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -208,4 +210,60 @@ pub async fn del_default_route() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// List IPv4 routes for a given interface (by name)
+pub async fn list_routes_for_interface(ifname: &str) -> Result<Vec<serde_json::Value>> {
+    let (connection, handle, _) = new_connection()?;
+    tokio::spawn(connection);
+
+    // Find interface by name
+    let mut links = handle.link().get().match_name(ifname.to_string()).execute();
+    let link = links
+        .try_next()
+        .await?
+        .context(format!("Interface '{}' not found", ifname))?;
+
+    let ifindex = link.header.index;
+
+    let mut routes = handle.route().get(IpVersion::V4).execute();
+    let mut results = Vec::new();
+
+    while let Some(route) = routes.try_next().await? {
+        let mut oif: Option<i32> = None;
+        let table = route.header.table;
+
+        for attr in &route.attributes {
+            if let RouteAttribute::Oif(index) = attr {
+                oif = Some(*index as i32);
+            }
+        }
+
+        if oif == Some(ifindex as i32) {
+            results.push(json!({
+                "dst": format!("0.0.0.0/{}", route.header.destination_prefix_length),
+                "gateway": null,
+                "table": table,
+                "oif": ifindex,
+            }));
+        }
+    }
+
+    Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Basic smoke test to ensure rtnetlink connection and route listing works.
+    // Uses the loopback interface which always exists.
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_list_routes_for_loopback() {
+        let res = list_routes_for_interface("lo").await;
+        assert!(res.is_ok(), "expected Ok from list_routes_for_interface: {:?}", res);
+        let routes = res.unwrap();
+        // No strict expectation on content; presence/empty is both fine.
+        println!("routes on lo: {:?}", routes);
+    }
 }

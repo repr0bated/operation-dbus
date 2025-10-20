@@ -10,6 +10,25 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Show help if requested
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "op-dbus Installation Script"
+    echo ""
+    echo "Usage: $0 [BINARY_PATH] [DHCP_SERVER_FLAG]"
+    echo ""
+    echo "Arguments:"
+    echo "  BINARY_PATH       Path to op-dbus binary (default: target/release/op-dbus)"
+    echo "  DHCP_SERVER_FLAG  'true' to enable DHCP server setup (default: false)"
+    echo ""
+    echo "Examples:"
+    echo "  $0                           # Standard install"
+    echo "  $0 target/release/op-dbus    # Custom binary path"
+    echo "  $0 target/release/op-dbus true  # Enable DHCP server"
+    echo ""
+    echo "The install script detects and manages existing OVS bridges."
+    exit 0
+fi
+
 echo -e "${GREEN}=== op-dbus Installation ===${NC}"
 
 # Check if running as root
@@ -24,6 +43,7 @@ INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/op-dbus"
 STATE_FILE="$CONFIG_DIR/state.json"
 SYSTEMD_DIR="/etc/systemd/system"
+ENABLE_DHCP_SERVER="${2:-false}"
 
 # Step 1: Check binary exists
 echo "Checking binary..."
@@ -133,10 +153,10 @@ EOF
         local interface_count=$(echo "$config" | jq '.plugins.net.interfaces | length')
 
         if [ "$interface_count" -gt 0 ]; then
-            echo -e "${GREEN}✓${NC} Generated configuration with $interface_count network interface(s)"
+            echo -e "${GREEN}✓${NC} Generated configuration for $interface_count existing network interface(s)"
             echo "$config"
         else
-            echo -e "${YELLOW}⚠${NC}  No OVS bridges found, creating minimal config"
+            echo -e "${YELLOW}⚠${NC}  No existing OVS bridges found - will manage interfaces as they are added"
             echo "$config"
         fi
     }
@@ -200,7 +220,15 @@ fi
 
 # Step 5: Create systemd service
 echo "Creating systemd service..."
-cat > "$SYSTEMD_DIR/op-dbus.service" <<'EOF'
+
+# Set DHCP server flag if requested
+DHCP_FLAG=""
+if [ "$ENABLE_DHCP_SERVER" = "true" ]; then
+    echo -e "${GREEN}✓${NC} DHCP server will be enabled"
+    DHCP_FLAG="--enable-dhcp-server"
+fi
+
+cat > "$SYSTEMD_DIR/op-dbus.service" <<EOF
 [Unit]
 Description=op-dbus - Declarative system state management
 Documentation=https://github.com/ghostbridge/op-dbus
@@ -210,7 +238,7 @@ Requires=openvswitch-switch.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/op-dbus run --state-file /etc/op-dbus/state.json
+ExecStart=/usr/local/bin/op-dbus run --state-file /etc/op-dbus/state.json $DHCP_FLAG
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -221,7 +249,7 @@ NoNewPrivileges=false
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/etc/network/interfaces /run /var/run
+ReadWritePaths=/etc/network/interfaces /run /var/run /etc/dnsmasq.d
 
 # Network capabilities
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
@@ -245,8 +273,18 @@ echo "Binary:        $INSTALL_DIR/op-dbus"
 echo "Config:        $CONFIG_DIR/state.json"
 echo "Service:       $SYSTEMD_DIR/op-dbus.service"
 echo ""
+echo -e "${YELLOW}System Status:${NC}"
+if [ -f "$STATE_FILE" ]; then
+    INTERFACE_COUNT=$(jq '.plugins.net.interfaces | length' "$STATE_FILE" 2>/dev/null || echo "0")
+    if [ "$INTERFACE_COUNT" -gt 0 ]; then
+        echo "Detected:       $INTERFACE_COUNT existing network interface(s) under management"
+    else
+        echo "Status:         Ready to manage network interfaces as they are added"
+    fi
+fi
+echo ""
 echo -e "${YELLOW}Next Steps:${NC}"
-echo "1. Edit state file:    nano $STATE_FILE"
+echo "1. Review state file:  nano $STATE_FILE"
 echo "2. Test query:         op-dbus query"
 echo "3. Test diff:          op-dbus diff $STATE_FILE"
 echo "4. Test apply (safe):  op-dbus apply $STATE_FILE"

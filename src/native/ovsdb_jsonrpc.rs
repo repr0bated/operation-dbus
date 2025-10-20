@@ -60,7 +60,45 @@ impl OvsdbClient {
 
     /// Get schema for Open_vSwitch database
     pub async fn get_schema(&self) -> Result<Value> {
-        self.rpc_call("get_schema", json!(["Open_vSwitch"])).await
+        self.rpc_call("get_schema", json!(["Open_vSwitch"]))
+            .await
+    }
+
+    /// Dump entire Open_vSwitch database: table -> rows (JSON)
+    pub async fn dump_open_vswitch(&self) -> Result<Value> {
+        // Discover tables from schema
+        let schema = self.get_schema().await?;
+        let tables = schema
+            .get("tables")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| anyhow::anyhow!("Invalid OVSDB schema: missing tables"))?;
+
+        // Build select ops for all tables
+        let mut ops = Vec::new();
+        let mut order = Vec::new();
+        for (name, _def) in tables.iter() {
+            ops.push(json!({
+                "op": "select",
+                "table": name,
+                "where": []
+            }));
+            order.push(name.clone());
+        }
+
+        let result = self.transact(json!(ops)).await?;
+
+        // Assemble into object
+        let mut out = serde_json::Map::new();
+        for (i, name) in order.into_iter().enumerate() {
+            let rows = result
+                .get(i)
+                .and_then(|r| r.get("rows"))
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            out.insert(name, rows);
+        }
+
+        Ok(Value::Object(out))
     }
 
     /// Transact - execute OVSDB operations

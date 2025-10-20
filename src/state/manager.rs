@@ -1,6 +1,7 @@
 // State manager orchestrator - coordinates plugins and provides atomic operations
 // Note: Ledger functionality has been replaced with streaming blockchain
 use crate::state::plugin::{ApplyResult, Checkpoint, StateDiff, StatePlugin};
+use crate::blockchain::plugin_footprint::FootprintGenerator;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -33,6 +34,7 @@ pub struct ApplyReport {
 /// State manager coordinates all plugins and provides atomic operations
 pub struct StateManager {
     plugins: Arc<RwLock<HashMap<String, Box<dyn StatePlugin>>>>,
+    blockchain_sender: Option<tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>>,    
 }
 
 impl Default for StateManager {
@@ -46,6 +48,27 @@ impl StateManager {
     pub fn new() -> Self {
         Self {
             plugins: Arc::new(RwLock::new(HashMap::new())),
+            blockchain_sender: None,
+        }
+    }
+
+    /// Enable blockchain footprints by providing a sender to a StreamingBlockchain receiver
+    pub fn set_blockchain_sender(&mut self, sender: tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>) {
+        self.blockchain_sender = Some(sender);
+    }
+
+    /// Record a hashed footprint for a plugin operation (best-effort)
+    fn record_footprint(&self, plugin: &str, operation: &str, data: serde_json::Value) {
+        if let Some(tx) = &self.blockchain_sender {
+            let gen = FootprintGenerator::new(plugin);
+            match gen.create_footprint(operation, &data, None) {
+                Ok(fp) => {
+                    let _ = tx.send(fp);
+                }
+                Err(e) => {
+                    log::debug!("Failed to create footprint for {}: {}", plugin, e);
+                }
+            }
         }
     }
 
@@ -191,6 +214,19 @@ impl StateManager {
                     log::info!("Result success: {}, changes: {:?}, errors: {:?}",
                         result.success, result.changes_applied, result.errors);
 
+                    // Record blockchain footprint (apply)
+                    let data = serde_json::json!({
+                        "plugin": diff.plugin,
+                        "actions": diff.actions,
+                        "metadata": diff.metadata,
+                        "result": {
+                            "success": result.success,
+                            "changes": result.changes_applied,
+                            "errors": result.errors,
+                        }
+                    });
+                    self.record_footprint(&diff.plugin, "apply", data);
+
                     // Check if result indicates failure
                     if !result.success {
                         log::error!("Plugin {} returned success=false, but not triggering rollback (treating as warning)", diff.plugin);
@@ -219,6 +255,15 @@ impl StateManager {
                         errors: vec![format!("Failed: {}", e)],
                         checkpoint: None,
                     });
+
+                    // Record failure footprint
+                    let data = serde_json::json!({
+                        "plugin": diff.plugin,
+                        "actions": diff.actions,
+                        "metadata": diff.metadata,
+                        "error": e.to_string(),
+                    });
+                    self.record_footprint(&diff.plugin, "apply_error", data);
                 }
                 None => {
                     log::error!("Plugin {} not found during apply phase", diff.plugin);
@@ -228,6 +273,15 @@ impl StateManager {
                         errors: vec![format!("Plugin not found: {}", diff.plugin)],
                         checkpoint: None,
                     });
+
+                    // Record missing plugin footprint
+                    let data = serde_json::json!({
+                        "plugin": diff.plugin,
+                        "actions": diff.actions,
+                        "metadata": diff.metadata,
+                        "error": "plugin_not_found",
+                    });
+                    self.record_footprint(&diff.plugin, "apply_missing_plugin", data);
                 }
             }
         }

@@ -223,13 +223,20 @@ impl NetStatePlugin {
             };
 
             // Parse JSON string to HashMap
-            let bridge_info: HashMap<String, Value> = match serde_json::from_str(&bridge_info_json) {
+            let mut bridge_info: HashMap<String, Value> = match serde_json::from_str(&bridge_info_json) {
                 Ok(info) => info,
                 Err(_) => {
                     log::debug!("Failed to parse bridge info JSON for: {}", bridge_name);
                     continue;
                 }
             };
+
+            // Enrich with routing info (via rtnetlink) for this bridge
+            if let Ok(routes) = crate::native::rtnetlink_helpers::list_routes_for_interface(&bridge_name).await {
+                bridge_info.insert("routing".to_string(), serde_json::json!({
+                    "ipv4_routes": routes
+                }));
+            }
 
             // Get ports for this bridge via JSON-RPC
             let ports = match client.list_bridge_ports(&bridge_name).await {
@@ -239,6 +246,26 @@ impl NetStatePlugin {
                     None
                 }
             };
+
+            // Derive simple role tags for ports (best-effort heuristics)
+            if let Some(ref port_list) = ports {
+                let mut tags: HashMap<String, String> = HashMap::new();
+                for p in port_list {
+                    let role = if p.starts_with("vi") { // vi{VMID}
+                        "container"
+                    } else if p.starts_with("nm") || p.contains("wg") {
+                        "netmaker"
+                    } else if p.starts_with("eth") || p.starts_with("en") {
+                        "uplink"
+                    } else if p == &bridge_name {
+                        "internal"
+                    } else {
+                        "unknown"
+                    };
+                    tags.insert(p.clone(), role.to_string());
+                }
+                bridge_info.insert("port_tags".to_string(), serde_json::to_value(tags).unwrap_or(Value::Null));
+            }
 
             bridges.push(InterfaceConfig {
                 name: bridge_name,
