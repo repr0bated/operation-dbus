@@ -429,7 +429,7 @@ impl NetStatePlugin {
         ipv4: &Option<Ipv4Config>,
     ) -> Result<()> {
         let interfaces_path = std::path::Path::new("/etc/network/interfaces");
-        let tag = "ovs-port-agent-managed";
+        let tag = "op-dbus-managed";
         let begin_marker = format!("# BEGIN {}\n", tag);
         let end_marker = format!("# END {}\n", tag);
 
