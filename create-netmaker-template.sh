@@ -1,0 +1,165 @@
+#!/bin/bash
+# Create LXC template with netclient pre-installed for op-dbus containers
+# This template will be used by the LXC plugin for automatic container creation
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo "=== Creating Netmaker-Ready LXC Template ==="
+
+# Check if running on Proxmox
+if ! command -v pct >/dev/null 2>&1; then
+    echo -e "${RED}✗${NC} pct command not found. This must run on a Proxmox host."
+    exit 1
+fi
+
+# Configuration
+TEMP_CT_ID=9999
+BASE_TEMPLATE="debian-11-standard_11.7-1_amd64.tar.zst"
+OUTPUT_TEMPLATE="debian-11-netmaker_custom.tar.zst"
+STORAGE="local"
+
+echo "Configuration:"
+echo "  Base template: $BASE_TEMPLATE"
+echo "  Output template: $OUTPUT_TEMPLATE"
+echo "  Temp container ID: $TEMP_CT_ID"
+echo ""
+
+# Check if base template exists
+if ! pveam list $STORAGE | grep -q "$BASE_TEMPLATE"; then
+    echo -e "${YELLOW}⚠${NC}  Base template not found, downloading..."
+    pveam update
+    pveam download $STORAGE $BASE_TEMPLATE
+fi
+
+echo -e "${GREEN}✓${NC} Base template available"
+
+# Check if temp container already exists
+if pct status $TEMP_CT_ID >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠${NC}  Container $TEMP_CT_ID already exists, destroying..."
+    pct stop $TEMP_CT_ID 2>/dev/null || true
+    pct destroy $TEMP_CT_ID
+fi
+
+# Create temporary container
+echo "Creating temporary container $TEMP_CT_ID..."
+pct create $TEMP_CT_ID $STORAGE:vztmpl/$BASE_TEMPLATE \
+    --hostname netmaker-template \
+    --memory 512 \
+    --swap 512 \
+    --net0 name=eth0,bridge=vmbr0,firewall=1,ip=dhcp \
+    --unprivileged 1 \
+    --features nesting=1
+
+echo -e "${GREEN}✓${NC} Temporary container created"
+
+# Start container
+echo "Starting container..."
+pct start $TEMP_CT_ID
+
+# Wait for container to be ready
+echo "Waiting for container to boot..."
+sleep 5
+
+# Wait for network
+pct exec $TEMP_CT_ID -- bash -c 'until ping -c1 8.8.8.8 &>/dev/null; do sleep 1; done'
+echo -e "${GREEN}✓${NC} Container network ready"
+
+# Update system
+echo "Updating system packages..."
+pct exec $TEMP_CT_ID -- apt-get update
+pct exec $TEMP_CT_ID -- apt-get upgrade -y
+
+# Install dependencies
+echo "Installing dependencies..."
+pct exec $TEMP_CT_ID -- apt-get install -y \
+    curl \
+    gnupg \
+    ca-certificates \
+    wireguard \
+    jq \
+    systemd
+
+# Install netclient
+echo "Installing netclient..."
+pct exec $TEMP_CT_ID -- bash -c 'curl -sL https://apt.netmaker.org/gpg.key | apt-key add -'
+pct exec $TEMP_CT_ID -- bash -c 'curl -sL https://apt.netmaker.org/debian.deb.txt | tee /etc/apt/sources.list.d/netmaker.list'
+pct exec $TEMP_CT_ID -- apt-get update
+pct exec $TEMP_CT_ID -- apt-get install -y netclient
+
+# Verify netclient installation
+if pct exec $TEMP_CT_ID -- which netclient >/dev/null; then
+    echo -e "${GREEN}✓${NC} netclient installed successfully"
+    NETCLIENT_VERSION=$(pct exec $TEMP_CT_ID -- netclient --version 2>&1 | head -1)
+    echo "  Version: $NETCLIENT_VERSION"
+else
+    echo -e "${RED}✗${NC} netclient installation failed"
+    pct stop $TEMP_CT_ID
+    pct destroy $TEMP_CT_ID
+    exit 1
+fi
+
+# Clean up
+echo "Cleaning up container..."
+pct exec $TEMP_CT_ID -- apt-get clean
+pct exec $TEMP_CT_ID -- rm -rf /var/lib/apt/lists/*
+pct exec $TEMP_CT_ID -- rm -rf /tmp/*
+pct exec $TEMP_CT_ID -- rm -f /var/log/*.log
+pct exec $TEMP_CT_ID -- history -c
+
+# Stop container
+echo "Stopping container..."
+pct stop $TEMP_CT_ID
+
+# Wait for container to fully stop
+sleep 3
+
+# Create template from container
+echo "Creating template from container..."
+ROOTFS_PATH="/var/lib/lxc/$TEMP_CT_ID/rootfs"
+TEMPLATE_PATH="/var/lib/vz/template/cache/$OUTPUT_TEMPLATE"
+
+# Create archive
+echo "Creating template archive..."
+cd /var/lib/lxc/$TEMP_CT_ID
+tar czf "$TEMPLATE_PATH" rootfs/
+
+echo -e "${GREEN}✓${NC} Template created: $TEMPLATE_PATH"
+
+# Cleanup temporary container
+echo "Cleaning up temporary container..."
+pct destroy $TEMP_CT_ID
+
+# Verify template
+if [ -f "$TEMPLATE_PATH" ]; then
+    TEMPLATE_SIZE=$(du -h "$TEMPLATE_PATH" | cut -f1)
+    echo -e "${GREEN}✓${NC} Template size: $TEMPLATE_SIZE"
+
+    # List templates
+    echo ""
+    echo "Available templates:"
+    pveam list $STORAGE | grep -E "debian.*netmaker|debian.*standard"
+else
+    echo -e "${RED}✗${NC} Template creation failed"
+    exit 1
+fi
+
+echo ""
+echo "=== Template Creation Complete ==="
+echo ""
+echo "Template: $OUTPUT_TEMPLATE"
+echo "Location: $TEMPLATE_PATH"
+echo ""
+echo "Next steps:"
+echo "1. Update src/state/plugins/lxc.rs to use: $OUTPUT_TEMPLATE"
+echo "2. Rebuild op-dbus: cargo build --release"
+echo "3. Reinstall: sudo ./install.sh"
+echo ""
+echo "Containers created from this template will have:"
+echo "  ✓ netclient pre-installed"
+echo "  ✓ wireguard support"
+echo "  ✓ Ready to join netmaker networks"

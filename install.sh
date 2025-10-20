@@ -374,11 +374,46 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
     if netclient list >/dev/null 2>&1 && netclient list | grep -q "Connected networks:"; then
         echo -e "${GREEN}✓${NC} Host already joined to netmaker network"
         netclient list | head -5
+
+        # Auto-add netmaker interfaces to mesh bridge
+        echo "Checking for netmaker interfaces to add to mesh bridge..."
+        for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-")) | .ifname'); do
+            if sudo ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
+                echo -e "${GREEN}✓${NC} Interface $iface already in mesh bridge"
+            else
+                echo "Adding netmaker interface $iface to mesh bridge..."
+                if sudo ovs-vsctl add-port mesh "$iface" 2>/dev/null; then
+                    echo -e "${GREEN}✓${NC} Added $iface to mesh bridge"
+                else
+                    echo -e "${YELLOW}⚠${NC}  Could not add $iface to mesh bridge"
+                fi
+            fi
+        done
+
     elif [ -n "$NETMAKER_TOKEN" ]; then
         echo "Joining host to netmaker network..."
         if netclient join -t "$NETMAKER_TOKEN"; then
             echo -e "${GREEN}✓${NC} Successfully joined netmaker network"
             echo -e "${GREEN}✓${NC} Containers will automatically have mesh networking"
+
+            # Wait a moment for interface to appear
+            sleep 2
+
+            # Auto-add netmaker interfaces to mesh bridge
+            echo "Checking for netmaker interfaces to add to mesh bridge..."
+            for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-")) | .ifname'); do
+                if sudo ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
+                    echo -e "${GREEN}✓${NC} Interface $iface already in mesh bridge"
+                else
+                    echo "Adding netmaker interface $iface to mesh bridge..."
+                    if sudo ovs-vsctl add-port mesh "$iface" 2>/dev/null; then
+                        echo -e "${GREEN}✓${NC} Added $iface to mesh bridge"
+                    else
+                        echo -e "${YELLOW}⚠${NC}  Could not add $iface to mesh bridge"
+                    fi
+                fi
+            done
+
         else
             echo -e "${YELLOW}⚠${NC}  Failed to join netmaker (check token)"
             echo -e "${YELLOW}⚠${NC}  Containers will use bridge mode until host joins"
@@ -388,6 +423,104 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
         echo -e "${YELLOW}⚠${NC}  Add token and run: netclient join -t \$NETMAKER_TOKEN"
         echo -e "${YELLOW}⚠${NC}  Or containers will use traditional bridge networking"
     fi
+
+    # Install LXC hook for automatic container netmaker join
+    echo "Installing LXC netmaker hook..."
+    HOOK_DIR="/usr/share/lxc/hooks"
+    sudo mkdir -p "$HOOK_DIR"
+
+    # Create hook script inline
+    sudo tee "$HOOK_DIR/netmaker-join" > /dev/null <<'HOOK_EOF'
+#!/bin/bash
+# LXC hook to automatically join container to netmaker on start
+# Installed by op-dbus install.sh
+
+# Get container ID from LXC environment
+CT_ID="${LXC_NAME##*-}"
+
+# Paths
+NETMAKER_ENV="/etc/op-dbus/netmaker.env"
+LOG_FILE="/var/log/lxc-netmaker-hook.log"
+
+# Logging
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [CT$CT_ID] $1" >> "$LOG_FILE"
+}
+
+log "Hook triggered for container $CT_ID"
+
+# Check if container uses mesh bridge
+CONTAINER_CONFIG="/etc/pve/lxc/${CT_ID}.conf"
+if [ ! -f "$CONTAINER_CONFIG" ] || ! grep -q "bridge=mesh" "$CONTAINER_CONFIG" 2>/dev/null; then
+    log "Container not using mesh bridge, skipping"
+    exit 0
+fi
+
+log "Container uses mesh bridge, proceeding with netmaker join"
+
+# Load token
+if [ ! -f "$NETMAKER_ENV" ]; then
+    log "ERROR: Netmaker env file not found"
+    exit 0
+fi
+
+source "$NETMAKER_ENV"
+
+if [ -z "$NETMAKER_TOKEN" ]; then
+    log "WARNING: NETMAKER_TOKEN not set"
+    exit 0
+fi
+
+# Wait for container
+log "Waiting for container to be ready..."
+sleep 3
+
+# Check netclient
+if ! pct exec "$CT_ID" -- which netclient >/dev/null 2>&1; then
+    log "WARNING: netclient not found in container"
+    exit 0
+fi
+
+# Check if already joined
+if pct exec "$CT_ID" -- netclient list 2>/dev/null | grep -q "Connected networks:"; then
+    log "Container already joined to netmaker"
+    exit 0
+fi
+
+# Join netmaker
+log "Joining container to netmaker..."
+if pct exec "$CT_ID" -- netclient join -t "$NETMAKER_TOKEN" >> "$LOG_FILE" 2>&1; then
+    log "SUCCESS: Container joined netmaker"
+
+    sleep 2
+    NETMAKER_IFACE=$(pct exec "$CT_ID" -- ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-")) | .ifname' | head -1)
+
+    if [ -n "$NETMAKER_IFACE" ]; then
+        log "Netmaker interface: $NETMAKER_IFACE"
+    fi
+else
+    log "ERROR: Failed to join netmaker"
+fi
+
+log "Hook completed"
+exit 0
+HOOK_EOF
+
+    sudo chmod +x "$HOOK_DIR/netmaker-join"
+    echo -e "${GREEN}✓${NC} LXC hook installed: $HOOK_DIR/netmaker-join"
+    echo -e "${GREEN}✓${NC} Containers will auto-join netmaker on startup"
+
+    # Create global LXC config to enable hook for all containers
+    LXC_COMMON_CONF="/usr/share/lxc/config/common.conf.d"
+    sudo mkdir -p "$LXC_COMMON_CONF"
+
+    sudo tee "$LXC_COMMON_CONF/netmaker.conf" > /dev/null <<'LXC_CONF_EOF'
+# Automatic netmaker join hook for op-dbus containers
+# Only triggers for containers using mesh bridge
+lxc.hook.start-host = /usr/share/lxc/hooks/netmaker-join
+LXC_CONF_EOF
+
+    echo -e "${GREEN}✓${NC} LXC config updated: $LXC_COMMON_CONF/netmaker.conf"
 fi
 
 # Step 7: Create systemd service

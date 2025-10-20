@@ -29,7 +29,7 @@ pub struct ContainerInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub running: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<HashMap<String, Value>>, // extensible
+    pub properties: Option<HashMap<String, Value>>, // extensible (includes network_type, template, etc.)
 }
 
 pub struct LxcPlugin;
@@ -166,13 +166,22 @@ impl LxcPlugin {
         let bridge = Self::get_bridge_for_network_type(container);
         log::info!("Container {} will use bridge {}", container.id, bridge);
 
+        // Get template from properties or use default
+        let template = container
+            .properties
+            .as_ref()
+            .and_then(|p| p.get("template"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("local:vztmpl/debian-11-netmaker_custom.tar.zst");
+
+        log::info!("Using template: {}", template);
+
         // Use pct create (Proxmox Container Toolkit)
-        // Basic template - user should customize via Proxmox UI or pct config
         let output = tokio::process::Command::new("pct")
             .args([
                 "create",
                 &container.id,
-                "local:vztmpl/debian-11-standard_11.7-1_amd64.tar.zst",
+                template,
                 "--hostname",
                 &format!("ct{}", container.id),
                 "--memory",
@@ -183,6 +192,8 @@ impl LxcPlugin {
                 &format!("name=eth0,bridge={},firewall=1", bridge),
                 "--unprivileged",
                 "1",
+                "--features",
+                "nesting=1",
             ])
             .output()
             .await?;

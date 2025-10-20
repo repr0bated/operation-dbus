@@ -16,11 +16,39 @@ The install script will:
 1. Install the binary to `/usr/local/bin/op-dbus`
 2. **Automatically detect** your current OVS bridges, IP addresses, and gateway
 3. Generate `/etc/op-dbus/state.json` with your detected configuration
-4. Create and configure the systemd service
+4. Create `mesh` bridge for netmaker containers
+5. **Auto-detect and add** netmaker interfaces to mesh bridge (if joined)
+6. Create and configure the systemd service
 
 **Test what will be detected:**
 ```bash
 sudo ./test-introspection.sh
+```
+
+**Netmaker Mesh Networking (Optional):**
+
+If you want automatic mesh networking for containers:
+
+1. Install netclient:
+```bash
+curl -sL https://apt.netmaker.org/gpg.key | sudo apt-key add -
+curl -sL https://apt.netmaker.org/debian.deb.txt | sudo tee /etc/apt/sources.list.d/netmaker.list
+sudo apt update && sudo apt install netclient
+```
+
+2. Add your enrollment token to `/etc/op-dbus/netmaker.env`:
+```bash
+echo "NETMAKER_TOKEN=your-token-here" | sudo tee /etc/op-dbus/netmaker.env
+```
+
+3. Run install.sh - it will automatically:
+   - Join the host to netmaker
+   - Detect netmaker interfaces (nm-*)
+   - Add them to the mesh bridge
+
+Or manually sync netmaker interfaces anytime:
+```bash
+sudo ./sync-netmaker-mesh.sh
 ```
 
 ### Manual Build
