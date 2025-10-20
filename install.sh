@@ -150,6 +150,30 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
         fi
     fi
 
+    # Create cache subvolume
+    CACHE_DIR="/var/lib/op-dbus/@cache"
+    if ! sudo btrfs subvolume show "$CACHE_DIR" >/dev/null 2>&1; then
+        # Remove empty directory if exists
+        if [ -d "$CACHE_DIR" ]; then
+            sudo rmdir "$CACHE_DIR" 2>/dev/null || true
+        fi
+        sudo mkdir -p "$(dirname $CACHE_DIR)"
+        sudo btrfs subvolume create "$CACHE_DIR"
+        sudo btrfs property set "$CACHE_DIR" compression zstd
+        echo -e "${GREEN}✓${NC} Created cache subvolume with zstd compression"
+    else
+        # Ensure compression is enabled
+        sudo btrfs property set "$CACHE_DIR" compression zstd
+        echo -e "${GREEN}✓${NC} Cache subvolume exists, ensured zstd compression"
+    fi
+
+    # Create cache directory structure
+    sudo mkdir -p "$CACHE_DIR"/{embeddings/vectors,blocks/{by-number,by-hash},queries,diffs}
+    echo -e "${GREEN}✓${NC} Created cache directory structure"
+
+    # Create snapshot directory
+    sudo mkdir -p "/var/lib/op-dbus/@cache-snapshots"
+
     # Create subvolumes if they don't exist
     if ! sudo btrfs subvolume show "$BLOCKCHAIN_DIR" >/dev/null 2>&1; then
         # Check if it's already a regular directory with files

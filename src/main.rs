@@ -2,6 +2,7 @@
 //! Declarative system state management via native protocols
 
 mod blockchain;
+mod cache;
 mod ml;
 mod native;
 mod nonnet_db;
@@ -89,6 +90,41 @@ enum Commands {
         #[arg(long)]
         verbose: bool,
     },
+
+    /// Cache management
+    #[command(subcommand)]
+    Cache(CacheCommands),
+}
+
+#[derive(Subcommand)]
+enum CacheCommands {
+    /// Show cache statistics
+    Stats,
+
+    /// Clear cache
+    Clear {
+        #[arg(long)]
+        embeddings: bool,
+        #[arg(long)]
+        blocks: bool,
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Clean old cache entries
+    Clean {
+        #[arg(long, default_value = "90")]
+        older_than_days: i64,
+    },
+
+    /// Create cache snapshot
+    Snapshot,
+
+    /// List cache snapshots
+    Snapshots,
+
+    /// Delete all snapshots
+    DeleteSnapshots,
 }
 
 #[derive(Subcommand)]
@@ -434,6 +470,121 @@ async fn main() -> Result<()> {
                 println!("Rust: Pure Rust implementation");
                 println!("Protocols: OVSDB, Netlink, D-Bus");
             }
+            Ok(())
+        }
+
+        Commands::Cache(cmd) => handle_cache_command(cmd).await,
+    }
+}
+
+async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
+    let cache_dir = PathBuf::from(
+        std::env::var("OPDBUS_CACHE_DIR").unwrap_or_else(|_| "/var/lib/op-dbus/@cache".to_string()),
+    );
+
+    match cmd {
+        CacheCommands::Stats => {
+            println!("=== BTRFS Cache Statistics ===\n");
+
+            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let stats = cache.stats()?;
+
+            println!("Embeddings:");
+            println!("  Total entries:    {}", stats.total_entries);
+            println!("  Hot (< 1h):       {} ({:.1}%)",
+                stats.hot_entries,
+                stats.hot_ratio() * 100.0
+            );
+            println!("  Average accesses: {:.1}", stats.avg_accesses());
+            println!("  Disk usage:       {:.2} MB",
+                stats.embeddings_size_bytes as f64 / 1024.0 / 1024.0
+            );
+
+            println!("\nBlocks:");
+            println!("  Disk usage:       {:.2} MB",
+                stats.blocks_size_bytes as f64 / 1024.0 / 1024.0
+            );
+
+            println!("\nTotal:");
+            println!("  Disk usage:       {:.2} MB (compressed)",
+                stats.disk_usage_bytes as f64 / 1024.0 / 1024.0
+            );
+
+            // Show snapshots
+            let snapshots = cache.list_snapshots().await?;
+            println!("\nSnapshots:          {}", snapshots.len());
+            if !snapshots.is_empty() {
+                if let Some(oldest) = snapshots.first() {
+                    println!("  Oldest:           {}", oldest.timestamp_str);
+                }
+                if let Some(newest) = snapshots.last() {
+                    println!("  Newest:           {}", newest.timestamp_str);
+                }
+            }
+
+            Ok(())
+        }
+
+        CacheCommands::Clear { embeddings, blocks, all } => {
+            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+
+            if all || (!embeddings && !blocks) {
+                println!("Clearing all cache...");
+                cache.clear()?;
+                println!("✓ All cache cleared");
+            } else {
+                if embeddings {
+                    println!("Clearing embeddings cache...");
+                    // TODO: Implement selective clear
+                    println!("✗ Selective clear not yet implemented");
+                }
+                if blocks {
+                    println!("Clearing blocks cache...");
+                    // TODO: Implement selective clear
+                    println!("✗ Selective clear not yet implemented");
+                }
+            }
+
+            Ok(())
+        }
+
+        CacheCommands::Clean { older_than_days } => {
+            println!("Cleaning cache entries older than {} days...", older_than_days);
+            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let removed = cache.cleanup_old(older_than_days)?;
+            println!("✓ Cleaned {} old entries", removed);
+            Ok(())
+        }
+
+        CacheCommands::Snapshot => {
+            println!("Creating cache snapshot...");
+            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let snapshot_path = cache.create_snapshot().await?;
+            println!("✓ Created snapshot: {}", snapshot_path.display());
+            Ok(())
+        }
+
+        CacheCommands::Snapshots => {
+            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let snapshots = cache.list_snapshots().await?;
+
+            if snapshots.is_empty() {
+                println!("No snapshots found");
+            } else {
+                println!("=== Cache Snapshots ({}) ===\n", snapshots.len());
+                for snapshot in snapshots {
+                    println!("  {} - {}", snapshot.timestamp_str, snapshot.path.display());
+                }
+            }
+
+            Ok(())
+        }
+
+        CacheCommands::DeleteSnapshots => {
+            println!("Deleting all cache snapshots...");
+            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let count = cache.delete_all_snapshots().await?;
+            println!("✓ Deleted {} snapshots", count);
             Ok(())
         }
     }
