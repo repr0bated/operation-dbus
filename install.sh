@@ -101,9 +101,6 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
         fi
     fi
 
-    # Create base directory
-    sudo mkdir -p "$BLOCKCHAIN_DIR"
-
     # Create subvolumes if they don't exist
     if ! sudo btrfs subvolume show "$BLOCKCHAIN_DIR" >/dev/null 2>&1; then
         # Check if it's already a regular directory with files
@@ -125,6 +122,14 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
 
             echo -e "${GREEN}✓${NC} Converted to BTRFS subvolume with data preserved"
         else
+            # Remove empty directory if it exists
+            if [ -d "$BLOCKCHAIN_DIR" ]; then
+                sudo rmdir "$BLOCKCHAIN_DIR" 2>/dev/null || true
+            fi
+
+            # Ensure parent directory exists
+            sudo mkdir -p "$(dirname $BLOCKCHAIN_DIR)"
+
             # Create fresh subvolume
             sudo btrfs subvolume create "$BLOCKCHAIN_DIR"
             echo -e "${GREEN}✓${NC} Created blockchain BTRFS subvolume"
