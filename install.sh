@@ -14,22 +14,66 @@ NC='\033[0m' # No Color
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "op-dbus Installation Script"
     echo ""
-    echo "Usage: $0 [BINARY_PATH] [DHCP_SERVER_FLAG]"
+    echo "Usage: $0 [OPTIONS] [BINARY_PATH]"
+    echo ""
+    echo "Options:"
+    echo "  --no-proxmox      Skip Proxmox/LXC features (enterprise standalone mode)"
+    echo "  --agent-only      Minimal install (D-Bus plugins only, no blockchain)"
+    echo "  --help, -h        Show this help message"
     echo ""
     echo "Arguments:"
     echo "  BINARY_PATH       Path to op-dbus binary (default: target/release/op-dbus)"
-    echo "  DHCP_SERVER_FLAG  'true' to enable DHCP server setup (default: false)"
     echo ""
     echo "Examples:"
-    echo "  $0                           # Standard install"
-    echo "  $0 target/release/op-dbus    # Custom binary path"
-    echo "  $0 target/release/op-dbus true  # Enable DHCP server"
+    echo "  $0                           # Full install (Proxmox mode)"
+    echo "  $0 --no-proxmox              # Enterprise standalone (no containers)"
+    echo "  $0 --agent-only              # Minimal agent (no blockchain)"
+    echo "  $0 --no-proxmox target/release/op-dbus  # Custom binary path"
     echo ""
-    echo "The install script detects and manages existing OVS bridges."
+    echo "Deployment Modes:"
+    echo "  Full (default):   D-Bus + Blockchain + LXC/Proxmox + Netmaker"
+    echo "  Standalone:       D-Bus + Blockchain (skip LXC/Proxmox features)"
+    echo "  Agent:            D-Bus only (minimal footprint)"
     exit 0
 fi
 
+# Parse flags
+NO_PROXMOX=false
+AGENT_ONLY=false
+BINARY_PATH=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-proxmox)
+            NO_PROXMOX=true
+            shift
+            ;;
+        --agent-only)
+            AGENT_ONLY=true
+            NO_PROXMOX=true  # Agent mode implies no Proxmox
+            shift
+            ;;
+        *)
+            BINARY_PATH="$1"
+            shift
+            ;;
+    esac
+done
+
+# Set defaults
+BINARY_PATH="${BINARY_PATH:-target/release/op-dbus}"
+
 echo -e "${GREEN}=== op-dbus Installation ===${NC}"
+
+# Show deployment mode
+if [ "$AGENT_ONLY" = true ]; then
+    echo -e "${YELLOW}Deployment Mode: Agent Only${NC} (D-Bus plugins only)"
+elif [ "$NO_PROXMOX" = true ]; then
+    echo -e "${YELLOW}Deployment Mode: Standalone${NC} (D-Bus + Blockchain, no Proxmox)"
+else
+    echo "Deployment Mode: Full (D-Bus + Blockchain + LXC/Proxmox)"
+fi
+echo ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -38,12 +82,10 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Variables
-BINARY_PATH="${1:-target/release/op-dbus}"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/op-dbus"
 STATE_FILE="$CONFIG_DIR/state.json"
 SYSTEMD_DIR="/etc/systemd/system"
-ENABLE_DHCP_SERVER="${2:-false}"
 
 # Step 1: Check binary exists
 echo "Checking binary..."
@@ -66,8 +108,15 @@ mkdir -p "$CONFIG_DIR"
 echo -e "${GREEN}✓${NC} Created: $CONFIG_DIR"
 
 # Step 3.5: Setup BTRFS subvolumes for blockchain storage (if on BTRFS)
-BLOCKCHAIN_DIR="/var/lib/op-dbus/blockchain"
-echo "Setting up blockchain storage..."
+# Skip if agent-only mode
+if [ "$AGENT_ONLY" = false ]; then
+    BLOCKCHAIN_DIR="/var/lib/op-dbus/blockchain"
+    echo "Setting up blockchain storage..."
+else
+    echo -e "${YELLOW}Skipping blockchain setup (agent-only mode)${NC}"
+fi
+
+if [ "$AGENT_ONLY" = false ]; then
 
 # Check if we're on BTRFS
 if df -T /var/lib 2>/dev/null | grep -q btrfs; then
@@ -148,6 +197,8 @@ else
     sudo mkdir -p "$BLOCKCHAIN_DIR"
     echo -e "${GREEN}✓${NC} Created blockchain directory: $BLOCKCHAIN_DIR"
 fi
+
+fi  # End blockchain setup (agent-only check)
 
 # Step 4: Install example state file if doesn't exist
 if [ ! -f "$STATE_FILE" ]; then
@@ -302,8 +353,14 @@ else
     echo -e "${GREEN}✓${NC} State file already exists: $STATE_FILE"
 fi
 
-# Step 5: Create mesh bridge for netmaker containers
-echo "Creating mesh bridge for netmaker containers..."
+# Step 5: Create mesh bridge for netmaker containers (Proxmox mode only)
+if [ "$NO_PROXMOX" = false ]; then
+    echo "Creating mesh bridge for netmaker containers..."
+else
+    echo -e "${YELLOW}Skipping mesh bridge creation (standalone mode)${NC}"
+fi
+
+if [ "$NO_PROXMOX" = false ]; then
 
 if command -v ovs-vsctl >/dev/null 2>&1; then
     if ! sudo ovs-vsctl br-exists mesh 2>/dev/null; then
@@ -523,6 +580,8 @@ LXC_CONF_EOF
     echo -e "${GREEN}✓${NC} LXC config updated: $LXC_COMMON_CONF/netmaker.conf"
 fi
 
+fi  # End Proxmox-specific setup (mesh bridge + netmaker)
+
 # Step 7: Create systemd service
 echo "Creating systemd service..."
 
@@ -574,9 +633,15 @@ echo -e "${GREEN}✓${NC} Systemd reloaded"
 echo ""
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo ""
+echo "Deployment:    $([ "$AGENT_ONLY" = true ] && echo "Agent Only" || ([ "$NO_PROXMOX" = true ] && echo "Standalone" || echo "Full"))"
 echo "Binary:        $INSTALL_DIR/op-dbus"
 echo "Config:        $CONFIG_DIR/state.json"
-echo "Netmaker:      $CONFIG_DIR/netmaker.env"
+if [ "$NO_PROXMOX" = false ]; then
+    echo "Netmaker:      $CONFIG_DIR/netmaker.env"
+fi
+if [ "$AGENT_ONLY" = false ]; then
+    echo "Blockchain:    $BLOCKCHAIN_DIR"
+fi
 echo "Service:       $SYSTEMD_DIR/op-dbus.service"
 echo ""
 echo -e "${YELLOW}System Status:${NC}"
@@ -590,18 +655,34 @@ if [ -f "$STATE_FILE" ]; then
 fi
 echo ""
 echo -e "${YELLOW}Next Steps:${NC}"
-echo "1. Add netmaker token: nano $CONFIG_DIR/netmaker.env"
-echo "2. Review state file:  nano $STATE_FILE"
-echo "3. Test query:         op-dbus query"
-echo "4. Test diff:          op-dbus diff $STATE_FILE"
-echo "5. Test apply (safe):  op-dbus apply $STATE_FILE"
-echo "6. Enable service:     systemctl enable op-dbus"
-echo "7. Start service:      systemctl start op-dbus"
-echo "8. Check status:       systemctl status op-dbus"
-echo "9. View logs:          journalctl -u op-dbus -f"
-echo ""
-echo -e "${YELLOW}Container Setup:${NC}"
-echo "For netmaker-enabled containers, add to state.json:"
+STEP=1
+if [ "$NO_PROXMOX" = false ]; then
+    echo "$STEP. Add netmaker token: nano $CONFIG_DIR/netmaker.env"
+    STEP=$((STEP + 1))
+fi
+echo "$STEP. Review state file:  nano $STATE_FILE"
+STEP=$((STEP + 1))
+echo "$STEP. Test query:         op-dbus query"
+STEP=$((STEP + 1))
+echo "$STEP. Test diff:          op-dbus diff $STATE_FILE"
+STEP=$((STEP + 1))
+echo "$STEP. Test apply (safe):  op-dbus apply $STATE_FILE"
+STEP=$((STEP + 1))
+echo "$STEP. Enable service:     systemctl enable op-dbus"
+STEP=$((STEP + 1))
+echo "$STEP. Start service:      systemctl start op-dbus"
+STEP=$((STEP + 1))
+echo "$STEP. Check status:       systemctl status op-dbus"
+STEP=$((STEP + 1))
+echo "$STEP. View logs:          journalctl -u op-dbus -f"
+
+if [ "$NO_PROXMOX" = false ]; then
+    echo ""
+    echo -e "${YELLOW}Container Setup:${NC}"
+    echo "For netmaker-enabled containers, add to state.json:"
+fi
+
+if [ "$NO_PROXMOX" = false ]; then
 echo '  "lxc": {'
 echo '    "containers": [{'
 echo '      "id": "100",'
@@ -615,6 +696,8 @@ echo '  }'
 echo ""
 echo "For traditional bridge containers:"
 echo '  "properties": { "network_type": "bridge" }'
+fi  # End container setup instructions
+
 echo ""
 echo -e "${YELLOW}⚠  WARNING:${NC} Test manually before enabling service!"
 echo -e "${YELLOW}⚠  WARNING:${NC} Network changes can cause 20min downtime on failure!"

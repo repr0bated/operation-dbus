@@ -2,23 +2,46 @@
 
 Declarative system state management via native protocols.
 
+## Deployment Modes
+
+op-dbus supports three deployment modes:
+
+1. **Full (Proxmox)** - Default: D-Bus + Blockchain + LXC/Proxmox + Netmaker
+2. **Standalone (Enterprise)** - `--no-proxmox`: D-Bus + Blockchain (no containers)
+3. **Agent Only** - `--agent-only`: D-Bus plugins only (minimal)
+
+See **[ENTERPRISE-DEPLOYMENT.md](ENTERPRISE-DEPLOYMENT.md)** for detailed enterprise deployment guide.
+
 ## Quick Start
 
 ### Installation
 
-**Automatic Installation with Introspection:**
+**Full Installation (Proxmox Mode):**
 ```bash
 cargo build --release
 sudo ./install.sh
+```
+
+**Enterprise Standalone (No Proxmox/Containers):**
+```bash
+cargo build --release
+sudo ./install.sh --no-proxmox
+```
+
+**Minimal Agent (D-Bus Only):**
+```bash
+cargo build --release
+sudo ./install.sh --agent-only
 ```
 
 The install script will:
 1. Install the binary to `/usr/local/bin/op-dbus`
 2. **Automatically detect** your current OVS bridges, IP addresses, and gateway
 3. Generate `/etc/op-dbus/state.json` with your detected configuration
-4. Create `mesh` bridge for netmaker containers
-5. **Auto-detect and add** netmaker interfaces to mesh bridge (if joined)
-6. Create and configure the systemd service
+4. Create blockchain storage (unless `--agent-only`)
+5. Create `mesh` bridge for netmaker containers (Proxmox mode only)
+6. **Auto-detect and add** netmaker interfaces to mesh bridge (Proxmox mode only)
+7. Create and configure the systemd service
 
 **Test what will be detected:**
 ```bash
