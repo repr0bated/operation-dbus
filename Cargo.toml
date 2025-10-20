@@ -44,6 +44,9 @@ md5 = "0.7"
 # Time
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
+# System info
+gethostname = "0.5"
+
 [[bin]]
 name = "op-dbus"
 path = "src/main.rs"

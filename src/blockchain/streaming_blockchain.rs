@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
-use crate::plugin_footprint::PluginFootprint;
+use crate::blockchain::PluginFootprint;
 use tokio::time::{sleep, Duration};
 
 #[derive(Debug, Serialize, Deserialize)]
