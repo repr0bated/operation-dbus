@@ -4,7 +4,26 @@ Declarative system state management via native protocols.
 
 ## Quick Start
 
-### Build
+### Installation
+
+**Automatic Installation with Introspection:**
+```bash
+cargo build --release
+sudo ./install.sh
+```
+
+The install script will:
+1. Install the binary to `/usr/local/bin/op-dbus`
+2. **Automatically detect** your current OVS bridges, IP addresses, and gateway
+3. Generate `/etc/op-dbus/state.json` with your detected configuration
+4. Create and configure the systemd service
+
+**Test what will be detected:**
+```bash
+sudo ./test-introspection.sh
+```
+
+### Manual Build
 ```bash
 cargo build --release
 # Binary: target/release/op-dbus
