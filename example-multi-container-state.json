@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "plugins": {
+    "lxc": {
+      "containers": [
+        {
+          "id": "100",
+          "veth": "vi100",
+          "bridge": "mesh",
+          "properties": {
+            "network_type": "netmaker",
+            "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst",
+            "hostname": "netmaker-node-1",
+            "memory": "1024",
+            "cores": "2"
+          }
+        },
+        {
+          "id": "101",
+          "veth": "vi101",
+          "bridge": "vmbr0",
+          "properties": {
+            "network_type": "bridge",
+            "template": "local-btrfs:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst",
+            "hostname": "web-server",
+            "memory": "2048",
+            "cores": "4"
+          }
+        },
+        {
+          "id": "102",
+          "veth": "vi102",
+          "bridge": "mesh",
+          "properties": {
+            "network_type": "netmaker",
+            "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst",
+            "hostname": "netmaker-node-2",
+            "memory": "512",
+            "cores": "1"
+          }
+        }
+      ]
+    },
+    "net": {
+      "interfaces": [
+        {
+          "name": "vmbr0",
+          "type": "ovs-bridge",
+          "ports": ["eno1"],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [{
+              "ip": "192.168.1.100",
+              "prefix": 24
+            }],
+            "gateway": "192.168.1.1"
+          }
+        },
+        {
+          "name": "mesh",
+          "type": "ovs-bridge",
+          "ports": []
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "active_state": "active",
+          "enabled": true
+        }
+      }
+    }
+  }
+}
+

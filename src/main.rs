@@ -45,6 +45,9 @@ enum Commands {
         state_file: PathBuf,
         #[arg(long)]
         dry_run: bool,
+        /// Only apply to specific plugin (e.g., lxc, net, systemd)
+        #[arg(short, long)]
+        plugin: Option<String>,
     },
 
     /// Query current system state
@@ -73,6 +76,15 @@ enum Commands {
     /// Container management (LXC)
     #[command(subcommand)]
     Container(ContainerCommands),
+
+    /// Apply state to a specific container only
+    ApplyContainer {
+        /// Container ID (e.g., 100, 101)
+        container_id: String,
+        /// Container state file or use main state file
+        #[arg(short, long)]
+        state_file: Option<PathBuf>,
+    },
 
     /// Initialize configuration file
     Init {
@@ -232,6 +244,22 @@ async fn apply_state_from_file(
     Ok(())
 }
 
+async fn apply_state_from_file_single_plugin(
+    state_manager: &state::StateManager,
+    state_file: &std::path::Path,
+    plugin_name: &str,
+) -> Result<()> {
+    info!("Loading desired state from: {}", state_file.display());
+    let desired_state = state_manager.load_desired_state(state_file).await?;
+    let report = state_manager
+        .apply_state_single_plugin(desired_state, plugin_name)
+        .await?;
+    if report.success {
+        info!("Successfully applied state for plugin: {}", plugin_name);
+    }
+    Ok(())
+}
+
 async fn setup_dhcp_server() -> Result<()> {
     info!("Setting up DHCP server...");
 
@@ -354,14 +382,29 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Apply { state_file, dry_run } => {
+        Commands::Apply { state_file, dry_run, plugin } => {
             if dry_run {
                 info!("DRY RUN: Showing what would be applied");
                 let desired = state_manager.load_desired_state(&state_file).await?;
                 let diffs = state_manager.show_diff(desired).await?;
-                println!("{}", serde_json::to_string_pretty(&diffs)?);
+                
+                // Filter by plugin if specified
+                let filtered_diffs: Vec<_> = if let Some(ref p) = plugin {
+                    diffs.into_iter().filter(|d| &d.plugin == p).collect()
+                } else {
+                    diffs
+                };
+                
+                println!("{}", serde_json::to_string_pretty(&filtered_diffs)?);
             } else {
-                apply_state_from_file(&state_manager, &state_file).await?;
+                if let Some(plugin_name) = plugin {
+                    info!("Applying state for plugin: {}", plugin_name);
+                    apply_state_from_file_single_plugin(&state_manager, &state_file, &plugin_name).await?;
+                } else {
+                    info!("⚠️  WARNING: Applying state to ALL plugins system-wide");
+                    info!("⚠️  Consider using --plugin flag to limit scope");
+                    apply_state_from_file(&state_manager, &state_file).await?;
+                }
             }
             Ok(())
         }
@@ -397,6 +440,42 @@ async fn main() -> Result<()> {
         Commands::Blockchain(cmd) => handle_blockchain_command(cmd).await,
 
         Commands::Container(cmd) => handle_container_command(cmd, &state_manager).await,
+
+        Commands::ApplyContainer { container_id, state_file } => {
+            info!("Applying state for container: {}", container_id);
+            
+            let state_path = state_file.unwrap_or_else(|| PathBuf::from("/etc/op-dbus/state.json"));
+            let desired_state = state_manager.load_desired_state(&state_path).await?;
+            
+            // Find the container in the desired state
+            if let Some(lxc_state) = desired_state.plugins.get("lxc") {
+                let lxc_config: crate::state::plugins::lxc::LxcState = serde_json::from_value(lxc_state.clone())?;
+                
+                if let Some(container) = lxc_config.containers.iter().find(|c| c.id == container_id) {
+                    // Get LXC plugin and apply single container
+                    let lxc_plugin = crate::state::plugins::LxcPlugin::new();
+                    let result = lxc_plugin.apply_container_state(container).await?;
+                    
+                    if result.success {
+                        println!("✓ Container {} applied successfully", container_id);
+                        for change in &result.changes_applied {
+                            println!("  - {}", change);
+                        }
+                    } else {
+                        println!("✗ Container {} apply failed", container_id);
+                        for error in &result.errors {
+                            println!("  - ERROR: {}", error);
+                        }
+                    }
+                } else {
+                    return Err(anyhow::anyhow!("Container {} not found in state file", container_id));
+                }
+            } else {
+                return Err(anyhow::anyhow!("No LXC plugin configuration in state file"));
+            }
+            
+            Ok(())
+        }
 
         Commands::Init { introspect, output } => {
             info!("Initializing configuration");

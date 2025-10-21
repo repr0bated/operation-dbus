@@ -39,6 +39,44 @@ impl LxcPlugin {
         Self
     }
 
+    /// Apply state for a single container
+    pub async fn apply_container_state(&self, container: &ContainerInfo) -> Result<ApplyResult> {
+        let mut changes_applied = Vec::new();
+        let mut errors = Vec::new();
+
+        // Check if container exists
+        let current_containers = self.discover_from_ovs().await?;
+        let exists = current_containers.iter().any(|c| c.id == container.id);
+
+        if !exists {
+            // Create container
+            match Self::create_container(container).await {
+                Ok(_) => {
+                    changes_applied.push(format!("Created container {}", container.id));
+                    
+                    // Start it
+                    if let Err(e) = Self::start_container(&container.id).await {
+                        errors.push(format!("Failed to start container {}: {}", container.id, e));
+                    } else {
+                        changes_applied.push(format!("Started container {}", container.id));
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("Failed to create container {}: {}", container.id, e));
+                }
+            }
+        } else {
+            changes_applied.push(format!("Container {} already exists", container.id));
+        }
+
+        Ok(ApplyResult {
+            success: errors.is_empty(),
+            changes_applied,
+            errors,
+            checkpoint: None,
+        })
+    }
+
     fn is_running(ct_id: &str) -> Option<bool> {
         // Proxmox systemd service path: pve-container@{vmid}.service (cgroup v2)
         let path = format!(

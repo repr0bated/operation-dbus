@@ -315,4 +315,124 @@ impl StateManager {
     pub async fn show_diff(&self, desired: DesiredState) -> Result<Vec<StateDiff>> {
         self.calculate_all_diffs(&desired).await
     }
+
+    /// Apply state for a single plugin only (safer)
+    pub async fn apply_state_single_plugin(
+        &self,
+        desired: DesiredState,
+        plugin_name: &str,
+    ) -> Result<ApplyReport> {
+        let mut checkpoints = Vec::new();
+        let mut results = Vec::new();
+
+        log::info!("Applying state for plugin: {}", plugin_name);
+
+        // Check if plugin exists in desired state
+        let plugin_desired_state = desired
+            .plugins
+            .get(plugin_name)
+            .ok_or_else(|| anyhow!("Plugin '{}' not found in state file", plugin_name))?;
+
+        // Phase 1: Create checkpoint for this plugin
+        log::info!("Phase 1: Creating checkpoint for {}", plugin_name);
+        let checkpoint_opt = {
+            let plugins = self.plugins.read().await;
+            if let Some(plugin) = plugins.get(plugin_name) {
+                match plugin.create_checkpoint().await {
+                    Ok(checkpoint) => Some(checkpoint),
+                    Err(e) => {
+                        log::error!("Failed to create checkpoint for {}: {}", plugin_name, e);
+                        None
+                    }
+                }
+            } else {
+                return Err(anyhow!("Plugin '{}' not registered", plugin_name));
+            }
+        };
+
+        if let Some(checkpoint) = checkpoint_opt {
+            log::info!("Created checkpoint for plugin: {}", plugin_name);
+            checkpoints.push((plugin_name.to_string(), checkpoint));
+        }
+
+        // Phase 2: Calculate diff for this plugin
+        log::info!("Phase 2: Calculating diff for {}", plugin_name);
+        let diff = {
+            let plugins = self.plugins.read().await;
+            if let Some(plugin) = plugins.get(plugin_name) {
+                let current_state = plugin.query_current_state().await?;
+                plugin
+                    .calculate_diff(&current_state, plugin_desired_state)
+                    .await?
+            } else {
+                return Err(anyhow!("Plugin '{}' not registered", plugin_name));
+            }
+        };
+
+        if diff.actions.is_empty() {
+            log::info!("No changes needed for {}", plugin_name);
+            return Ok(ApplyReport {
+                success: true,
+                results,
+                checkpoints,
+            });
+        }
+
+        // Phase 3: Apply changes
+        log::info!("Phase 3: Applying changes for {}", plugin_name);
+        let apply_result = {
+            let plugins = self.plugins.read().await;
+            if let Some(plugin) = plugins.get(plugin_name) {
+                plugin.apply_state(&diff).await
+            } else {
+                return Err(anyhow!("Plugin '{}' not registered", plugin_name));
+            }
+        };
+
+        match apply_result {
+            Ok(result) => {
+                log::info!(
+                    "Applied state for {}: success={}, changes={:?}",
+                    plugin_name,
+                    result.success,
+                    result.changes_applied
+                );
+
+                // Record footprint
+                let data = serde_json::json!({
+                    "plugin": plugin_name,
+                    "actions": diff.actions,
+                    "metadata": diff.metadata,
+                    "result": {
+                        "success": result.success,
+                        "changes": result.changes_applied,
+                        "errors": result.errors,
+                    }
+                });
+                self.record_footprint(plugin_name, "apply_single", data);
+
+                results.push(result);
+            }
+            Err(e) => {
+                log::error!("Failed to apply state for {}: {}", plugin_name, e);
+
+                // Record error footprint
+                let data = serde_json::json!({
+                    "plugin": plugin_name,
+                    "actions": diff.actions,
+                    "error": e.to_string(),
+                });
+                self.record_footprint(plugin_name, "apply_error", data);
+
+                return Err(e);
+            }
+        }
+
+        log::info!("State apply completed for plugin: {}", plugin_name);
+        Ok(ApplyReport {
+            success: true,
+            results,
+            checkpoints,
+        })
+    }
 }
