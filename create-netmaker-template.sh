@@ -106,12 +106,12 @@ pct exec $TEMP_CT_ID -- apt-get install -y \
 
 # Install netclient (direct binary method)
 echo "Installing netclient..."
-pct exec $TEMP_CT_ID -- bash -c 'wget -O /tmp/netclient https://fileserver.netmaker.io/releases/download/v1.1.0/netclient-linux-amd64'
+pct exec $TEMP_CT_ID -- wget -O /tmp/netclient https://fileserver.netmaker.io/releases/download/v1.1.0/netclient-linux-amd64
 pct exec $TEMP_CT_ID -- chmod +x /tmp/netclient
 pct exec $TEMP_CT_ID -- /tmp/netclient install
 
 # Verify netclient installation
-if pct exec $TEMP_CT_ID -- which netclient >/dev/null; then
+if pct exec $TEMP_CT_ID -- which netclient >/dev/null 2>&1; then
     echo -e "${GREEN}✓${NC} netclient installed successfully"
     NETCLIENT_VERSION=$(pct exec $TEMP_CT_ID -- netclient --version 2>&1 | head -1)
     echo "  Version: $NETCLIENT_VERSION"
@@ -122,15 +122,78 @@ else
     exit 1
 fi
 
-# Optionally test netclient join (will be cleaned before templating)
-if [ -n "$NETMAKER_TOKEN" ]; then
-    echo "Testing netclient join with provided token (will be cleaned before templating)..."
-    pct exec $TEMP_CT_ID -- netclient join -t "$NETMAKER_TOKEN" || echo -e "${YELLOW}⚠${NC}  Join test failed (will be cleaned anyway)"
-else
-    echo -e "${YELLOW}⚠${NC}  NETMAKER_TOKEN not set, skipping join test"
-    echo "To test: export NETMAKER_TOKEN=your-token before running this script"
-fi
 echo -e "${GREEN}✓${NC} netclient installation complete"
+
+# Install first-boot script to join netmaker
+echo "Installing first-boot netmaker join script..."
+pct exec $TEMP_CT_ID -- tee /usr/local/bin/netmaker-first-boot.sh > /dev/null <<'FIRSTBOOT_EOF'
+#!/bin/bash
+# First boot script to join netmaker network
+# Runs once on first boot, then disables itself
+
+NETMAKER_TOKEN_FILE="/etc/netmaker-token"
+MARKER_FILE="/var/lib/netmaker-joined"
+
+# Exit if already joined
+if [ -f "$MARKER_FILE" ]; then
+    exit 0
+fi
+
+# Wait for network to be ready
+sleep 5
+
+# Check if token file exists (injected by op-dbus on container creation)
+if [ ! -f "$NETMAKER_TOKEN_FILE" ]; then
+    echo "No netmaker token found at $NETMAKER_TOKEN_FILE"
+    exit 0
+fi
+
+# Read token
+NETMAKER_TOKEN=$(cat "$NETMAKER_TOKEN_FILE")
+
+if [ -z "$NETMAKER_TOKEN" ]; then
+    echo "Empty netmaker token"
+    exit 0
+fi
+
+# Join netmaker
+echo "Joining netmaker network..."
+if netclient join -t "$NETMAKER_TOKEN"; then
+    echo "Successfully joined netmaker network"
+    touch "$MARKER_FILE"
+    
+    # Remove token file for security
+    rm -f "$NETMAKER_TOKEN_FILE"
+else
+    echo "Failed to join netmaker network"
+    exit 1
+fi
+FIRSTBOOT_EOF
+
+pct exec $TEMP_CT_ID -- chmod +x /usr/local/bin/netmaker-first-boot.sh
+
+# Create systemd service for first boot
+pct exec $TEMP_CT_ID -- tee /etc/systemd/system/netmaker-first-boot.service > /dev/null <<'SERVICE_EOF'
+[Unit]
+Description=Netmaker First Boot Join
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/netmaker-joined
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/netmaker-first-boot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF
+
+# Enable the service
+pct exec $TEMP_CT_ID -- systemctl enable netmaker-first-boot.service
+
+echo -e "${GREEN}✓${NC} First-boot join script installed and enabled"
+echo -e "${YELLOW}Note:${NC} Containers will auto-join netmaker on first boot when token is provided"
 
 # Clean up
 echo "Cleaning up container..."

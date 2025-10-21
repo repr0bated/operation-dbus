@@ -211,15 +211,29 @@ impl LxcPlugin {
             bridge
         );
 
-        // Add hook to container config for netmaker auto-join on first boot
-        let container_conf = format!("/etc/pve/lxc/{}.conf", container.id);
-        let hook_line = "lxc.hook.start-host: /usr/share/lxc/hooks/netmaker-join\n";
-        
-        if let Ok(mut conf_content) = tokio::fs::read_to_string(&container_conf).await {
-            if !conf_content.contains("lxc.hook.start-host") {
-                conf_content.push_str(hook_line);
-                if tokio::fs::write(&container_conf, conf_content).await.is_ok() {
-                    log::info!("Added netmaker hook to container {} config", container.id);
+        // Inject netmaker token for first-boot join (if netmaker network type)
+        let network_type = container
+            .properties
+            .as_ref()
+            .and_then(|p| p.get("network_type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("bridge");
+
+        if network_type == "netmaker" {
+            // Read token from host
+            if let Ok(token) = tokio::fs::read_to_string("/etc/op-dbus/netmaker.env").await {
+                // Parse NETMAKER_TOKEN=xxx from env file
+                for line in token.lines() {
+                    if let Some(token_value) = line.strip_prefix("NETMAKER_TOKEN=") {
+                        let token_clean = token_value.trim_matches('"').trim();
+                        
+                        // Write token to container's rootfs
+                        let rootfs_path = format!("/var/lib/lxc/{}/rootfs/etc/netmaker-token", container.id);
+                        if tokio::fs::write(&rootfs_path, token_clean).await.is_ok() {
+                            log::info!("Injected netmaker token into container {}", container.id);
+                        }
+                        break;
+                    }
                 }
             }
         }
