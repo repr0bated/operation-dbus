@@ -104,10 +104,11 @@ pct exec $TEMP_CT_ID -- apt-get install -y \
     jq \
     systemd
 
-# Install netclient
+# Install netclient (modern method for Debian 13+)
 echo "Installing netclient..."
-pct exec $TEMP_CT_ID -- bash -c 'curl -sL https://apt.netmaker.org/gpg.key | apt-key add -'
-pct exec $TEMP_CT_ID -- bash -c 'curl -sL https://apt.netmaker.org/debian.deb.txt | tee /etc/apt/sources.list.d/netmaker.list'
+echo "Adding netmaker repository with modern GPG key handling..."
+pct exec $TEMP_CT_ID -- bash -c 'curl -fsSL https://apt.netmaker.org/gpg.key | gpg --dearmor -o /usr/share/keyrings/netmaker-archive-keyring.gpg'
+pct exec $TEMP_CT_ID -- bash -c 'echo "deb [signed-by=/usr/share/keyrings/netmaker-archive-keyring.gpg] https://apt.netmaker.org/debian stable main" | tee /etc/apt/sources.list.d/netmaker.list'
 pct exec $TEMP_CT_ID -- apt-get update
 pct exec $TEMP_CT_ID -- apt-get install -y netclient
 
