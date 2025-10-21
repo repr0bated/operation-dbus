@@ -377,6 +377,34 @@ else
     echo -e "${GREEN}✓${NC} State file already exists: $STATE_FILE"
 fi
 
+# Step 4.5: Create LXC template with netclient (Proxmox mode only)
+if [ "$NO_PROXMOX" = false ]; then
+    echo "Checking for netmaker-ready LXC template..."
+    
+    TEMPLATE_NAME="debian-13-netmaker_custom.tar.zst"
+    TEMPLATE_PATH="/var/lib/pve/local-btrfs/template/cache/$TEMPLATE_NAME"
+    
+    if [ -f "$TEMPLATE_PATH" ]; then
+        echo -e "${GREEN}✓${NC} Template already exists: $TEMPLATE_NAME"
+    else
+        echo -e "${YELLOW}⚠${NC}  Template not found, creating it now..."
+        
+        # Run template creation script inline
+        if [ -f "./create-netmaker-template.sh" ]; then
+            echo "Running create-netmaker-template.sh..."
+            bash ./create-netmaker-template.sh || {
+                echo -e "${YELLOW}⚠${NC}  Template creation failed, continuing without it"
+                echo -e "${YELLOW}⚠${NC}  You can create it later with: sudo ./create-netmaker-template.sh"
+            }
+        else
+            echo -e "${YELLOW}⚠${NC}  create-netmaker-template.sh not found"
+            echo -e "${YELLOW}⚠${NC}  Create template manually or containers won't have netclient"
+        fi
+    fi
+else
+    echo -e "${YELLOW}Skipping LXC template creation (not in Proxmox mode)${NC}"
+fi
+
 # Step 5: Create mesh bridge for netmaker containers (Proxmox mode only)
 if [ "$NO_PROXMOX" = false ]; then
     echo "Creating mesh bridge for netmaker containers..."
