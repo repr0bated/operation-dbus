@@ -19,8 +19,9 @@ fi
 
 # Configuration
 TEMP_CT_ID=9999
-BASE_TEMPLATE="debian-11-standard_11.7-1_amd64.tar.zst"
-OUTPUT_TEMPLATE="debian-11-netmaker_custom.tar.zst"
+BASE_TEMPLATE="debian-13-standard_13.1-2_amd64.tar.zst"
+BASE_TEMPLATE_URL="http://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst"
+OUTPUT_TEMPLATE="debian-13-netmaker_custom.tar.zst"
 STORAGE="local-btrfs"
 
 echo "Configuration:"
@@ -30,13 +31,31 @@ echo "  Temp container ID: $TEMP_CT_ID"
 echo ""
 
 # Check if base template exists
-if ! pveam list $STORAGE | grep -q "$BASE_TEMPLATE"; then
-    echo -e "${YELLOW}⚠${NC}  Base template not found, downloading..."
-    pveam update
-    pveam download $STORAGE $BASE_TEMPLATE
+TEMPLATE_PATH="/var/lib/vz/template/cache/$BASE_TEMPLATE"
+if [ ! -f "$TEMPLATE_PATH" ]; then
+    echo -e "${YELLOW}⚠${NC}  Base template not found, downloading from Proxmox CDN..."
+    echo "Downloading: $BASE_TEMPLATE_URL"
+    
+    # Create template directory if needed
+    mkdir -p /var/lib/vz/template/cache
+    
+    # Download template directly
+    if curl -fL "$BASE_TEMPLATE_URL" -o "$TEMPLATE_PATH"; then
+        echo -e "${GREEN}✓${NC} Downloaded base template"
+    else
+        echo -e "${RED}✗${NC} Failed to download template"
+        echo "Trying with pveam as fallback..."
+        pveam update
+        pveam download $STORAGE $BASE_TEMPLATE || {
+            echo -e "${RED}✗${NC} Failed to download template via pveam"
+            exit 1
+        }
+    fi
+else
+    echo -e "${GREEN}✓${NC} Base template already available"
 fi
 
-echo -e "${GREEN}✓${NC} Base template available"
+echo -e "${GREEN}✓${NC} Base template ready: $TEMPLATE_PATH"
 
 # Check if temp container already exists
 if pct status $TEMP_CT_ID >/dev/null 2>&1; then

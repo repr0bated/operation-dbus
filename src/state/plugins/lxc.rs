@@ -172,7 +172,7 @@ impl LxcPlugin {
             .as_ref()
             .and_then(|p| p.get("template"))
             .and_then(|v| v.as_str())
-            .unwrap_or("local-btrfs:vztmpl/debian-11-netmaker_custom.tar.zst");
+            .unwrap_or("local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst");
 
         log::info!("Using template: {}", template);
 
