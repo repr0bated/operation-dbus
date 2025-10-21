@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use futures::TryStreamExt;
 use netlink_packet_route::address::AddressAttribute;
 use netlink_packet_route::route::RouteAttribute;
-use rtnetlink::{new_connection, Handle, IpVersion};
+use rtnetlink::{new_connection, IpVersion};
 use serde_json::json;
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -37,6 +37,7 @@ pub async fn add_ipv4_address(ifname: &str, ip: &str, prefix: u8) -> Result<()> 
 }
 
 /// Delete IPv4 address from interface
+#[allow(dead_code)]
 pub async fn del_ipv4_address(ifname: &str, ip: &str, prefix: u8) -> Result<()> {
     let (connection, handle, _) = new_connection()?;
     tokio::spawn(connection);
@@ -64,11 +65,8 @@ pub async fn del_ipv4_address(ifname: &str, ip: &str, prefix: u8) -> Result<()> 
         if addr_msg.header.prefix_len == prefix {
             // Check if this is the address we want to delete
             let has_matching_addr = addr_msg.attributes.iter().any(|nla| {
-                if let AddressAttribute::Address(a) = nla {
-                    match a {
-                        IpAddr::V4(v4) => v4.octets().to_vec() == addr.octets().to_vec(),
-                        _ => false,
-                    }
+                if let AddressAttribute::Address(IpAddr::V4(v4)) = nla {
+                    v4.octets().to_vec() == addr.octets().to_vec()
                 } else {
                     false
                 }
@@ -85,6 +83,7 @@ pub async fn del_ipv4_address(ifname: &str, ip: &str, prefix: u8) -> Result<()> 
 }
 
 /// Flush all addresses from interface
+#[allow(dead_code)]
 pub async fn flush_addresses(ifname: &str) -> Result<()> {
     let (connection, handle, _) = new_connection()?;
     tokio::spawn(connection);
@@ -142,6 +141,7 @@ pub async fn link_up(ifname: &str) -> Result<()> {
 }
 
 /// Set link down
+#[allow(dead_code)]
 pub async fn link_down(ifname: &str) -> Result<()> {
     let (connection, handle, _) = new_connection()?;
     tokio::spawn(connection);

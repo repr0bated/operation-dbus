@@ -28,8 +28,12 @@ impl TextEmbedder {
         let model_dir = model_dir.as_ref();
         let level = config.level;
 
-        log::info!("Loading {} model from {:?} with {} execution",
-                   level, model_dir, config.execution_provider);
+        log::info!(
+            "Loading {} model from {:?} with {} execution",
+            level,
+            model_dir,
+            config.execution_provider
+        );
 
         // Load tokenizer
         let tokenizer_path = model_dir.join("tokenizer.json");
@@ -51,20 +55,19 @@ impl TextEmbedder {
             }
             ExecutionProvider::Cuda => {
                 // CUDA GPU execution
-                builder = builder.with_execution_providers([
-                    ort::CUDAExecutionProvider::default()
+                builder =
+                    builder.with_execution_providers([ort::CUDAExecutionProvider::default()
                         .with_device_id(config.gpu_device_id)
-                        .build()
-                ])?;
+                        .build()])?;
                 log::info!("Using CUDA GPU device {}", config.gpu_device_id);
             }
             ExecutionProvider::TensorRT => {
                 // TensorRT GPU execution
-                builder = builder.with_execution_providers([
-                    ort::TensorRTExecutionProvider::default()
-                        .with_device_id(config.gpu_device_id)
-                        .build()
-                ])?;
+                builder =
+                    builder
+                        .with_execution_providers([ort::TensorRTExecutionProvider::default()
+                            .with_device_id(config.gpu_device_id)
+                            .build()])?;
                 log::info!("Using TensorRT GPU device {}", config.gpu_device_id);
             }
             ExecutionProvider::DirectML => {
@@ -74,7 +77,7 @@ impl TextEmbedder {
                     builder = builder.with_execution_providers([
                         ort::DirectMLExecutionProvider::default()
                             .with_device_id(config.gpu_device_id as u32)
-                            .build()
+                            .build(),
                     ])?;
                     log::info!("Using DirectML GPU device {}", config.gpu_device_id);
                 }
@@ -89,7 +92,7 @@ impl TextEmbedder {
                 #[cfg(target_os = "macos")]
                 {
                     builder = builder.with_execution_providers([
-                        ort::CoreMLExecutionProvider::default().build()
+                        ort::CoreMLExecutionProvider::default().build(),
                     ])?;
                     log::info!("Using CoreML");
                 }
@@ -213,6 +216,7 @@ pub struct TextEmbedder;
 
 #[cfg(not(feature = "ml"))]
 impl TextEmbedder {
+    #[allow(dead_code)]
     pub fn load<P>(
         _model_dir: P,
         _level: super::config::VectorizationLevel,
@@ -222,14 +226,17 @@ impl TextEmbedder {
         ))
     }
 
+    #[allow(dead_code)]
     pub fn embed(&self, _text: &str) -> anyhow::Result<Vec<f32>> {
         Err(anyhow::anyhow!("ML feature not enabled"))
     }
 
+    #[allow(dead_code)]
     pub fn embed_batch(&self, _texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
         Err(anyhow::anyhow!("ML feature not enabled"))
     }
 
+    #[allow(dead_code)]
     pub fn dimensions(&self) -> usize {
         0
     }

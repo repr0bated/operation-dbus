@@ -59,11 +59,13 @@ impl OvsdbClient {
     }
 
     /// Get schema for Open_vSwitch database
+    #[allow(dead_code)]
     pub async fn get_schema(&self) -> Result<Value> {
         self.rpc_call("get_schema", json!(["Open_vSwitch"])).await
     }
 
     /// Dump entire Open_vSwitch database: table -> rows (JSON)
+    #[allow(dead_code)]
     pub async fn dump_open_vswitch(&self) -> Result<Value> {
         // Discover tables from schema
         let schema = self.get_schema().await?;

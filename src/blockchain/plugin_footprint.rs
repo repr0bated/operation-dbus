@@ -18,6 +18,7 @@ pub struct PluginFootprint {
 }
 
 impl PluginFootprint {
+    #[allow(dead_code)]
     pub fn new(plugin_id: String, operation: String, metadata: serde_json::Value) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -175,7 +176,7 @@ impl FootprintGenerator {
                 parts.push(format!("data: {}", s));
             }
             _ => {
-                parts.push(format!("data: {}", data.to_string()));
+                parts.push(format!("data: {}", data));
             }
         }
 
@@ -303,6 +304,7 @@ impl FootprintGenerator {
 }
 
 /// Plugin trait with footprint mechanism
+#[allow(dead_code)]
 pub trait FootprintPlugin {
     fn plugin_id(&self) -> &str;
 
@@ -327,12 +329,14 @@ pub trait FootprintPlugin {
 }
 
 /// Network plugin with footprint
+#[allow(dead_code)]
 pub struct NetworkPlugin {
     footprint_gen: FootprintGenerator,
     blockchain_sender: tokio::sync::mpsc::UnboundedSender<PluginFootprint>,
 }
 
 impl NetworkPlugin {
+    #[allow(dead_code)]
     pub fn new(blockchain_sender: tokio::sync::mpsc::UnboundedSender<PluginFootprint>) -> Self {
         Self {
             footprint_gen: FootprintGenerator::new("network"),
@@ -340,6 +344,7 @@ impl NetworkPlugin {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn interface_created(
         &self,
         interface: &str,

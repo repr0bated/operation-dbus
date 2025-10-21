@@ -11,6 +11,7 @@ use zbus::{Connection, Proxy};
 
 /// Base trait for all D-Bus-based state plugins
 /// Provides common functionality for interacting with D-Bus services
+#[allow(dead_code)]
 pub trait DbusStatePluginBase: StatePlugin {
     /// D-Bus service name (e.g., "org.freedesktop.systemd1")
     fn service_name(&self) -> &str;
@@ -230,6 +231,7 @@ pub mod conversion {
     use zbus::zvariant;
 
     /// Convert serde_json::Value to zbus::zvariant::Value
+    #[allow(dead_code)]
     pub fn json_to_zvariant(value: &Value) -> Result<zvariant::Value, anyhow::Error> {
         match value {
             Value::Null => Ok(zvariant::Value::from("")),
@@ -252,6 +254,7 @@ pub mod conversion {
     }
 
     /// Convert zbus::zvariant::Value to serde_json::Value
+    #[allow(dead_code)]
     pub fn zvariant_to_json(value: &zvariant::Value) -> Result<Value, anyhow::Error> {
         // Simplified - full implementation would handle all zvariant types
         match value.value_signature().as_str() {

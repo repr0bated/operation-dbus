@@ -249,21 +249,17 @@ impl StatePlugin for SystemdStatePlugin {
         let mut errors = Vec::new();
 
         for action in &diff.actions {
-            match action {
-                StateAction::Modify { resource, changes } => {
-                    let unit_config: UnitConfig = serde_json::from_value(changes.clone())?;
+            if let StateAction::Modify { resource, changes } = action {
+                let unit_config: UnitConfig = serde_json::from_value(changes.clone())?;
 
-                    match self.apply_unit_config(resource, &unit_config).await {
-                        Ok(_) => {
-                            changes_applied
-                                .push(format!("Applied systemd config for: {}", resource));
-                        }
-                        Err(e) => {
-                            errors.push(format!("Failed to apply config for {}: {}", resource, e));
-                        }
+                match self.apply_unit_config(resource, &unit_config).await {
+                    Ok(_) => {
+                        changes_applied.push(format!("Applied systemd config for: {}", resource));
+                    }
+                    Err(e) => {
+                        errors.push(format!("Failed to apply config for {}: {}", resource, e));
                     }
                 }
-                _ => {}
             }
         }
 

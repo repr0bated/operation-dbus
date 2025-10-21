@@ -36,11 +36,9 @@ impl ModelDownloader {
     }
 
     /// Download model from Hugging Face if not already cached
-    pub async fn ensure_model_available(
-        &self,
-        level: VectorizationLevel,
-    ) -> Result<PathBuf> {
-        let model_name = level.model_name()
+    pub async fn ensure_model_available(&self, level: VectorizationLevel) -> Result<PathBuf> {
+        let model_name = level
+            .model_name()
             .ok_or_else(|| anyhow::anyhow!("No model for level {:?}", level))?;
 
         log::info!("Checking model availability: {}", model_name);
@@ -74,8 +72,10 @@ impl ModelDownloader {
     /// Download model files from Hugging Face
     async fn download_model(&self, model_name: &str, target_dir: &Path) -> Result<()> {
         // Create target directory
-        std::fs::create_dir_all(target_dir)
-            .context(format!("Failed to create model directory: {:?}", target_dir))?;
+        std::fs::create_dir_all(target_dir).context(format!(
+            "Failed to create model directory: {:?}",
+            target_dir
+        ))?;
 
         // Get repo from API
         let repo = self.api.model(model_name.to_string());
@@ -84,8 +84,8 @@ impl ModelDownloader {
         let required_files = vec![
             "model.onnx",
             "tokenizer.json",
-            "tokenizer_config.json",  // Optional but helpful
-            "config.json",             // Optional but helpful
+            "tokenizer_config.json", // Optional but helpful
+            "config.json",           // Optional but helpful
         ];
 
         log::info!("Downloading {} files...", required_files.len());
@@ -98,7 +98,8 @@ impl ModelDownloader {
                 Err(e) => {
                     // Only fail on required files
                     if file_name == "model.onnx" || file_name == "tokenizer.json" {
-                        return Err(e).context(format!("Failed to download required file: {}", file_name));
+                        return Err(e)
+                            .context(format!("Failed to download required file: {}", file_name));
                     } else {
                         log::warn!("  ⚠ Optional file {} not available: {}", file_name, e);
                     }
@@ -118,8 +119,10 @@ impl ModelDownloader {
         target_dir: &Path,
     ) -> Result<()> {
         // Download file (hf-hub handles caching automatically)
-        let file_path = repo.get(file_name).await
-            .context(format!("Failed to download {} from Hugging Face", file_name))?;
+        let file_path = repo.get(file_name).await.context(format!(
+            "Failed to download {} from Hugging Face",
+            file_name
+        ))?;
 
         // Copy to target directory
         let target_path = target_dir.join(file_name);
@@ -141,10 +144,14 @@ pub struct ModelDownloader;
 
 #[cfg(not(feature = "ml"))]
 impl ModelDownloader {
+    #[allow(dead_code)]
     pub fn new<P>(_cache_dir: P) -> anyhow::Result<Self> {
-        Err(anyhow::anyhow!("ML feature not enabled. Rebuild with --features ml"))
+        Err(anyhow::anyhow!(
+            "ML feature not enabled. Rebuild with --features ml"
+        ))
     }
 
+    #[allow(dead_code)]
     pub async fn ensure_model_available(
         &self,
         _level: super::config::VectorizationLevel,

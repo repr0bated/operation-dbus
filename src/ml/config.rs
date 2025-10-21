@@ -3,6 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 /// Vectorization semantic depth levels
+/// Vectorization semantic depth levels.
+///
+/// Examples
+/// ```
+/// use op_dbus::ml::VectorizationLevel;
+/// assert_eq!(VectorizationLevel::Low.dimensions(), 384);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VectorizationLevel {
@@ -17,6 +24,7 @@ pub enum VectorizationLevel {
 }
 
 impl VectorizationLevel {
+    #[allow(dead_code)]
     /// Get model name for Hugging Face
     pub fn model_name(&self) -> Option<&'static str> {
         match self {
@@ -27,6 +35,7 @@ impl VectorizationLevel {
         }
     }
 
+    #[allow(dead_code)]
     /// Get expected embedding dimensionality
     pub fn dimensions(&self) -> usize {
         match self {
@@ -37,6 +46,7 @@ impl VectorizationLevel {
         }
     }
 
+    #[allow(dead_code)]
     /// Get approximate model size in MB
     pub fn model_size_mb(&self) -> usize {
         match self {
@@ -47,6 +57,7 @@ impl VectorizationLevel {
         }
     }
 
+    #[allow(dead_code)]
     /// Get expected throughput (sentences/sec on CPU)
     pub fn expected_throughput(&self) -> usize {
         match self {
@@ -93,6 +104,14 @@ impl std::fmt::Display for VectorizationLevel {
 }
 
 /// Execution provider for inference
+/// Execution provider for inference.
+///
+/// Examples
+/// ```
+/// use std::str::FromStr;
+/// use op_dbus::ml::ExecutionProvider;
+/// assert!(matches!(ExecutionProvider::from_str("cpu").unwrap(), ExecutionProvider::Cpu));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionProvider {
@@ -145,6 +164,14 @@ impl std::fmt::Display for ExecutionProvider {
 }
 
 /// Configuration for vectorization system
+/// Configuration for vectorization system.
+///
+/// Examples
+/// ```
+/// use op_dbus::ml::{VectorizationConfig, VectorizationLevel};
+/// let cfg = VectorizationConfig { level: VectorizationLevel::None, ..Default::default() };
+/// assert!(!cfg.is_enabled());
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VectorizationConfig {
     /// Semantic depth level
@@ -185,6 +212,7 @@ impl Default for VectorizationConfig {
 
 impl VectorizationConfig {
     /// Create config from environment variable
+    #[allow(dead_code)]
     pub fn from_env() -> Self {
         let mut config = Self::default();
 
@@ -212,7 +240,10 @@ impl VectorizationConfig {
                 config.execution_provider = provider;
                 log::info!("Execution provider set to: {}", provider);
             } else {
-                log::warn!("Invalid OP_DBUS_EXECUTION_PROVIDER '{}', using CPU", provider_str);
+                log::warn!(
+                    "Invalid OP_DBUS_EXECUTION_PROVIDER '{}', using CPU",
+                    provider_str
+                );
             }
         }
 

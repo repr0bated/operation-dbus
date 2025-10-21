@@ -6,14 +6,13 @@ use crate::blockchain::PluginFootprint;
 use crate::state::plugin::{
     ApplyResult, Checkpoint, PluginCapabilities, StateAction, StateDiff, StatePlugin,
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use log;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, Ipv6Addr};
-use tokio::process::Command as AsyncCommand;
+// use std::net::Ipv4Addr; // not needed currently
 
 /// Network configuration schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,12 +106,14 @@ impl NetStatePlugin {
     }
 
     /// Validate interface configuration
+    #[allow(dead_code)]
     pub fn validate_interface_config(&self, _config: &InterfaceConfig) -> Result<()> {
         // Temporarily disabled for debugging
         Ok(())
     }
 
     /// Check if OVS is available via JSON-RPC
+    #[allow(dead_code)]
     pub async fn check_ovs_available(&self) -> Result<bool> {
         // Try to connect to OVSDB unix socket
         let client = crate::native::OvsdbClient::new();
@@ -139,6 +140,7 @@ impl NetStatePlugin {
     }
 
     /// Parse IPv4 configuration from ip addr show output
+    #[allow(dead_code)]
     fn parse_ipv4_config(output: &str) -> Option<Ipv4Config> {
         let mut ipv4_config = Ipv4Config {
             enabled: false,
@@ -182,6 +184,7 @@ impl NetStatePlugin {
     }
 
     /// Parse CIDR notation like "192.168.1.100/24" into (ip, prefix)
+    #[allow(dead_code)]
     fn parse_cidr(cidr: &str) -> Option<(String, u32)> {
         let parts: Vec<&str> = cidr.split('/').collect();
         if parts.len() == 2 {
@@ -477,7 +480,7 @@ impl NetStatePlugin {
         if let Some(uplink_iface) = uplink {
             block.push_str(&format!("    ovs_ports {}\n", uplink_iface));
         }
-        block.push_str("\n");
+        block.push('\n');
 
         // Physical uplink (if specified)
         if let Some(uplink_iface) = uplink {
@@ -485,7 +488,7 @@ impl NetStatePlugin {
             block.push_str(&format!("iface {} inet manual\n", uplink_iface));
             block.push_str(&format!("    ovs_bridge {}\n", bridge));
             block.push_str("    ovs_type OVSPort\n");
-            block.push_str("\n");
+            block.push('\n');
         }
 
         block.push_str(&end_marker);

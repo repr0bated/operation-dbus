@@ -155,6 +155,7 @@ impl StreamingBlockchain {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn stream_vectors(&self, block_hash: &str, remote: &str) -> Result<()> {
         let vector_snapshot = self
             .base_path
@@ -181,6 +182,7 @@ impl StreamingBlockchain {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn stream_to_replicas(&self, block_hash: &str, replicas: &[String]) -> Result<()> {
         let vector_snapshot = self
             .base_path

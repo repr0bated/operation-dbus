@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Parser)]
 #[command(
@@ -210,7 +210,7 @@ fn init_logging() -> Result<()> {
 
 async fn apply_state_from_file(
     state_manager: &state::StateManager,
-    state_file: &PathBuf,
+    state_file: &std::path::Path,
 ) -> Result<()> {
     info!("Loading desired state from: {}", state_file.display());
     let desired_state = state_manager.load_desired_state(state_file).await?;
@@ -226,7 +226,7 @@ async fn setup_dhcp_server() -> Result<()> {
 
     // Install dnsmasq (lightweight DHCP and DNS server)
     let output = tokio::process::Command::new("apt")
-        .args(&["update"])
+        .args(["update"])
         .output()
         .await?;
 
@@ -235,7 +235,7 @@ async fn setup_dhcp_server() -> Result<()> {
     }
 
     let output = tokio::process::Command::new("apt")
-        .args(&["install", "-y", "dnsmasq"])
+        .args(["install", "-y", "dnsmasq"])
         .output()
         .await?;
 
@@ -256,7 +256,7 @@ dhcp-authoritative
 
     // Enable and start dnsmasq
     let output = tokio::process::Command::new("systemctl")
-        .args(&["enable", "dnsmasq"])
+        .args(["enable", "dnsmasq"])
         .output()
         .await?;
 
@@ -265,7 +265,7 @@ dhcp-authoritative
     }
 
     let output = tokio::process::Command::new("systemctl")
-        .args(&["restart", "dnsmasq"])
+        .args(["restart", "dnsmasq"])
         .output()
         .await?;
 

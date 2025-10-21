@@ -140,7 +140,7 @@ fn rows_from_plugin_value(val: &Value) -> Value {
     match val {
         Value::Object(map) => {
             // find first array member
-            if let Some((k, Value::Array(arr))) =
+            if let Some((_, Value::Array(arr))) =
                 map.iter().find(|(_, v)| matches!(v, Value::Array(_)))
             {
                 let rows: Vec<Value> = arr.clone();

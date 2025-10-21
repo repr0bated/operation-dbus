@@ -1,12 +1,16 @@
 /// Lazy-loading model manager for transformer embeddings
-use anyhow::{Context, Result};
+#[cfg(feature = "ml")]
+use anyhow::Context;
+use anyhow::Result;
 use std::sync::Arc;
 
 #[cfg(feature = "ml")]
 use once_cell::sync::OnceCell;
 
 use super::config::{VectorizationConfig, VectorizationLevel};
+#[cfg(feature = "ml")]
 use super::downloader::ModelDownloader;
+#[cfg(feature = "ml")]
 use super::embedder::TextEmbedder;
 
 /// Global model manager singleton
@@ -57,6 +61,7 @@ impl ModelManager {
     }
 
     /// Get vectorization level
+    #[allow(dead_code)]
     pub fn level(&self) -> VectorizationLevel {
         self.config.level
     }
@@ -86,6 +91,7 @@ impl ModelManager {
 
     /// Embed batch of texts
     #[cfg(feature = "ml")]
+    #[allow(dead_code)]
     pub fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         if !self.is_enabled() {
             return Ok(vec![Vec::new(); texts.len()]);
@@ -97,6 +103,7 @@ impl ModelManager {
 
     /// Embed batch (stub for non-ml)
     #[cfg(not(feature = "ml"))]
+    #[allow(dead_code)]
     pub fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         if self.is_enabled() {
             Err(anyhow::anyhow!(
@@ -114,9 +121,8 @@ impl ModelManager {
             log::info!("Loading {} model on-demand...", self.config.level);
 
             // Use async runtime to download if needed
-            let model_dir = tokio::runtime::Handle::current().block_on(async {
-                self.ensure_model_downloaded().await
-            })?;
+            let model_dir = tokio::runtime::Handle::current()
+                .block_on(async { self.ensure_model_downloaded().await })?;
 
             // Try to load model
             match TextEmbedder::load(&model_dir, &self.config) {
@@ -153,7 +159,9 @@ impl ModelManager {
         let downloader = ModelDownloader::new(&self.config.model_dir)
             .context("Failed to initialize model downloader")?;
 
-        downloader.ensure_model_available(self.config.level).await
+        downloader
+            .ensure_model_available(self.config.level)
+            .await
             .context("Failed to download model from Hugging Face")
     }
 
@@ -184,11 +192,13 @@ impl ModelManager {
     }
 
     /// Get model directory path for current level
+    #[allow(dead_code)]
     fn get_model_path(&self) -> Result<std::path::PathBuf> {
         self.get_model_path_for_level(self.config.level)
     }
 
     /// Get model directory path for specific level
+    #[allow(dead_code)]
     fn get_model_path_for_level(&self, level: VectorizationLevel) -> Result<std::path::PathBuf> {
         let model_name = level
             .model_name()
@@ -200,7 +210,6 @@ impl ModelManager {
 
         Ok(self.config.model_dir.join(dir_name))
     }
-
 }
 
 #[cfg(test)]
