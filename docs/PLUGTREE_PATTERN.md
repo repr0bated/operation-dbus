@@ -81,14 +81,26 @@ impl PlugTree for LxcPlugin {
 }
 ```
 
+## When to Use PlugTree
+
+### ✅ Use PlugTree When:
+- Plugin manages a **collection** of similar resources
+- No native protocol for granular operations
+- Resources need individual lifecycle management
+
+### ❌ Don't Use PlugTree When:
+- Native protocol already provides granular operations (e.g., OVS JSON-RPC)
+- Plugin is read-only introspection (e.g., login1)
+- Single resource, not a collection
+
 ## Use Cases
 
-| Plugin | Pluglet Type | ID Field | Use Case |
-|--------|-------------|----------|----------|
-| **lxc** | container | id | Manage containers individually |
-| **net** | interface | name | Configure bridges one at a time |
-| **systemd** | unit | name | Start/stop services individually |
-| **netmaker** | node | name | Join/leave nodes separately |
+| Plugin | Pluglet Type | ID Field | Should Use PlugTree? | Reason |
+|--------|-------------|----------|---------------------|---------|
+| **lxc** | container | id | ✅ **YES** | No native API, need granular control |
+| **net** | interface | name | ❌ **NO** | OVS JSON-RPC already has add-port/del-br |
+| **systemd** | unit | name | ⚠️ **MAYBE** | D-Bus can control units, but PlugTree could simplify |
+| **login1** | session | id | ❌ **NO** | Read-only introspection only |
 
 ## State File Structure
 
