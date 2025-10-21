@@ -91,6 +91,17 @@ enum Commands {
         verbose: bool,
     },
 
+    /// Introspect system databases
+    Introspect {
+        /// Database to query: ovsdb, nonnet, or all (default: all)
+        #[arg(short, long)]
+        database: Option<String>,
+        
+        /// Pretty print JSON output
+        #[arg(short, long)]
+        pretty: bool,
+    },
+
     /// Cache management
     #[command(subcommand)]
     Cache(CacheCommands),
@@ -420,6 +431,82 @@ async fn main() -> Result<()> {
                     println!("{}", template);
                 }
             }
+            Ok(())
+        }
+
+        Commands::Introspect { database, pretty } => {
+            let db_choice = database.as_deref().unwrap_or("all");
+            let mut results = serde_json::Map::new();
+
+            // Introspect OVSDB (OVS network state)
+            if db_choice == "all" || db_choice == "ovsdb" {
+                info!("Introspecting OVSDB (Open vSwitch)...");
+                let ovsdb_client = crate::native::OvsdbClient::new();
+                
+                match ovsdb_client.list_dbs().await {
+                    Ok(dbs) => {
+                        let mut ovsdb_data = serde_json::Map::new();
+                        ovsdb_data.insert("databases".to_string(), serde_json::json!(dbs));
+                        
+                        // Get Open_vSwitch database content
+                        if dbs.contains(&"Open_vSwitch".to_string()) {
+                            if let Ok(bridges) = ovsdb_client.list_bridges().await {
+                                let mut bridge_details = Vec::new();
+                                for bridge in &bridges {
+                                    if let Ok(info) = ovsdb_client.get_bridge_info(bridge).await {
+                                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&info) {
+                                            bridge_details.push(parsed);
+                                        }
+                                    }
+                                }
+                                ovsdb_data.insert("bridges".to_string(), serde_json::json!(bridge_details));
+                            }
+                        }
+                        
+                        results.insert("ovsdb".to_string(), serde_json::Value::Object(ovsdb_data));
+                    }
+                    Err(e) => {
+                        results.insert("ovsdb".to_string(), serde_json::json!({
+                            "error": format!("Failed to connect: {}", e)
+                        }));
+                    }
+                }
+            }
+
+            // Introspect NonNet DB (Plugin state: systemd, login1, lxc)
+            if db_choice == "all" || db_choice == "nonnet" {
+                info!("Introspecting NonNet DB (Plugin state)...");
+                
+                // Query all plugin states via state manager
+                match state_manager.query_current_state().await {
+                    Ok(current) => {
+                        let mut nonnet_data = serde_json::Map::new();
+                        
+                        // Extract non-network plugins
+                        for (plugin_name, plugin_state) in current.plugins.iter() {
+                            if plugin_name != "net" {
+                                nonnet_data.insert(plugin_name.clone(), plugin_state.clone());
+                            }
+                        }
+                        
+                        results.insert("nonnet".to_string(), serde_json::Value::Object(nonnet_data));
+                    }
+                    Err(e) => {
+                        results.insert("nonnet".to_string(), serde_json::json!({
+                            "error": format!("Failed to query: {}", e)
+                        }));
+                    }
+                }
+            }
+
+            // Output results
+            let output = if pretty {
+                serde_json::to_string_pretty(&results)?
+            } else {
+                serde_json::to_string(&results)?
+            };
+            
+            println!("{}", output);
             Ok(())
         }
 
