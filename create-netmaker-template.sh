@@ -104,13 +104,11 @@ pct exec $TEMP_CT_ID -- apt-get install -y \
     jq \
     systemd
 
-# Install netclient (modern method for Debian 13+)
+# Install netclient (direct binary method)
 echo "Installing netclient..."
-echo "Adding netmaker repository with modern GPG key handling..."
-pct exec $TEMP_CT_ID -- bash -c 'curl -fsSL https://apt.netmaker.org/gpg.key | gpg --dearmor -o /usr/share/keyrings/netmaker-archive-keyring.gpg'
-pct exec $TEMP_CT_ID -- bash -c 'echo "deb [signed-by=/usr/share/keyrings/netmaker-archive-keyring.gpg] https://apt.netmaker.org/debian stable main" | tee /etc/apt/sources.list.d/netmaker.list'
-pct exec $TEMP_CT_ID -- apt-get update
-pct exec $TEMP_CT_ID -- apt-get install -y netclient
+pct exec $TEMP_CT_ID -- bash -c 'wget -O /tmp/netclient https://fileserver.netmaker.io/releases/download/v1.1.0/netclient-linux-amd64'
+pct exec $TEMP_CT_ID -- chmod +x /tmp/netclient
+pct exec $TEMP_CT_ID -- /tmp/netclient install
 
 # Verify netclient installation
 if pct exec $TEMP_CT_ID -- which netclient >/dev/null; then
@@ -123,6 +121,12 @@ else
     pct destroy $TEMP_CT_ID
     exit 1
 fi
+
+# Join netmaker to verify installation (will be cleaned before templating)
+echo "Testing netclient join (will be cleaned before templating)..."
+NETMAKER_TOKEN="eyJzZXJ2ZXIiOiJhcGkuZ2hvc3RicmlkZ2UudGVjaCIsInZhbHVlIjoiQjJHTVlQQkw1SlVHSTJTNTQ2QVhZRlQyNzJWVjNITkQifQ=="
+pct exec $TEMP_CT_ID -- netclient join -t "$NETMAKER_TOKEN" || echo -e "${YELLOW}⚠${NC}  Join test failed (will be cleaned anyway)"
+echo -e "${GREEN}✓${NC} netclient installation complete"
 
 # Clean up
 echo "Cleaning up container..."
