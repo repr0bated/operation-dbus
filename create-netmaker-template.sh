@@ -122,10 +122,14 @@ else
     exit 1
 fi
 
-# Join netmaker to verify installation (will be cleaned before templating)
-echo "Testing netclient join (will be cleaned before templating)..."
-NETMAKER_TOKEN="eyJzZXJ2ZXIiOiJhcGkuZ2hvc3RicmlkZ2UudGVjaCIsInZhbHVlIjoiQjJHTVlQQkw1SlVHSTJTNTQ2QVhZRlQyNzJWVjNITkQifQ=="
-pct exec $TEMP_CT_ID -- netclient join -t "$NETMAKER_TOKEN" || echo -e "${YELLOW}⚠${NC}  Join test failed (will be cleaned anyway)"
+# Optionally test netclient join (will be cleaned before templating)
+if [ -n "$NETMAKER_TOKEN" ]; then
+    echo "Testing netclient join with provided token (will be cleaned before templating)..."
+    pct exec $TEMP_CT_ID -- netclient join -t "$NETMAKER_TOKEN" || echo -e "${YELLOW}⚠${NC}  Join test failed (will be cleaned anyway)"
+else
+    echo -e "${YELLOW}⚠${NC}  NETMAKER_TOKEN not set, skipping join test"
+    echo "To test: export NETMAKER_TOKEN=your-token before running this script"
+fi
 echo -e "${GREEN}✓${NC} netclient installation complete"
 
 # Clean up
