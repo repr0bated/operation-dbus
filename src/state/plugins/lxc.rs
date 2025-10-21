@@ -188,6 +188,8 @@ impl LxcPlugin {
                 "512",
                 "--swap",
                 "512",
+                "--rootfs",
+                "local-btrfs:8",
                 "--net0",
                 &format!("name=eth0,bridge={},firewall=1", bridge),
                 "--unprivileged",

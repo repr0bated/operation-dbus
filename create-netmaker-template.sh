@@ -70,6 +70,7 @@ pct create $TEMP_CT_ID $STORAGE:vztmpl/$BASE_TEMPLATE \
     --hostname netmaker-template \
     --memory 512 \
     --swap 512 \
+    --rootfs $STORAGE:8 \
     --net0 name=eth0,bridge=vmbr0,firewall=1,ip=dhcp \
     --unprivileged 1 \
     --features nesting=1
