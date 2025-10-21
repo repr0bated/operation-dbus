@@ -21,7 +21,7 @@ fi
 TEMP_CT_ID=9999
 BASE_TEMPLATE="debian-11-standard_11.7-1_amd64.tar.zst"
 OUTPUT_TEMPLATE="debian-11-netmaker_custom.tar.zst"
-STORAGE="local"
+STORAGE="local-btrfs"
 
 echo "Configuration:"
 echo "  Base template: $BASE_TEMPLATE"
