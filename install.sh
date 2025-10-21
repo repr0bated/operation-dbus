@@ -412,17 +412,93 @@ fi
 # Step 6: Setup netmaker (one-time HOST enrollment)
 echo "Setting up netmaker..."
 
-# Check if netclient is installed
+# Check if netclient is installed, if not, install it
 NETCLIENT_INSTALLED=false
 if ! command -v netclient >/dev/null 2>&1; then
-    echo -e "${YELLOW}⚠${NC}  netclient not found"
-    echo -e "${YELLOW}⚠${NC}  To enable netmaker mesh networking, install netclient:"
-    echo "     curl -sL https://apt.netmaker.org/gpg.key | sudo apt-key add -"
-    echo "     curl -sL https://apt.netmaker.org/debian.deb.txt | sudo tee /etc/apt/sources.list.d/netmaker.list"
-    echo "     sudo apt update && sudo apt install netclient"
+    echo -e "${YELLOW}⚠${NC}  netclient not found, installing..."
+    
+    # Install netclient via direct binary download
+    wget -O /tmp/netclient https://fileserver.netmaker.io/releases/download/v1.1.0/netclient-linux-amd64
+    chmod +x /tmp/netclient
+    /tmp/netclient install
+    
+    if command -v netclient >/dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} netclient installed successfully"
+        NETCLIENT_INSTALLED=true
+    else
+        echo -e "${RED}✗${NC} netclient installation failed"
+        NETCLIENT_INSTALLED=false
+    fi
 else
-    echo -e "${GREEN}✓${NC} netclient found at $(which netclient)"
+    echo -e "${GREEN}✓${NC} netclient already installed at $(which netclient)"
     NETCLIENT_INSTALLED=true
+fi
+
+# Install first-boot systemd service for netmaker join
+if [ "$NETCLIENT_INSTALLED" = true ]; then
+    echo "Installing first-boot netmaker join service..."
+    
+    cat > /usr/local/bin/netmaker-first-boot.sh <<'FIRSTBOOT_EOF'
+#!/bin/bash
+# First boot script to join netmaker network on host
+# Runs once on first boot, then disables itself
+
+NETMAKER_TOKEN_FILE="/etc/op-dbus/netmaker.env"
+MARKER_FILE="/var/lib/op-dbus/netmaker-joined"
+
+# Exit if already joined
+if [ -f "$MARKER_FILE" ]; then
+    exit 0
+fi
+
+# Wait for network
+sleep 5
+
+# Read token from env file
+if [ ! -f "$NETMAKER_TOKEN_FILE" ]; then
+    echo "No netmaker env file found"
+    exit 0
+fi
+
+source "$NETMAKER_TOKEN_FILE"
+
+if [ -z "$NETMAKER_TOKEN" ]; then
+    echo "NETMAKER_TOKEN not set"
+    exit 0
+fi
+
+# Join netmaker
+echo "Joining netmaker network..."
+if netclient join -t "$NETMAKER_TOKEN"; then
+    echo "Successfully joined netmaker network"
+    mkdir -p /var/lib/op-dbus
+    touch "$MARKER_FILE"
+else
+    echo "Failed to join netmaker network"
+    exit 1
+fi
+FIRSTBOOT_EOF
+    
+    chmod +x /usr/local/bin/netmaker-first-boot.sh
+    
+    cat > /etc/systemd/system/netmaker-first-boot.service <<'SERVICE_EOF'
+[Unit]
+Description=Netmaker First Boot Join (Host)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/op-dbus/netmaker-joined
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/netmaker-first-boot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF
+    
+    systemctl enable netmaker-first-boot.service
+    echo -e "${GREEN}✓${NC} First-boot netmaker service installed and enabled"
 fi
 
 # Create netmaker environment file for join token
