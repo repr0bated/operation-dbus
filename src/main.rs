@@ -7,6 +7,7 @@ mod ml;
 mod native;
 mod nonnet_db;
 mod state;
+mod webui;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -117,6 +118,17 @@ enum Commands {
     /// Cache management
     #[command(subcommand)]
     Cache(CacheCommands),
+
+    /// Start web UI server
+    Serve {
+        /// Bind address
+        #[arg(long, default_value = "0.0.0.0")]
+        bind: String,
+        
+        /// Port
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+    },
 }
 
 #[derive(Subcommand)]
@@ -640,6 +652,18 @@ async fn main() -> Result<()> {
         }
 
         Commands::Cache(cmd) => handle_cache_command(cmd).await,
+
+        Commands::Serve { bind, port } => {
+            info!("Starting web UI server on {}:{}", bind, port);
+            
+            let config = crate::webui::WebConfig {
+                bind_addr: bind,
+                port,
+            };
+            
+            crate::webui::start_web_server(state_manager, config).await?;
+            Ok(())
+        }
     }
 }
 

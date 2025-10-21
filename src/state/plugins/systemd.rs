@@ -4,6 +4,7 @@
 use crate::state::plugin::{
     ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin,
 };
+use crate::state::plugtree::PlugTree;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,10 @@ pub struct UnitConfig {
     /// Should unit be enabled at boot
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+
+    /// Should unit be masked (prevents starting)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub masked: Option<bool>,
 
     /// Additional D-Bus properties (dynamic)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,6 +99,7 @@ impl SystemdStatePlugin {
         Ok(UnitConfig {
             active_state: Some(active_state),
             enabled,
+            masked: None, // TODO: Query mask state
             properties: None,
         })
     }
@@ -162,6 +168,24 @@ impl SystemdStatePlugin {
 
     /// Apply desired unit configuration
     async fn apply_unit_config(&self, unit_name: &str, config: &UnitConfig) -> Result<()> {
+        // Apply masked state first (prevents other operations)
+        if let Some(desired_masked) = config.masked {
+            // Check current mask state via GetUnitFileState
+            let proxy = self.connect_systemd().await?;
+            let state: String = proxy
+                .call("GetUnitFileState", &(unit_name,))
+                .await
+                .unwrap_or_else(|_| "unknown".to_string());
+
+            let currently_masked = state == "masked";
+
+            if desired_masked && !currently_masked {
+                self.mask_unit(unit_name).await?;
+            } else if !desired_masked && currently_masked {
+                self.unmask_unit(unit_name).await?;
+            }
+        }
+
         // Apply active state
         if let Some(ref desired_state) = config.active_state {
             let current = self.query_unit(unit_name).await?;
@@ -195,6 +219,93 @@ impl SystemdStatePlugin {
 impl Default for SystemdStatePlugin {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl SystemdStatePlugin {
+    /// Apply state to a single unit
+    pub async fn apply_unit(&self, unit_name: &str, unit_config: &UnitConfig) -> Result<ApplyResult> {
+        let mut changes_applied = Vec::new();
+        let mut errors = Vec::new();
+
+        match self.apply_unit_config(unit_name, unit_config).await {
+            Ok(_) => {
+                changes_applied.push(format!("Applied config for unit: {}", unit_name));
+            }
+            Err(e) => {
+                errors.push(format!("Failed to apply unit {}: {}", unit_name, e));
+            }
+        }
+
+        Ok(ApplyResult {
+            success: errors.is_empty(),
+            changes_applied,
+            errors,
+            checkpoint: None,
+        })
+    }
+
+    /// Mask a systemd unit
+    pub async fn mask_unit(&self, unit_name: &str) -> Result<()> {
+        let proxy = self.connect_systemd().await?;
+
+        let _: Vec<(String, String, String)> = proxy
+            .call("MaskUnitFiles", &(vec![unit_name], false, true))
+            .await
+            .context(format!("Failed to mask unit {}", unit_name))?;
+
+        log::info!("Masked systemd unit: {}", unit_name);
+        Ok(())
+    }
+
+    /// Unmask a systemd unit
+    pub async fn unmask_unit(&self, unit_name: &str) -> Result<()> {
+        let proxy = self.connect_systemd().await?;
+
+        let _: Vec<(String, String, String)> = proxy
+            .call("UnmaskUnitFiles", &(vec![unit_name], false))
+            .await
+            .context(format!("Failed to unmask unit {}", unit_name))?;
+
+        log::info!("Unmasked systemd unit: {}", unit_name);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl PlugTree for SystemdStatePlugin {
+    fn pluglet_type(&self) -> &str {
+        "unit"
+    }
+
+    fn pluglet_id_field(&self) -> &str {
+        "name"
+    }
+
+    fn extract_pluglet_id(&self, resource: &Value) -> Result<String> {
+        resource
+            .as_object()
+            .and_then(|obj| obj.keys().next())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("Unit missing name"))
+    }
+
+    async fn apply_pluglet(&self, pluglet_id: &str, desired: &Value) -> Result<ApplyResult> {
+        let unit_config: UnitConfig = serde_json::from_value(desired.clone())?;
+        self.apply_unit(pluglet_id, &unit_config).await
+    }
+
+    async fn query_pluglet(&self, pluglet_id: &str) -> Result<Option<Value>> {
+        match self.query_unit(pluglet_id).await {
+            Ok(unit) => Ok(Some(serde_json::to_value(unit)?)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn list_pluglet_ids(&self) -> Result<Vec<String>> {
+        // Would require listing all systemd units - for now return empty
+        // Full implementation would call ListUnits on D-Bus
+        Ok(Vec::new())
     }
 }
 

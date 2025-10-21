@@ -142,7 +142,7 @@ impl PlugTree for LxcPlugin {
             .ok_or_else(|| anyhow::anyhow!("Container missing 'id' field"))
     }
 
-    async fn apply_pluglet(&self, pluglet_id: &str, desired: &Value) -> Result<ApplyResult> {
+    async fn apply_pluglet(&self, _pluglet_id: &str, desired: &Value) -> Result<ApplyResult> {
         let container: ContainerInfo = serde_json::from_value(desired.clone())?;
         self.apply_container_state(&container).await
     }

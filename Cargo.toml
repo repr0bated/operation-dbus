@@ -37,6 +37,12 @@ log = "0.4"
 # Async utilities
 async-trait = "0.1"
 
+# Web server (optional)
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["fs", "cors"], optional = true }
+mime_guess = { version = "2.0", optional = true }
+
 # Hashing & crypto
 sha2 = "0.10"
 md5 = "0.7"
@@ -65,6 +71,8 @@ indicatif = { version = "0.17", optional = true }
 default = []
 # Enable transformer-based vectorization components
 ml = ["ort", "tokenizers", "ndarray", "once_cell", "hf-hub", "indicatif"]
+# Enable web UI server
+web = ["axum", "tower", "tower-http", "mime_guess"]
 # Minimal build that disables network DBus/system clients requiring OpenSSL
 minimal = []
 
