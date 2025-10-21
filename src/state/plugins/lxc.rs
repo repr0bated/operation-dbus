@@ -210,6 +210,20 @@ impl LxcPlugin {
             container.id,
             bridge
         );
+
+        // Add hook to container config for netmaker auto-join on first boot
+        let container_conf = format!("/etc/pve/lxc/{}.conf", container.id);
+        let hook_line = "lxc.hook.start-host: /usr/share/lxc/hooks/netmaker-join\n";
+        
+        if let Ok(mut conf_content) = tokio::fs::read_to_string(&container_conf).await {
+            if !conf_content.contains("lxc.hook.start-host") {
+                conf_content.push_str(hook_line);
+                if tokio::fs::write(&container_conf, conf_content).await.is_ok() {
+                    log::info!("Added netmaker hook to container {} config", container.id);
+                }
+            }
+        }
+
         Ok(())
     }
 
