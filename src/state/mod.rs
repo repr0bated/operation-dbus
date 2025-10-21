@@ -5,4 +5,3 @@ pub mod plugin;
 pub mod plugins;
 
 pub use manager::StateManager;
-pub use plugin::StatePlugin;

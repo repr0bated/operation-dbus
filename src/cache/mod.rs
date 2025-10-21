@@ -6,5 +6,4 @@
 pub mod btrfs_cache;
 pub mod snapshot_manager;
 
-pub use btrfs_cache::{BtrfsCache, CacheStats};
-pub use snapshot_manager::{SnapshotManager, SnapshotConfig};
+pub use btrfs_cache::BtrfsCache;
