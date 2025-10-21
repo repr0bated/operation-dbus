@@ -131,6 +131,13 @@ pct exec $TEMP_CT_ID -- rm -rf /tmp/*
 pct exec $TEMP_CT_ID -- rm -f /var/log/*.log
 pct exec $TEMP_CT_ID -- history -c
 
+# CRITICAL: Remove any netclient state to ensure fresh join on first boot
+echo "Removing netclient state (to ensure fresh join)..."
+pct exec $TEMP_CT_ID -- rm -rf /etc/netclient 2>/dev/null || true
+pct exec $TEMP_CT_ID -- rm -rf /root/.netclient 2>/dev/null || true
+pct exec $TEMP_CT_ID -- rm -f /var/log/netclient.log 2>/dev/null || true
+echo -e "${GREEN}✓${NC} netclient state cleared (containers will join fresh on first boot)"
+
 # Stop container
 echo "Stopping container..."
 pct stop $TEMP_CT_ID
