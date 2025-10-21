@@ -682,7 +682,7 @@ async fn handle_container_command(cmd: ContainerCommands, state_manager: &state:
             Ok(())
         }
         ContainerCommands::Destroy { container_id } => {
-            warn!("Destroying container {}", container_id);
+            tracing::warn!("Destroying container {}", container_id);
             let output = tokio::process::Command::new("pct")
                 .args(["destroy", &container_id])
                 .output()

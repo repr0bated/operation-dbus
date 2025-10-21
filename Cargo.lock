@@ -1697,11 +1697,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
-<<<<<<< Current (Your changes)
- "bincode",
-=======
  "base64ct",
->>>>>>> Incoming (Background Agent changes)
+ "bincode",
  "chrono",
  "clap",
  "futures",
