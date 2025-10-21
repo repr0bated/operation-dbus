@@ -9,6 +9,7 @@
 use crate::state::plugin::{
     ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin,
 };
+use crate::state::plugtree::PlugTree;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -120,6 +121,47 @@ impl LxcPlugin {
 impl Default for LxcPlugin {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[async_trait]
+impl PlugTree for LxcPlugin {
+    fn pluglet_type(&self) -> &str {
+        "container"
+    }
+
+    fn pluglet_id_field(&self) -> &str {
+        "id"
+    }
+
+    fn extract_pluglet_id(&self, resource: &Value) -> Result<String> {
+        resource
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("Container missing 'id' field"))
+    }
+
+    async fn apply_pluglet(&self, pluglet_id: &str, desired: &Value) -> Result<ApplyResult> {
+        let container: ContainerInfo = serde_json::from_value(desired.clone())?;
+        self.apply_container_state(&container).await
+    }
+
+    async fn query_pluglet(&self, pluglet_id: &str) -> Result<Option<Value>> {
+        let containers = self.discover_from_ovs().await?;
+        
+        for container in containers {
+            if container.id == pluglet_id {
+                return Ok(Some(serde_json::to_value(container)?));
+            }
+        }
+        
+        Ok(None)
+    }
+
+    async fn list_pluglet_ids(&self) -> Result<Vec<String>> {
+        let containers = self.discover_from_ovs().await?;
+        Ok(containers.into_iter().map(|c| c.id).collect())
     }
 }
 
