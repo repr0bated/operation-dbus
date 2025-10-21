@@ -31,7 +31,7 @@ impl Default for WebConfig {
     fn default() -> Self {
         Self {
             bind_addr: "0.0.0.0".to_string(),
-            port: 8080,
+            port: 9573, // OPDBUS on phone keypad: 6-7-3-2-8-7 (compressed)
         }
     }
 }
@@ -239,6 +239,7 @@ async fn index_handler() -> Html<&'static str> {
 <body>
     <h1>🔧 op-dbus Control Panel</h1>
     <p>Declarative system state management via native protocols</p>
+    <p style="color: #888; font-size: 0.9em;">Port 9573 = OPDBUS on phone keypad</p>
 
     <div class="card">
         <h2>Plugins</h2>

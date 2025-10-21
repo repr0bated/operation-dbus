@@ -126,7 +126,7 @@ enum Commands {
         bind: String,
         
         /// Port
-        #[arg(short, long, default_value = "8080")]
+        #[arg(short, long, default_value = "9573")]
         port: u16,
     },
 }
