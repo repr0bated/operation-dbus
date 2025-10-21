@@ -31,13 +31,13 @@ echo "  Temp container ID: $TEMP_CT_ID"
 echo ""
 
 # Check if base template exists
-TEMPLATE_PATH="/var/lib/vz/template/cache/$BASE_TEMPLATE"
+TEMPLATE_PATH="/var/lib/pve/$STORAGE/template/cache/$BASE_TEMPLATE"
 if [ ! -f "$TEMPLATE_PATH" ]; then
     echo -e "${YELLOW}⚠${NC}  Base template not found, downloading from Proxmox CDN..."
     echo "Downloading: $BASE_TEMPLATE_URL"
     
     # Create template directory if needed
-    mkdir -p /var/lib/vz/template/cache
+    mkdir -p "/var/lib/pve/$STORAGE/template/cache"
     
     # Download template directly
     if curl -fL "$BASE_TEMPLATE_URL" -o "$TEMPLATE_PATH"; then
@@ -140,22 +140,22 @@ sleep 3
 # Create template from container
 echo "Creating template from container..."
 ROOTFS_PATH="/var/lib/lxc/$TEMP_CT_ID/rootfs"
-TEMPLATE_PATH="/var/lib/vz/template/cache/$OUTPUT_TEMPLATE"
+OUTPUT_TEMPLATE_PATH="/var/lib/pve/$STORAGE/template/cache/$OUTPUT_TEMPLATE"
 
 # Create archive
 echo "Creating template archive..."
 cd /var/lib/lxc/$TEMP_CT_ID
-tar czf "$TEMPLATE_PATH" rootfs/
+tar czf "$OUTPUT_TEMPLATE_PATH" rootfs/
 
-echo -e "${GREEN}✓${NC} Template created: $TEMPLATE_PATH"
+echo -e "${GREEN}✓${NC} Template created: $OUTPUT_TEMPLATE_PATH"
 
 # Cleanup temporary container
 echo "Cleaning up temporary container..."
 pct destroy $TEMP_CT_ID
 
 # Verify template
-if [ -f "$TEMPLATE_PATH" ]; then
-    TEMPLATE_SIZE=$(du -h "$TEMPLATE_PATH" | cut -f1)
+if [ -f "$OUTPUT_TEMPLATE_PATH" ]; then
+    TEMPLATE_SIZE=$(du -h "$OUTPUT_TEMPLATE_PATH" | cut -f1)
     echo -e "${GREEN}✓${NC} Template size: $TEMPLATE_SIZE"
 
     # List templates
@@ -171,7 +171,7 @@ echo ""
 echo "=== Template Creation Complete ==="
 echo ""
 echo "Template: $OUTPUT_TEMPLATE"
-echo "Location: $TEMPLATE_PATH"
+echo "Location: $OUTPUT_TEMPLATE_PATH"
 echo ""
 echo "Next steps:"
 echo "1. Update src/state/plugins/lxc.rs to use: $OUTPUT_TEMPLATE"
