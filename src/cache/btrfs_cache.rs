@@ -20,6 +20,7 @@ pub struct BtrfsCache {
     snapshot_manager: SnapshotManager,
 }
 
+#[allow(dead_code)]
 impl BtrfsCache {
     /// Create new BTRFS cache
     pub fn new(cache_dir: PathBuf) -> Result<Self> {
@@ -34,8 +35,8 @@ impl BtrfsCache {
 
         // Create SQLite index for embeddings
         let index_path = cache_dir.join("embeddings/index.db");
-        let index = rusqlite::Connection::open(&index_path)
-            .context("Failed to open SQLite index")?;
+        let index =
+            rusqlite::Connection::open(&index_path).context("Failed to open SQLite index")?;
 
         // Create embeddings table
         index.execute(
@@ -152,8 +153,8 @@ impl BtrfsCache {
             let data = std::fs::read(&path)
                 .context(format!("Failed to read cached embedding: {:?}", path))?;
 
-            let vector: Vec<f32> = bincode::deserialize(&data)
-                .context("Failed to deserialize cached embedding")?;
+            let vector: Vec<f32> =
+                bincode::deserialize(&data).context("Failed to deserialize cached embedding")?;
 
             return Ok(Some(vector));
         }
@@ -203,7 +204,8 @@ impl BtrfsCache {
     pub fn stats(&self) -> Result<CacheStats> {
         let index = self.index.lock().unwrap();
 
-        let total: i64 = index.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
+        let total: i64 =
+            index.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
 
         let hot_threshold = chrono::Utc::now().timestamp() - 3600; // 1 hour
         let hot: i64 = index.query_row(
@@ -234,6 +236,7 @@ impl BtrfsCache {
         })
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn dir_size(&self, path: &Path) -> Result<u64> {
         let mut size = 0u64;
         if !path.exists() {
@@ -281,12 +284,13 @@ impl BtrfsCache {
 
         // Delete from index
         let index = self.index.lock().unwrap();
-        index.execute(
-            "DELETE FROM embeddings WHERE accessed_at < ?1",
-            [cutoff],
-        )?;
+        index.execute("DELETE FROM embeddings WHERE accessed_at < ?1", [cutoff])?;
 
-        log::info!("Cleaned up {} old cache entries (>{} days old)", count, days);
+        log::info!(
+            "Cleaned up {} old cache entries (>{} days old)",
+            count,
+            days
+        );
 
         Ok(count)
     }

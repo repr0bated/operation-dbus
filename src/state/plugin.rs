@@ -24,12 +24,14 @@ pub trait StatePlugin: Send + Sync {
     async fn apply_state(&self, diff: &StateDiff) -> Result<ApplyResult>;
 
     /// Verify that current state matches desired state
+    #[allow(dead_code)]
     async fn verify_state(&self, desired: &Value) -> Result<bool>;
 
     /// Create a checkpoint for rollback capability
     async fn create_checkpoint(&self) -> Result<Checkpoint>;
 
     /// Rollback to a previous checkpoint
+    #[allow(dead_code)]
     async fn rollback(&self, checkpoint: &Checkpoint) -> Result<()>;
 
     /// Get plugin capabilities and limitations

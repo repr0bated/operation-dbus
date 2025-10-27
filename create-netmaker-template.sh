@@ -13,8 +13,12 @@ echo "=== Creating Netmaker-Ready LXC Template ==="
 
 # Check if running on Proxmox
 if ! command -v pct >/dev/null 2>&1; then
-    echo -e "${RED}✗${NC} pct command not found. This must run on a Proxmox host."
-    exit 1
+    # Try adding /usr/sbin to PATH
+    export PATH="/usr/sbin:$PATH"
+    if ! command -v pct >/dev/null 2>&1; then
+        echo -e "${RED}✗${NC} pct command not found. This must run on a Proxmox host."
+        exit 1
+    fi
 fi
 
 # Configuration
@@ -85,30 +89,51 @@ pct start $TEMP_CT_ID
 echo "Waiting for container to boot..."
 sleep 5
 
-# Wait for network
-pct exec $TEMP_CT_ID -- bash -c 'until ping -c1 8.8.8.8 &>/dev/null; do sleep 1; done'
-echo -e "${GREEN}✓${NC} Container network ready"
+# Check if netclient binary exists locally
+NETCLIENT_BINARY=""
+for path in ./netclient /tmp/netclient /usr/local/bin/netclient /sbin/netclient; do
+    if [ -f "$path" ]; then
+        NETCLIENT_BINARY="$path"
+        echo -e "${GREEN}✓${NC} Found netclient at: $path"
+        break
+    fi
+done
 
-# Update system
-echo "Updating system packages..."
-pct exec $TEMP_CT_ID -- apt-get update
-pct exec $TEMP_CT_ID -- apt-get upgrade -y
-
-# Install dependencies
-echo "Installing dependencies..."
-pct exec $TEMP_CT_ID -- apt-get install -y \
-    curl \
-    gnupg \
-    ca-certificates \
-    wireguard \
-    jq \
-    systemd
-
-# Install netclient (direct binary method)
-echo "Installing netclient..."
-pct exec $TEMP_CT_ID -- wget -O /tmp/netclient https://fileserver.netmaker.io/releases/download/v1.1.0/netclient-linux-amd64
-pct exec $TEMP_CT_ID -- chmod +x /tmp/netclient
-pct exec $TEMP_CT_ID -- /tmp/netclient install
+if [ -z "$NETCLIENT_BINARY" ]; then
+    echo -e "${YELLOW}⚠${NC}  No local netclient found, will try to download..."
+    
+    # Wait for network
+    echo "Waiting for network (timeout 30s)..."
+    pct exec $TEMP_CT_ID -- bash -c 'for i in {1..30}; do ping -c1 8.8.8.8 &>/dev/null && exit 0; sleep 1; done; exit 1' || {
+        echo -e "${RED}✗${NC} Container network not available"
+        echo -e "${RED}✗${NC} Cannot create template without netclient or network"
+        pct stop $TEMP_CT_ID
+        pct destroy $TEMP_CT_ID
+        exit 1
+    }
+    
+    echo -e "${GREEN}✓${NC} Container network ready"
+    
+    # Update system
+    echo "Updating system packages..."
+    pct exec $TEMP_CT_ID -- apt-get update
+    pct exec $TEMP_CT_ID -- apt-get upgrade -y
+    
+    # Install dependencies
+    echo "Installing dependencies..."
+    pct exec $TEMP_CT_ID -- apt-get install -y curl ca-certificates
+    
+    # Install netclient (direct binary method)
+    echo "Downloading netclient..."
+    pct exec $TEMP_CT_ID -- wget -O /tmp/netclient https://fileserver.netmaker.io/releases/download/v1.1.0/netclient-linux-amd64
+    pct exec $TEMP_CT_ID -- chmod +x /tmp/netclient
+    pct exec $TEMP_CT_ID -- /tmp/netclient install
+else
+    echo "Installing netclient from host..."
+    pct push $TEMP_CT_ID "$NETCLIENT_BINARY" /tmp/netclient
+    pct exec $TEMP_CT_ID -- chmod +x /tmp/netclient
+    pct exec $TEMP_CT_ID -- /tmp/netclient install
+fi
 
 # Verify netclient installation
 if pct exec $TEMP_CT_ID -- which netclient >/dev/null 2>&1; then
@@ -126,12 +151,31 @@ echo -e "${GREEN}✓${NC} netclient installation complete"
 
 # Install first-boot script to join netmaker
 echo "Installing first-boot netmaker join script..."
+
+# Check if netmaker token exists on host
+NETMAKER_TOKEN=""
+if [ -f "/etc/op-dbus/netmaker.env" ]; then
+    source /etc/op-dbus/netmaker.env
+    if [ -n "$NETMAKER_TOKEN" ]; then
+        echo -e "${GREEN}✓${NC} Found Netmaker token on host, injecting into template..."
+        pct exec $TEMP_CT_ID -- bash -c "echo 'NETMAKER_TOKEN=$NETMAKER_TOKEN' > /etc/netmaker.env"
+        pct exec $TEMP_CT_ID -- chmod 600 /etc/netmaker.env
+        echo -e "${GREEN}✓${NC} Token stored in template at /etc/netmaker.env"
+    else
+        echo -e "${YELLOW}⚠${NC}  NETMAKER_TOKEN not set in /etc/op-dbus/netmaker.env"
+        echo -e "${YELLOW}⚠${NC}  Template will be created without token"
+    fi
+else
+    echo -e "${YELLOW}⚠${NC}  /etc/op-dbus/netmaker.env not found"
+    echo -e "${YELLOW}⚠${NC}  Template will be created without token"
+fi
+
 pct exec $TEMP_CT_ID -- tee /usr/local/bin/netmaker-first-boot.sh > /dev/null <<'FIRSTBOOT_EOF'
 #!/bin/bash
 # First boot script to join netmaker network
 # Runs once on first boot, then disables itself
 
-NETMAKER_TOKEN_FILE="/etc/netmaker-token"
+NETMAKER_TOKEN_FILE="/etc/netmaker.env"
 MARKER_FILE="/var/lib/netmaker-joined"
 
 # Exit if already joined
@@ -142,17 +186,16 @@ fi
 # Wait for network to be ready
 sleep 5
 
-# Check if token file exists (injected by op-dbus on container creation)
+# Read token from env file
 if [ ! -f "$NETMAKER_TOKEN_FILE" ]; then
     echo "No netmaker token found at $NETMAKER_TOKEN_FILE"
     exit 0
 fi
 
-# Read token
-NETMAKER_TOKEN=$(cat "$NETMAKER_TOKEN_FILE")
+source "$NETMAKER_TOKEN_FILE"
 
 if [ -z "$NETMAKER_TOKEN" ]; then
-    echo "Empty netmaker token"
+    echo "NETMAKER_TOKEN not set in $NETMAKER_TOKEN_FILE"
     exit 0
 fi
 
@@ -161,9 +204,6 @@ echo "Joining netmaker network..."
 if netclient join -t "$NETMAKER_TOKEN"; then
     echo "Successfully joined netmaker network"
     touch "$MARKER_FILE"
-    
-    # Remove token file for security
-    rm -f "$NETMAKER_TOKEN_FILE"
 else
     echo "Failed to join netmaker network"
     exit 1
@@ -201,14 +241,15 @@ pct exec $TEMP_CT_ID -- apt-get clean
 pct exec $TEMP_CT_ID -- rm -rf /var/lib/apt/lists/*
 pct exec $TEMP_CT_ID -- rm -rf /tmp/*
 pct exec $TEMP_CT_ID -- rm -f /var/log/*.log
-pct exec $TEMP_CT_ID -- history -c
+# history -c doesn't work with pct exec, skip it
 
 # CRITICAL: Remove any netclient state to ensure fresh join on first boot
 echo "Removing netclient state (to ensure fresh join)..."
 pct exec $TEMP_CT_ID -- rm -rf /etc/netclient 2>/dev/null || true
 pct exec $TEMP_CT_ID -- rm -rf /root/.netclient 2>/dev/null || true
 pct exec $TEMP_CT_ID -- rm -f /var/log/netclient.log 2>/dev/null || true
-echo -e "${GREEN}✓${NC} netclient state cleared (containers will join fresh on first boot)"
+# Keep /etc/netmaker.env - it contains the token for auto-join
+echo -e "${GREEN}✓${NC} netclient state cleared (token preserved at /etc/netmaker.env)"
 
 # Stop container
 echo "Stopping container..."
@@ -223,9 +264,16 @@ ROOTFS_PATH="/var/lib/lxc/$TEMP_CT_ID/rootfs"
 OUTPUT_TEMPLATE_PATH="/var/lib/pve/$STORAGE/template/cache/$OUTPUT_TEMPLATE"
 
 # Create archive
-echo "Creating template archive..."
+echo "Creating template archive (this may take a few minutes)..."
 cd /var/lib/lxc/$TEMP_CT_ID
-tar czf "$OUTPUT_TEMPLATE_PATH" rootfs/
+# Use zstd compression (tar with -I zstd) for .tar.zst format
+if command -v zstd >/dev/null 2>&1; then
+    tar -I zstd -cf "$OUTPUT_TEMPLATE_PATH" rootfs/
+else
+    echo -e "${YELLOW}⚠${NC}  zstd not found, using gzip"
+    tar czf "${OUTPUT_TEMPLATE_PATH%.zst}.gz" rootfs/
+    OUTPUT_TEMPLATE_PATH="${OUTPUT_TEMPLATE_PATH%.zst}.gz"
+fi
 
 echo -e "${GREEN}✓${NC} Template created: $OUTPUT_TEMPLATE_PATH"
 

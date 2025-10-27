@@ -224,7 +224,12 @@ impl Default for SystemdStatePlugin {
 
 impl SystemdStatePlugin {
     /// Apply state to a single unit
-    pub async fn apply_unit(&self, unit_name: &str, unit_config: &UnitConfig) -> Result<ApplyResult> {
+    #[allow(dead_code)]
+    pub async fn apply_unit(
+        &self,
+        unit_name: &str,
+        unit_config: &UnitConfig,
+    ) -> Result<ApplyResult> {
         let mut changes_applied = Vec::new();
         let mut errors = Vec::new();
 

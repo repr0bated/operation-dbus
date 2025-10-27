@@ -15,6 +15,7 @@ pub async fn start_web_server(
     _state_manager: std::sync::Arc<crate::state::StateManager>,
     _config: WebConfig,
 ) -> anyhow::Result<()> {
-    Err(anyhow::anyhow!("Web feature not enabled. Rebuild with --features web"))
+    Err(anyhow::anyhow!(
+        "Web feature not enabled. Rebuild with --features web"
+    ))
 }
-

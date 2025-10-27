@@ -232,7 +232,7 @@ pub mod conversion {
 
     /// Convert serde_json::Value to zbus::zvariant::Value
     #[allow(dead_code)]
-    pub fn json_to_zvariant(value: &Value) -> Result<zvariant::Value, anyhow::Error> {
+    pub fn json_to_zvariant(value: &Value) -> Result<zvariant::Value<'_>, anyhow::Error> {
         match value {
             Value::Null => Ok(zvariant::Value::from("")),
             Value::Bool(b) => Ok(zvariant::Value::from(*b)),

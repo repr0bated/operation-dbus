@@ -5,14 +5,13 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Json},
-    routing::{get, post, delete},
+    routing::{delete, get, post},
     Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use tower_http::services::ServeDir;
 
 use crate::state::StateManager;
 
@@ -37,10 +36,7 @@ impl Default for WebConfig {
 }
 
 /// Start web server
-pub async fn start_web_server(
-    state_manager: Arc<StateManager>,
-    config: WebConfig,
-) -> Result<()> {
+pub async fn start_web_server(state_manager: Arc<StateManager>, config: WebConfig) -> Result<()> {
     let app_state = AppState { state_manager };
 
     let app = Router::new()
@@ -49,39 +45,34 @@ pub async fn start_web_server(
         .route("/api/plugins/:plugin", get(query_plugin))
         .route("/api/plugins/:plugin/state", get(query_plugin_state))
         .route("/api/plugins/:plugin/apply", post(apply_plugin_state))
-        
         // PlugTree routes (per-resource)
         .route("/api/containers", get(list_containers))
         .route("/api/containers/:id", get(get_container))
         .route("/api/containers/:id", post(apply_container))
         .route("/api/containers/:id", delete(delete_container))
-        
         .route("/api/units", get(list_units))
         .route("/api/units/:name", get(get_unit))
         .route("/api/units/:name", post(apply_unit))
-        
         // System-wide
         .route("/api/query", get(query_all))
         .route("/api/introspect", get(introspect_databases))
-        
         // UI
         .route("/", get(index_handler))
         .route("/containers", get(containers_page))
         .route("/network", get(network_page))
         .route("/systemd", get(systemd_page))
-        
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
     let addr = format!("{}:{}", config.bind_addr, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    
+
     tracing::info!("Web UI available at http://{}", addr);
     tracing::info!("  Dashboard: http://{}/", addr);
     tracing::info!("  API docs: http://{}/api", addr);
-    
+
     axum::serve(listener, app).await?;
-    
+
     Ok(())
 }
 
@@ -115,6 +106,7 @@ async fn query_plugin_state(
 
 #[derive(Deserialize)]
 struct ApplyRequest {
+    #[allow(dead_code)]
     state: Value,
 }
 
@@ -172,10 +164,7 @@ async fn list_units(State(_state): State<AppState>) -> impl IntoResponse {
     Json(serde_json::json!({"units": []}))
 }
 
-async fn get_unit(
-    State(_state): State<AppState>,
-    Path(_name): Path<String>,
-) -> impl IntoResponse {
+async fn get_unit(State(_state): State<AppState>, Path(_name): Path<String>) -> impl IntoResponse {
     StatusCode::NOT_IMPLEMENTED
 }
 
@@ -198,7 +187,8 @@ async fn introspect_databases(State(_state): State<AppState>) -> impl IntoRespon
 // HTML Pages
 
 async fn index_handler() -> Html<&'static str> {
-    Html(r#"
+    Html(
+        r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -267,11 +257,13 @@ async fn index_handler() -> Html<&'static str> {
     </div>
 </body>
 </html>
-    "#)
+    "#,
+    )
 }
 
 async fn containers_page() -> Html<&'static str> {
-    Html(r#"
+    Html(
+        r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -349,7 +341,8 @@ async fn containers_page() -> Html<&'static str> {
     </script>
 </body>
 </html>
-    "#)
+    "#,
+    )
 }
 
 async fn network_page() -> Html<&'static str> {
@@ -359,4 +352,3 @@ async fn network_page() -> Html<&'static str> {
 async fn systemd_page() -> Html<&'static str> {
     Html("<h1>Systemd Units</h1><p>Coming soon</p>")
 }
-

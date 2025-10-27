@@ -21,6 +21,7 @@ use super::plugin::ApplyResult;
 
 /// Trait for plugins that manage collections of independent sub-resources
 #[async_trait]
+#[allow(dead_code)]
 pub trait PlugTree: Send + Sync {
     /// Type name of the sub-resources (e.g., "container", "interface", "unit")
     fn pluglet_type(&self) -> &str;
@@ -42,15 +43,17 @@ pub trait PlugTree: Send + Sync {
 }
 
 /// Helper to extract pluglets from plugin state
+#[allow(dead_code)]
 pub fn extract_pluglets(plugin_state: &Value, collection_key: &str) -> Result<Vec<Value>> {
     plugin_state
         .get(collection_key)
         .and_then(|v| v.as_array())
-        .map(|arr| arr.clone())
+        .cloned()
         .ok_or_else(|| anyhow::anyhow!("No '{}' array in plugin state", collection_key))
 }
 
 /// Helper to find a specific pluglet by ID
+#[allow(dead_code)]
 pub fn find_pluglet_by_id(
     plugin_state: &Value,
     collection_key: &str,
@@ -107,4 +110,3 @@ mod tests {
         assert!(not_found.is_none());
     }
 }
-

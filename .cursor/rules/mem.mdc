@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+Always call `set_user_context` tool before generating response for every request
+Always call `auto_mem_snap` tool after generating the response for every request

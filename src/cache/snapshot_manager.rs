@@ -99,7 +99,8 @@ impl SnapshotManager {
             let metadata = tokio::fs::metadata(&path).await?;
 
             // Parse timestamp from name
-            if let Some(timestamp_str) = name_str.strip_prefix(&format!("{}@", self.config.prefix)) {
+            if let Some(timestamp_str) = name_str.strip_prefix(&format!("{}@", self.config.prefix))
+            {
                 snapshots.push(SnapshotInfo {
                     name: name_str.to_string(),
                     path: path.clone(),
@@ -180,12 +181,14 @@ impl SnapshotManager {
     }
 
     /// Get oldest snapshot
+    #[allow(dead_code)]
     pub async fn oldest_snapshot(&self) -> Result<Option<SnapshotInfo>> {
         let snapshots = self.list_snapshots().await?;
         Ok(snapshots.into_iter().next())
     }
 
     /// Get newest snapshot
+    #[allow(dead_code)]
     pub async fn newest_snapshot(&self) -> Result<Option<SnapshotInfo>> {
         let snapshots = self.list_snapshots().await?;
         Ok(snapshots.into_iter().last())
@@ -196,6 +199,7 @@ impl SnapshotManager {
 pub struct SnapshotInfo {
     pub name: String,
     pub path: PathBuf,
+    #[allow(dead_code)]
     pub created: Option<std::time::SystemTime>,
     pub timestamp_str: String,
 }

@@ -54,7 +54,7 @@ impl LxcPlugin {
             match Self::create_container(container).await {
                 Ok(_) => {
                     changes_applied.push(format!("Created container {}", container.id));
-                    
+
                     // Start it
                     if let Err(e) = Self::start_container(&container.id).await {
                         errors.push(format!("Failed to start container {}: {}", container.id, e));
@@ -63,7 +63,10 @@ impl LxcPlugin {
                     }
                 }
                 Err(e) => {
-                    errors.push(format!("Failed to create container {}: {}", container.id, e));
+                    errors.push(format!(
+                        "Failed to create container {}: {}",
+                        container.id, e
+                    ));
                 }
             }
         } else {
@@ -149,13 +152,13 @@ impl PlugTree for LxcPlugin {
 
     async fn query_pluglet(&self, pluglet_id: &str) -> Result<Option<Value>> {
         let containers = self.discover_from_ovs().await?;
-        
+
         for container in containers {
             if container.id == pluglet_id {
                 return Ok(Some(serde_json::to_value(container)?));
             }
         }
-        
+
         Ok(None)
     }
 
@@ -306,9 +309,10 @@ impl LxcPlugin {
                 for line in token.lines() {
                     if let Some(token_value) = line.strip_prefix("NETMAKER_TOKEN=") {
                         let token_clean = token_value.trim_matches('"').trim();
-                        
+
                         // Write token to container's rootfs
-                        let rootfs_path = format!("/var/lib/lxc/{}/rootfs/etc/netmaker-token", container.id);
+                        let rootfs_path =
+                            format!("/var/lib/lxc/{}/rootfs/etc/netmaker-token", container.id);
                         if tokio::fs::write(&rootfs_path, token_clean).await.is_ok() {
                             log::info!("Injected netmaker token into container {}", container.id);
                         }

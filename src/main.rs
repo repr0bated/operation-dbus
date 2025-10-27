@@ -109,7 +109,7 @@ enum Commands {
         /// Database to query: ovsdb, nonnet, or all (default: all)
         #[arg(short, long)]
         database: Option<String>,
-        
+
         /// Pretty print JSON output
         #[arg(short, long)]
         pretty: bool,
@@ -124,7 +124,7 @@ enum Commands {
         /// Bind address
         #[arg(long, default_value = "0.0.0.0")]
         bind: String,
-        
+
         /// Port
         #[arg(short, long, default_value = "9573")]
         port: u16,
@@ -171,9 +171,7 @@ enum BlockchainCommands {
     },
 
     /// Show specific block
-    Show {
-        block_id: String,
-    },
+    Show { block_id: String },
 
     /// Export blockchain
     Export {
@@ -188,9 +186,7 @@ enum BlockchainCommands {
     },
 
     /// Search blockchain for changes
-    Search {
-        query: String,
-    },
+    Search { query: String },
 }
 
 #[derive(Subcommand)]
@@ -204,9 +200,7 @@ enum ContainerCommands {
     },
 
     /// Show container details
-    Show {
-        container_id: String,
-    },
+    Show { container_id: String },
 
     /// Create container
     Create {
@@ -216,19 +210,13 @@ enum ContainerCommands {
     },
 
     /// Start container
-    Start {
-        container_id: String,
-    },
+    Start { container_id: String },
 
     /// Stop container
-    Stop {
-        container_id: String,
-    },
+    Stop { container_id: String },
 
     /// Destroy container
-    Destroy {
-        container_id: String,
-    },
+    Destroy { container_id: String },
 }
 
 fn init_logging() -> Result<()> {
@@ -394,29 +382,32 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Apply { state_file, dry_run, plugin } => {
+        Commands::Apply {
+            state_file,
+            dry_run,
+            plugin,
+        } => {
             if dry_run {
                 info!("DRY RUN: Showing what would be applied");
                 let desired = state_manager.load_desired_state(&state_file).await?;
                 let diffs = state_manager.show_diff(desired).await?;
-                
+
                 // Filter by plugin if specified
                 let filtered_diffs: Vec<_> = if let Some(ref p) = plugin {
                     diffs.into_iter().filter(|d| &d.plugin == p).collect()
                 } else {
                     diffs
                 };
-                
+
                 println!("{}", serde_json::to_string_pretty(&filtered_diffs)?);
+            } else if let Some(plugin_name) = plugin {
+                info!("Applying state for plugin: {}", plugin_name);
+                apply_state_from_file_single_plugin(&state_manager, &state_file, &plugin_name)
+                    .await?;
             } else {
-                if let Some(plugin_name) = plugin {
-                    info!("Applying state for plugin: {}", plugin_name);
-                    apply_state_from_file_single_plugin(&state_manager, &state_file, &plugin_name).await?;
-                } else {
-                    info!("⚠️  WARNING: Applying state to ALL plugins system-wide");
-                    info!("⚠️  Consider using --plugin flag to limit scope");
-                    apply_state_from_file(&state_manager, &state_file).await?;
-                }
+                info!("⚠️  WARNING: Applying state to ALL plugins system-wide");
+                info!("⚠️  Consider using --plugin flag to limit scope");
+                apply_state_from_file(&state_manager, &state_file).await?;
             }
             Ok(())
         }
@@ -431,7 +422,10 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Diff { state_file, plugin: _ } => {
+        Commands::Diff {
+            state_file,
+            plugin: _,
+        } => {
             let desired = state_manager.load_desired_state(&state_file).await?;
             let diffs = state_manager.show_diff(desired).await?;
             println!("{}", serde_json::to_string_pretty(&diffs)?);
@@ -453,21 +447,26 @@ async fn main() -> Result<()> {
 
         Commands::Container(cmd) => handle_container_command(cmd, &state_manager).await,
 
-        Commands::ApplyContainer { container_id, state_file } => {
+        Commands::ApplyContainer {
+            container_id,
+            state_file,
+        } => {
             info!("Applying state for container: {}", container_id);
-            
+
             let state_path = state_file.unwrap_or_else(|| PathBuf::from("/etc/op-dbus/state.json"));
             let desired_state = state_manager.load_desired_state(&state_path).await?;
-            
+
             // Find the container in the desired state
             if let Some(lxc_state) = desired_state.plugins.get("lxc") {
-                let lxc_config: crate::state::plugins::lxc::LxcState = serde_json::from_value(lxc_state.clone())?;
-                
-                if let Some(container) = lxc_config.containers.iter().find(|c| c.id == container_id) {
+                let lxc_config: crate::state::plugins::lxc::LxcState =
+                    serde_json::from_value(lxc_state.clone())?;
+
+                if let Some(container) = lxc_config.containers.iter().find(|c| c.id == container_id)
+                {
                     // Get LXC plugin and apply single container
                     let lxc_plugin = crate::state::plugins::LxcPlugin::new();
                     let result = lxc_plugin.apply_container_state(container).await?;
-                    
+
                     if result.success {
                         println!("✓ Container {} applied successfully", container_id);
                         for change in &result.changes_applied {
@@ -480,12 +479,15 @@ async fn main() -> Result<()> {
                         }
                     }
                 } else {
-                    return Err(anyhow::anyhow!("Container {} not found in state file", container_id));
+                    return Err(anyhow::anyhow!(
+                        "Container {} not found in state file",
+                        container_id
+                    ));
                 }
             } else {
                 return Err(anyhow::anyhow!("No LXC plugin configuration in state file"));
             }
-            
+
             Ok(())
         }
 
@@ -533,33 +535,41 @@ async fn main() -> Result<()> {
             if db_choice == "all" || db_choice == "ovsdb" {
                 info!("Introspecting OVSDB (Open vSwitch)...");
                 let ovsdb_client = crate::native::OvsdbClient::new();
-                
+
                 match ovsdb_client.list_dbs().await {
                     Ok(dbs) => {
                         let mut ovsdb_data = serde_json::Map::new();
                         ovsdb_data.insert("databases".to_string(), serde_json::json!(dbs));
-                        
+
                         // Get Open_vSwitch database content
                         if dbs.contains(&"Open_vSwitch".to_string()) {
                             if let Ok(bridges) = ovsdb_client.list_bridges().await {
                                 let mut bridge_details = Vec::new();
                                 for bridge in &bridges {
                                     if let Ok(info) = ovsdb_client.get_bridge_info(bridge).await {
-                                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&info) {
+                                        if let Ok(parsed) =
+                                            serde_json::from_str::<serde_json::Value>(&info)
+                                        {
                                             bridge_details.push(parsed);
                                         }
                                     }
                                 }
-                                ovsdb_data.insert("bridges".to_string(), serde_json::json!(bridge_details));
+                                ovsdb_data.insert(
+                                    "bridges".to_string(),
+                                    serde_json::json!(bridge_details),
+                                );
                             }
                         }
-                        
+
                         results.insert("ovsdb".to_string(), serde_json::Value::Object(ovsdb_data));
                     }
                     Err(e) => {
-                        results.insert("ovsdb".to_string(), serde_json::json!({
-                            "error": format!("Failed to connect: {}", e)
-                        }));
+                        results.insert(
+                            "ovsdb".to_string(),
+                            serde_json::json!({
+                                "error": format!("Failed to connect: {}", e)
+                            }),
+                        );
                     }
                 }
             }
@@ -567,25 +577,29 @@ async fn main() -> Result<()> {
             // Introspect NonNet DB (Plugin state: systemd, login1, lxc)
             if db_choice == "all" || db_choice == "nonnet" {
                 info!("Introspecting NonNet DB (Plugin state)...");
-                
+
                 // Query all plugin states via state manager
                 match state_manager.query_current_state().await {
                     Ok(current) => {
                         let mut nonnet_data = serde_json::Map::new();
-                        
+
                         // Extract non-network plugins
                         for (plugin_name, plugin_state) in current.plugins.iter() {
                             if plugin_name != "net" {
                                 nonnet_data.insert(plugin_name.clone(), plugin_state.clone());
                             }
                         }
-                        
-                        results.insert("nonnet".to_string(), serde_json::Value::Object(nonnet_data));
+
+                        results
+                            .insert("nonnet".to_string(), serde_json::Value::Object(nonnet_data));
                     }
                     Err(e) => {
-                        results.insert("nonnet".to_string(), serde_json::json!({
-                            "error": format!("Failed to query: {}", e)
-                        }));
+                        results.insert(
+                            "nonnet".to_string(),
+                            serde_json::json!({
+                                "error": format!("Failed to query: {}", e)
+                            }),
+                        );
                     }
                 }
             }
@@ -596,7 +610,7 @@ async fn main() -> Result<()> {
             } else {
                 serde_json::to_string(&results)?
             };
-            
+
             println!("{}", output);
             Ok(())
         }
@@ -655,12 +669,12 @@ async fn main() -> Result<()> {
 
         Commands::Serve { bind, port } => {
             info!("Starting web UI server on {}:{}", bind, port);
-            
+
             let config = crate::webui::WebConfig {
                 bind_addr: bind,
                 port,
             };
-            
+
             crate::webui::start_web_server(state_manager, config).await?;
             Ok(())
         }
@@ -681,22 +695,26 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
 
             println!("Embeddings:");
             println!("  Total entries:    {}", stats.total_entries);
-            println!("  Hot (< 1h):       {} ({:.1}%)",
+            println!(
+                "  Hot (< 1h):       {} ({:.1}%)",
                 stats.hot_entries,
                 stats.hot_ratio() * 100.0
             );
             println!("  Average accesses: {:.1}", stats.avg_accesses());
-            println!("  Disk usage:       {:.2} MB",
+            println!(
+                "  Disk usage:       {:.2} MB",
                 stats.embeddings_size_bytes as f64 / 1024.0 / 1024.0
             );
 
             println!("\nBlocks:");
-            println!("  Disk usage:       {:.2} MB",
+            println!(
+                "  Disk usage:       {:.2} MB",
                 stats.blocks_size_bytes as f64 / 1024.0 / 1024.0
             );
 
             println!("\nTotal:");
-            println!("  Disk usage:       {:.2} MB (compressed)",
+            println!(
+                "  Disk usage:       {:.2} MB (compressed)",
                 stats.disk_usage_bytes as f64 / 1024.0 / 1024.0
             );
 
@@ -715,7 +733,11 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
             Ok(())
         }
 
-        CacheCommands::Clear { embeddings, blocks, all } => {
+        CacheCommands::Clear {
+            embeddings,
+            blocks,
+            all,
+        } => {
             let cache = crate::cache::BtrfsCache::new(cache_dir)?;
 
             if all || (!embeddings && !blocks) {
@@ -739,7 +761,10 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
         }
 
         CacheCommands::Clean { older_than_days } => {
-            println!("Cleaning cache entries older than {} days...", older_than_days);
+            println!(
+                "Cleaning cache entries older than {} days...",
+                older_than_days
+            );
             let cache = crate::cache::BtrfsCache::new(cache_dir)?;
             let removed = cache.cleanup_old(older_than_days)?;
             println!("✓ Cleaned {} old entries", removed);
@@ -817,7 +842,10 @@ async fn handle_blockchain_command(cmd: BlockchainCommands) -> Result<()> {
     }
 }
 
-async fn handle_container_command(cmd: ContainerCommands, state_manager: &state::StateManager) -> Result<()> {
+async fn handle_container_command(
+    cmd: ContainerCommands,
+    state_manager: &state::StateManager,
+) -> Result<()> {
     match cmd {
         ContainerCommands::List { running, stopped } => {
             info!("Listing containers");
@@ -836,8 +864,14 @@ async fn handle_container_command(cmd: ContainerCommands, state_manager: &state:
             println!("{}", serde_json::to_string_pretty(&state)?);
             Ok(())
         }
-        ContainerCommands::Create { container_id, network_type } => {
-            println!("Creating container {} with network type: {}", container_id, network_type);
+        ContainerCommands::Create {
+            container_id,
+            network_type,
+        } => {
+            println!(
+                "Creating container {} with network type: {}",
+                container_id, network_type
+            );
             println!("✗ Not yet implemented (use: op-dbus apply with state.json)");
             Ok(())
         }

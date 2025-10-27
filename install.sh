@@ -377,30 +377,40 @@ else
     echo -e "${GREEN}✓${NC} State file already exists: $STATE_FILE"
 fi
 
-# Step 4.5: Create LXC template with netclient (Proxmox mode only)
+# Step 4.5: Create netmaker-ready LXC template container (Proxmox mode only)
 if [ "$NO_PROXMOX" = false ]; then
-    echo "Checking for netmaker-ready LXC template..."
+    echo "Creating netmaker-ready LXC template container..."
     
-    TEMPLATE_NAME="debian-13-netmaker_custom.tar.zst"
-    TEMPLATE_PATH="/var/lib/pve/local-btrfs/template/cache/$TEMPLATE_NAME"
+    # Look for existing netmaker template
+    TEMPLATE_CT=""
+    for ct_id in $(pct list | awk 'NR>1 {print $1}'); do
+        if pct config "$ct_id" 2>/dev/null | grep -q "^template: 1"; then
+            if pct exec "$ct_id" -- which netclient >/dev/null 2>&1; then
+                TEMPLATE_CT="$ct_id"
+                TEMPLATE_NAME=$(pct config "$ct_id" | grep "^hostname:" | awk '{print $2}')
+                echo -e "${GREEN}✓${NC} Found existing netmaker template: Container $ct_id ($TEMPLATE_NAME)"
+                break
+            fi
+        fi
+    done
     
-    if [ -f "$TEMPLATE_PATH" ]; then
-        echo -e "${GREEN}✓${NC} Template already exists: $TEMPLATE_NAME"
-    else
-        echo -e "${YELLOW}⚠${NC}  Template not found, creating it now..."
-        
-        # Run template creation script inline
+    # Create template if it doesn't exist
+    if [ -z "$TEMPLATE_CT" ]; then
         if [ -f "./create-netmaker-template.sh" ]; then
-            echo "Running create-netmaker-template.sh..."
+            echo "Creating netmaker template container (this may take a few minutes)..."
+            export PATH="/usr/sbin:$PATH"
             bash ./create-netmaker-template.sh || {
-                echo -e "${YELLOW}⚠${NC}  Template creation failed, continuing without it"
-                echo -e "${YELLOW}⚠${NC}  You can create it later with: sudo ./create-netmaker-template.sh"
+                echo -e "${YELLOW}⚠${NC}  Template creation failed"
+                echo -e "${YELLOW}⚠${NC}  You can create it manually later with: sudo ./create-netmaker-template.sh"
+                echo -e "${YELLOW}⚠${NC}  Continuing installation..."
             }
         else
-            echo -e "${YELLOW}⚠${NC}  create-netmaker-template.sh not found"
-            echo -e "${YELLOW}⚠${NC}  Create template manually or containers won't have netclient"
+            echo -e "${YELLOW}⚠${NC}  create-netmaker-template.sh not found in current directory"
+            echo -e "${YELLOW}⚠${NC}  Skipping template creation"
         fi
     fi
+    
+    echo -e "${GREEN}✓${NC} Use template with: pct clone <TEMPLATE_CT_ID> <NEW_CT_ID> --full"
 else
     echo -e "${YELLOW}Skipping LXC template creation (not in Proxmox mode)${NC}"
 fi
@@ -811,19 +821,21 @@ if [ "$NO_PROXMOX" = false ]; then
 fi
 
 if [ "$NO_PROXMOX" = false ]; then
-echo '  "lxc": {'
-echo '    "containers": [{'
-echo '      "id": "100",'
-echo '      "veth": "vi100",'
-echo '      "bridge": "vmbr0",'
-echo '      "properties": {'
-echo '        "network_type": "netmaker"'
-echo '      }'
-echo '    }]'
-echo '  }'
 echo ""
-echo "For traditional bridge containers:"
-echo '  "properties": { "network_type": "bridge" }'
+echo -e "${YELLOW}Creating Containers:${NC}"
+echo "  1. Clone from template: pct clone <TEMPLATE_ID> <NEW_ID> --full"
+echo "  2. Configure network:   pct set <NEW_ID> --net0 name=vi<ID>,bridge=mesh,type=veth"
+echo "  3. Start container:     pct start <NEW_ID>"
+echo ""
+echo "Container will automatically:"
+echo "  ✓ Have netclient pre-installed"
+echo "  ✓ Have Netmaker token from template"
+echo "  ✓ Join Netmaker on first boot (via systemd service)"
+echo "  ✓ Be attached to mesh bridge"
+echo ""
+echo "Token location:"
+echo "  Host:      /etc/op-dbus/netmaker.env"
+echo "  Template:  /etc/netmaker.env (baked in during template creation)"
 fi  # End container setup instructions
 
 echo ""

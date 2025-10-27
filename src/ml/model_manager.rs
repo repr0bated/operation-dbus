@@ -206,7 +206,7 @@ impl ModelManager {
 
         // Convert model name to directory name
         // e.g., "sentence-transformers/paraphrase-MiniLM-L6-v2" -> "paraphrase-MiniLM-L6-v2"
-        let dir_name = model_name.split('/').last().unwrap_or(model_name);
+        let dir_name = model_name.split('/').next_back().unwrap_or(model_name);
 
         Ok(self.config.model_dir.join(dir_name))
     }

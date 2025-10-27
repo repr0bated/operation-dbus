@@ -68,7 +68,7 @@ hf-hub = { version = "0.3", optional = true, features = ["tokio"] }
 indicatif = { version = "0.17", optional = true }
 
 [features]
-default = []
+default = ["web"]
 # Enable transformer-based vectorization components
 ml = ["ort", "tokenizers", "ndarray", "once_cell", "hf-hub", "indicatif"]
 # Enable web UI server
