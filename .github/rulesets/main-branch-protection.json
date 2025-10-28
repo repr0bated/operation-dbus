@@ -1,0 +1,108 @@
+{
+  "name": "Main Branch Protection",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/master",
+        "refs/heads/main"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {
+            "context": "cargo test",
+            "integration_id": null
+          },
+          {
+            "context": "cargo clippy",
+            "integration_id": null
+          },
+          {
+            "context": "rustfmt check",
+            "integration_id": null
+          }
+        ]
+      }
+    },
+    {
+      "type": "required_linear_history"
+    },
+    {
+      "type": "deletion",
+      "parameters": {
+        "allow_deletions": false
+      }
+    },
+    {
+      "type": "required_signatures",
+      "parameters": {
+        "allow_unsigned_commits": true
+      }
+    },
+    {
+      "type": "commit_message_pattern",
+      "parameters": {
+        "name": "Conventional Commits",
+        "negate": false,
+        "pattern": "^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\\(.+?\\))?: .{1,50}"
+      }
+    },
+    {
+      "type": "committer_email_pattern",
+      "parameters": {
+        "name": "Verified Committer",
+        "negate": false,
+        "pattern": ".*@.*"
+      }
+    },
+    {
+      "type": "max_file_path_length",
+      "parameters": {
+        "max_file_path_length": 260
+      }
+    },
+    {
+      "type": "max_file_size",
+      "parameters": {
+        "max_file_size": 52428800
+      }
+    },
+    {
+      "type": "creation",
+      "parameters": {
+        "restrict_creations": true
+      }
+    },
+    {
+      "type": "update",
+      "parameters": {
+        "allow_force_pushes": false,
+        "allow_deletions": false
+      }
+    },
+    {
+      "type": "tag_protection",
+      "parameters": {
+        "required_signatures": false
+      }
+    }
+  ],
+  "bypass_actors": []
+}

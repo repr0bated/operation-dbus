@@ -1,0 +1,41 @@
+{
+  "name": "Feature Branch Protection",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/feature/*",
+        "refs/heads/feat/*",
+        "refs/heads/fix/*",
+        "refs/heads/mcp/*"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false
+      }
+    },
+    {
+      "type": "deletion",
+      "parameters": {
+        "allow_deletions": true
+      }
+    },
+    {
+      "type": "update",
+      "parameters": {
+        "allow_force_pushes": true,
+        "allow_deletions": true
+      }
+    }
+  ],
+  "bypass_actors": []
+}

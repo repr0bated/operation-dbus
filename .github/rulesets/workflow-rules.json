@@ -1,0 +1,30 @@
+{
+  "name": "Workflow Protection",
+  "target": "workflow",
+  "enforcement": "active",
+  "conditions": {},
+  "rules": [
+    {
+      "type": "workflows",
+      "parameters": {
+        "allowed_repositories": [
+          "repo_self"
+        ],
+        "enforce_allowed_repositories": true
+      }
+    },
+    {
+      "type": "required_deployments",
+      "parameters": {
+        "required_deployment_environments": []
+      }
+    },
+    {
+      "type": "fork_pull_request_workflows_in_public_repositories",
+      "parameters": {
+        "require_approval": true
+      }
+    }
+  ],
+  "bypass_actors": []
+}
