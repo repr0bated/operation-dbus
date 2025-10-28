@@ -1,0 +1,8 @@
+{
+  "command": "/git/wayfire-mcp-server/target/debug/dbus-agent-executor",
+  "args": ["executor-mcp-1"],
+  "env": {
+    "RUST_LOG": "info"
+  },
+  "description": "D-Bus Executor Agent - Execute shell commands via D-Bus"
+}

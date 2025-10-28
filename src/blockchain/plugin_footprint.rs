@@ -111,11 +111,14 @@ impl FootprintGenerator {
         metadata: &Option<HashMap<String, serde_json::Value>>,
     ) -> Result<Vec<f32>> {
         // Check vectorization level
-        let model_manager = crate::ml::ModelManager::global();
+        #[cfg(feature = "ml")]
+        {
+            let model_manager = crate::ml::ModelManager::global();
 
-        if model_manager.is_enabled() {
-            // Use transformer-based vectorization
-            return self.generate_transformer_features(operation, data, metadata);
+            if model_manager.is_enabled() {
+                // Use transformer-based vectorization
+                return self.generate_transformer_features(operation, data, metadata);
+            }
         }
 
         // Fall back to heuristic vectorization
@@ -123,6 +126,7 @@ impl FootprintGenerator {
     }
 
     /// Generate transformer-based vector features
+    #[cfg(feature = "ml")]
     fn generate_transformer_features(
         &self,
         operation: &str,

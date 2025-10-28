@@ -1,0 +1,66 @@
+# D-Bus MCP Discovery Configuration
+
+[discovery]
+# Output directory for generated MCP configs
+output_dir = "~/.config/Claude/mcp-servers"
+
+# Auto-scan interval (seconds, 0 = disable)
+scan_interval = 300
+
+# Introspection format: "xml" (D-Bus standard) or "json" (custom)
+default_format = "xml"
+
+[services]
+# Services to discover and expose
+# Format: service_name = { format = "xml|json", enabled = true|false }
+
+[services."org.freedesktop.systemd1"]
+enabled = true
+format = "xml"  # Standard D-Bus XML introspection
+
+[services."org.freedesktop.NetworkManager"]
+enabled = true
+format = "xml"  # Standard D-Bus XML introspection
+
+[services."org.dbusmcp.*"]
+enabled = true
+format = "xml"  # Our agents use D-Bus XML
+
+# Your custom services using JSON
+[services."com.example.MyService"]
+enabled = true
+format = "json"  # ← Your custom JSON format
+json_endpoint = "http://localhost:8080/api/introspect"  # HTTP endpoint for JSON
+# OR
+json_file = "/etc/myservice/introspection.json"  # JSON file path
+
+[services."com.example.AnotherService"]
+enabled = true
+format = "json"
+json_endpoint = "http://localhost:9000/introspect"
+
+# Blocklist (services to never expose)
+[blocklist]
+patterns = [
+    "org.freedesktop.DBus",      # D-Bus daemon itself
+    "org.freedesktop.secrets",   # Secrets service (security)
+]
+
+# JSON Schema for custom services
+# This defines what your JSON introspection format looks like
+[json_schema]
+# Example format your services should return:
+# {
+#   "service": "com.example.MyService",
+#   "version": "1.0",
+#   "methods": [
+#     {
+#       "name": "DoSomething",
+#       "inputs": [{"name": "param1", "type": "string"}],
+#       "outputs": [{"name": "result", "type": "string"}],
+#       "description": "Does something useful"
+#     }
+#   ],
+#   "properties": [...],
+#   "signals": [...]
+# }

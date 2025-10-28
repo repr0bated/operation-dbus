@@ -1,0 +1,130 @@
+{
+  "name": "@operation-dbus/mcp-server",
+  "version": "1.0.0",
+  "description": "MCP (Model Context Protocol) server for D-Bus system automation on Linux",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "dbus",
+    "linux",
+    "systemd",
+    "automation",
+    "ai-tools"
+  ],
+  "author": "Operation D-Bus Team",
+  "license": "MIT",
+  "homepage": "https://github.com/yourusername/operation-dbus#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/operation-dbus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/operation-dbus/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-dbus": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "mcp-configs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "cargo build --release --features mcp",
+    "build:all": "cargo build --release --all-features",
+    "test": "cargo test --features mcp",
+    "clean": "cargo clean",
+    "install:binary": "cargo install --path . --features mcp",
+    "start": "cargo run --release --bin dbus-mcp --features mcp",
+    "start:orchestrator": "cargo run --release --bin dbus-orchestrator --features mcp",
+    "start:web": "cargo run --release --bin dbus-mcp-web --features mcp",
+    "discover": "cargo run --release --bin dbus-mcp-discovery-enhanced --features mcp",
+    "package": "npm run build && npm pack",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "mcp": {
+    "server": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--release",
+        "--bin",
+        "dbus-mcp",
+        "--features",
+        "mcp"
+      ],
+      "env": {
+        "RUST_LOG": "info"
+      }
+    },
+    "capabilities": {
+      "tools": {
+        "list": true,
+        "call": true
+      },
+      "resources": {
+        "list": true,
+        "read": true
+      },
+      "prompts": {
+        "list": true,
+        "get": true
+      }
+    },
+    "tools": [
+      {
+        "name": "systemd_status",
+        "description": "Get status of a systemd service"
+      },
+      {
+        "name": "systemd_start",
+        "description": "Start a systemd service"
+      },
+      {
+        "name": "systemd_stop",
+        "description": "Stop a systemd service"
+      },
+      {
+        "name": "systemd_restart",
+        "description": "Restart a systemd service"
+      },
+      {
+        "name": "file_read",
+        "description": "Read contents of a file"
+      },
+      {
+        "name": "file_write",
+        "description": "Write contents to a file"
+      },
+      {
+        "name": "file_list",
+        "description": "List directory contents"
+      },
+      {
+        "name": "network_interfaces",
+        "description": "List network interfaces"
+      },
+      {
+        "name": "network_connections",
+        "description": "List network connections"
+      },
+      {
+        "name": "process_list",
+        "description": "List running processes"
+      },
+      {
+        "name": "exec_command",
+        "description": "Execute a shell command (restricted)"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}

@@ -12,6 +12,14 @@ op-dbus supports three deployment modes:
 
 See **[ENTERPRISE-DEPLOYMENT.md](ENTERPRISE-DEPLOYMENT.md)** for detailed enterprise deployment guide.
 
+## Optional Features
+
+- **MCP (Model Context Protocol)** - Enable with `--features mcp` for AI assistant integration
+  - Automatic D-Bus service discovery
+  - 100+ auto-generated tools from system services
+  - Zero-configuration bridge to any D-Bus service
+  - See **[MCP-INTEGRATION.md](MCP-INTEGRATION.md)** for details
+
 ## Quick Start
 
 ### Installation

@@ -1,0 +1,29 @@
+[Unit]
+Description=D-Bus MCP Orchestrator
+Documentation=https://github.com/yourusername/dbus-mcp-server
+After=dbus.service
+Requires=dbus.service
+
+[Service]
+Type=simple
+WorkingDirectory=/git/wayfire-mcp-server
+ExecStart=/git/wayfire-mcp-server/target/debug/dbus-orchestrator
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment="RUST_LOG=info"
+
+# Security hardening (optional, comment out if issues)
+# NoNewPrivileges=true
+# PrivateTmp=true
+# ProtectSystem=strict
+# ProtectHome=read-only
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dbus-orchestrator
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "dbus": {
+      "command": "dbus-mcp",
+      "args": [],
+      "env": {
+        "RUST_LOG": "info",
+        "DBUS_SESSION_BUS_ADDRESS": "${DBUS_SESSION_BUS_ADDRESS}"
+      }
+    }
+  },
+  "globalShortcut": "Cmd+Shift+D"
+}

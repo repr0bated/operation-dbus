@@ -1,0 +1,8 @@
+{
+  "command": "/git/wayfire-mcp-server/target/debug/wayfire-mcp-server",
+  "args": [],
+  "env": {
+    "RUST_LOG": "info"
+  },
+  "description": "Wayfire D-Bus Orchestrator - Spawn and manage D-Bus agents for system tasks"
+}

@@ -1,0 +1,243 @@
+{
+  "name": "dbus-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for D-Bus system automation on Linux",
+  "protocol_version": "2024-11-05",
+  "author": "Operation D-Bus Team",
+  "license": "MIT",
+  "homepage": "https://github.com/yourusername/operation-dbus",
+  "server": {
+    "command": "dbus-mcp",
+    "args": [],
+    "env": {
+      "RUST_LOG": "info"
+    }
+  },
+  "capabilities": {
+    "tools": {
+      "list": true,
+      "call": true
+    },
+    "resources": {
+      "list": true,
+      "read": true,
+      "write": false,
+      "delete": false,
+      "update": false
+    },
+    "prompts": {
+      "list": true,
+      "get": true
+    },
+    "completion": {
+      "models": []
+    }
+  },
+  "tools": [
+    {
+      "name": "systemd_status",
+      "description": "Get the status of a systemd service",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Name of the systemd service (e.g., 'nginx', 'postgresql')"
+          }
+        },
+        "required": ["service"]
+      }
+    },
+    {
+      "name": "systemd_start",
+      "description": "Start a systemd service",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Name of the service to start"
+          }
+        },
+        "required": ["service"]
+      }
+    },
+    {
+      "name": "systemd_stop",
+      "description": "Stop a systemd service",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Name of the service to stop"
+          }
+        },
+        "required": ["service"]
+      }
+    },
+    {
+      "name": "systemd_restart",
+      "description": "Restart a systemd service",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Name of the service to restart"
+          }
+        },
+        "required": ["service"]
+      }
+    },
+    {
+      "name": "file_read",
+      "description": "Read the contents of a file",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to read"
+          }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "file_write",
+      "description": "Write content to a file",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to write"
+          }
+        },
+        "required": ["path", "content"]
+      }
+    },
+    {
+      "name": "file_list",
+      "description": "List contents of a directory",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path",
+            "default": "."
+          }
+        }
+      }
+    },
+    {
+      "name": "network_interfaces",
+      "description": "List all network interfaces",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "process_list",
+      "description": "List running processes",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "Optional filter for process name"
+          }
+        }
+      }
+    },
+    {
+      "name": "exec_command",
+      "description": "Execute a whitelisted shell command",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Command to execute (must be whitelisted)"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Command arguments"
+          }
+        },
+        "required": ["command"]
+      }
+    }
+  ],
+  "resources": [
+    {
+      "name": "system_info",
+      "description": "System information and metrics",
+      "mimeType": "application/json"
+    },
+    {
+      "name": "agent_status",
+      "description": "Status of all active agents",
+      "mimeType": "application/json"
+    },
+    {
+      "name": "discovered_services",
+      "description": "List of discovered D-Bus services",
+      "mimeType": "application/json"
+    }
+  ],
+  "prompts": [
+    {
+      "name": "system_management",
+      "description": "Manage Linux system services and configurations",
+      "arguments": [
+        {
+          "name": "task",
+          "description": "What system management task to perform",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "troubleshooting",
+      "description": "Troubleshoot system issues",
+      "arguments": [
+        {
+          "name": "issue",
+          "description": "Description of the issue to troubleshoot",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "configuration": {
+    "security": {
+      "command_whitelist": [
+        "ls", "ps", "df", "du", "top", "free", "uptime",
+        "whoami", "date", "hostname", "pwd", "echo"
+      ],
+      "allowed_directories": [
+        "/home", "/tmp", "/var/log", "/opt"
+      ],
+      "forbidden_paths": [
+        "/etc/shadow", "/etc/passwd", "/root",
+        ".ssh", ".gnupg", ".config"
+      ]
+    },
+    "limits": {
+      "max_file_size": 10485760,
+      "command_timeout": 30,
+      "max_output_size": 1048576
+    }
+  }
+}
