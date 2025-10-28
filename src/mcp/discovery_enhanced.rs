@@ -62,7 +62,7 @@ pub struct EnhancedDiscovery {
 impl EnhancedDiscovery {
     pub async fn new(config_path: Option<&str>) -> Result<Self, Box<dyn std::error::Error>> {
         let connection = Connection::session().await?;
-        
+
         let config = if let Some(path) = config_path {
             let content = fs::read_to_string(path)?;
             toml::from_str(&content)?
@@ -89,9 +89,7 @@ impl EnhancedDiscovery {
                 ServiceCategory {
                     name: "network".to_string(),
                     description: "Network management services".to_string(),
-                    services: vec![
-                        "org.freedesktop.NetworkManager".to_string(),
-                    ],
+                    services: vec!["org.freedesktop.NetworkManager".to_string()],
                 },
                 ServiceCategory {
                     name: "automation".to_string(),
@@ -116,49 +114,60 @@ impl EnhancedDiscovery {
         }
     }
 
-    pub async fn discover_and_generate(&self) -> Result<Vec<McpServerEntry>, Box<dyn std::error::Error>> {
+    pub async fn discover_and_generate(
+        &self,
+    ) -> Result<Vec<McpServerEntry>, Box<dyn std::error::Error>> {
         println!("🔍 Enhanced D-Bus Discovery Starting...\n");
-        
+
         let mut entries = Vec::new();
-        
+
         // Scan both session and system buses
         println!("📡 Scanning Session Bus...");
         let session_entries = self.scan_bus("session").await?;
         entries.extend(session_entries);
-        
+
         println!("\n📡 Scanning System Bus...");
         let system_entries = self.scan_bus("system").await?;
         entries.extend(system_entries);
-        
+
         Ok(entries)
     }
-    
-    async fn scan_bus(&self, bus_type: &str) -> Result<Vec<McpServerEntry>, Box<dyn std::error::Error>> {
+
+    async fn scan_bus(
+        &self,
+        bus_type: &str,
+    ) -> Result<Vec<McpServerEntry>, Box<dyn std::error::Error>> {
         // Connect to the appropriate bus
         let connection = match bus_type {
             "system" => Connection::system().await?,
             _ => Connection::session().await?,
         };
-        
+
         // Get all D-Bus services on this bus
         let proxy = zbus::fdo::DBusProxy::new(&connection).await?;
         let all_names = proxy.list_names().await?;
-        
+
         // Convert OwnedBusName to String
         let all_names_str: Vec<String> = all_names.iter().map(|n| n.to_string()).collect();
-        
+
         let mut entries = Vec::new();
-        
+
         // Categorize and filter services
         for category in &self.config.categories {
-            println!("📂 Category: {} - {} [{}]", category.name, category.description, bus_type);
-            
+            println!(
+                "📂 Category: {} - {} [{}]",
+                category.name, category.description, bus_type
+            );
+
             for pattern in &category.services {
                 let matching_services = self.find_matching_services(&all_names_str, pattern);
-                
+
                 for service in matching_services {
                     if self.should_expose(&service) {
-                        match self.create_mcp_entry(&service, &category.name, bus_type).await {
+                        match self
+                            .create_mcp_entry(&service, &category.name, bus_type)
+                            .await
+                        {
                             Ok(entry) => {
                                 println!("  ✅ {} ({} tools)", entry.name, entry.tool_count);
                                 entries.push(entry);
@@ -174,7 +183,7 @@ impl EnhancedDiscovery {
                 println!();
             }
         }
-        
+
         Ok(entries)
     }
 
@@ -202,14 +211,14 @@ impl EnhancedDiscovery {
                 return false;
             }
         }
-        
+
         // Check include patterns
         for pattern in &self.config.filter.include_patterns {
             if service.starts_with(pattern.trim_end_matches('*')) {
                 return true;
             }
         }
-        
+
         false
     }
 
@@ -221,23 +230,23 @@ impl EnhancedDiscovery {
     ) -> Result<McpServerEntry, Box<dyn std::error::Error>> {
         // Introspect to get tool count
         let tool_count = self.count_tools(service, bus_type).await.unwrap_or(0);
-        
+
         if tool_count == 0 {
             return Err("No tools found".into());
         }
-        
+
         // Generate a friendly name
         let name = self.service_to_friendly_name(service);
-        
+
         // Determine the bridge binary location
         let bridge_command = self.find_bridge_binary();
-        
+
         // Add bus type to args
         let mut args = vec!["--service".to_string(), service.to_string()];
         if bus_type == "system" {
             args.push("--system".to_string());
         }
-        
+
         let entry = McpServerEntry {
             name: name.clone(),
             command: bridge_command,
@@ -248,38 +257,45 @@ impl EnhancedDiscovery {
                 ("MCP_NAME".to_string(), name.clone()),
                 ("RUST_LOG".to_string(), "error".to_string()), // Reduce noise
             ]),
-            description: format!("{} service ({} bus) with {} available tools", service, bus_type, tool_count),
+            description: format!(
+                "{} service ({} bus) with {} available tools",
+                service, bus_type, tool_count
+            ),
             category: category.to_string(),
             tool_count,
         };
-        
+
         Ok(entry)
     }
 
-    async fn count_tools(&self, service: &str, bus_type: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    async fn count_tools(
+        &self,
+        service: &str,
+        bus_type: &str,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
         // Quick introspection to count methods
         let path = format!("/{}", service.replace('.', "/"));
-        
+
         let mut cmd = std::process::Command::new("busctl");
-        
+
         // Add appropriate bus flag
         if bus_type == "system" {
             cmd.arg("--system");
         } else {
             cmd.arg("--user");
         }
-        
+
         let output = cmd
             .arg("introspect")
             .arg("--xml-interface")
             .arg(service)
             .arg(&path)
             .output()?;
-        
+
         if output.status.success() {
             let xml = String::from_utf8_lossy(&output.stdout);
             let method_count = xml.matches("<method name=").count();
-            
+
             // Apply max tools filter
             if let Some(max) = self.config.filter.max_tools_per_service {
                 Ok(method_count.min(max))
@@ -308,13 +324,13 @@ impl EnhancedDiscovery {
             "./target/release/dbus-mcp-bridge",
             "./target/debug/dbus-mcp-bridge",
         ];
-        
+
         for path in candidates {
             if std::path::Path::new(path).exists() {
                 return path.to_string();
             }
         }
-        
+
         // Fallback
         "dbus-mcp-bridge".to_string()
     }
@@ -325,9 +341,9 @@ impl EnhancedDiscovery {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let output_dir = self.expand_tilde(&self.config.output_dir);
         fs::create_dir_all(&output_dir)?;
-        
+
         println!("📝 Generating Client Configurations...\n");
-        
+
         // Generate individual config files for each service
         for entry in entries {
             let config = McpServerConfig {
@@ -335,13 +351,13 @@ impl EnhancedDiscovery {
                 args: entry.args.clone(),
                 env: entry.env.clone(),
             };
-            
+
             let filename = format!("{}/{}.json", output_dir.display(), entry.name);
             let json = serde_json::to_string_pretty(&config)?;
             fs::write(&filename, json)?;
             println!("  ✅ {}", filename);
         }
-        
+
         // Generate a master config with all services
         let mut mcp_servers = HashMap::new();
         for entry in entries {
@@ -354,13 +370,13 @@ impl EnhancedDiscovery {
                 },
             );
         }
-        
+
         let master_config = ClientConfig { mcp_servers };
         let master_file = format!("{}/all-services.json", output_dir.display());
         let json = serde_json::to_string_pretty(&master_config)?;
         fs::write(&master_file, json)?;
         println!("\n  ✅ Master config: {}", master_file);
-        
+
         // Generate category-based configs
         let categories: Vec<String> = entries.iter().map(|e| e.category.clone()).collect();
         let unique_categories: Vec<String> = categories
@@ -368,10 +384,10 @@ impl EnhancedDiscovery {
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-        
+
         for category in unique_categories {
             let mut category_servers = HashMap::new();
-            
+
             for entry in entries.iter().filter(|e| e.category == category) {
                 category_servers.insert(
                     entry.name.clone(),
@@ -382,7 +398,7 @@ impl EnhancedDiscovery {
                     },
                 );
             }
-            
+
             let category_config = ClientConfig {
                 mcp_servers: category_servers,
             };
@@ -391,13 +407,13 @@ impl EnhancedDiscovery {
             fs::write(&category_file, json)?;
             println!("  ✅ Category config: {}", category_file);
         }
-        
+
         Ok(())
     }
 
     pub fn generate_summary(&self, entries: &[McpServerEntry]) -> String {
         let total_tools: usize = entries.iter().map(|e| e.tool_count).sum();
-        
+
         let mut summary = format!(
             "\n🎯 Discovery Summary\n\
             ═══════════════════════\n\
@@ -406,13 +422,16 @@ impl EnhancedDiscovery {
             entries.len(),
             total_tools
         );
-        
+
         // Group by category
         let mut by_category: HashMap<String, Vec<&McpServerEntry>> = HashMap::new();
         for entry in entries {
-            by_category.entry(entry.category.clone()).or_default().push(entry);
+            by_category
+                .entry(entry.category.clone())
+                .or_default()
+                .push(entry);
         }
-        
+
         for (category, cat_entries) in by_category {
             let cat_tools: usize = cat_entries.iter().map(|e| e.tool_count).sum();
             summary.push_str(&format!(
@@ -421,7 +440,7 @@ impl EnhancedDiscovery {
                 cat_entries.len(),
                 cat_tools
             ));
-            
+
             for entry in cat_entries {
                 summary.push_str(&format!(
                     "   • {} ({} tools)\n",
@@ -430,7 +449,7 @@ impl EnhancedDiscovery {
             }
             summary.push('\n');
         }
-        
+
         summary
     }
 
@@ -451,31 +470,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╔══════════════════════════════════════════════╗");
     println!("║   Enhanced D-Bus MCP Discovery Service      ║");
     println!("╚══════════════════════════════════════════════╝\n");
-    
+
     // Load config or use defaults
     let config_path = std::env::args().nth(1);
     let discovery = EnhancedDiscovery::new(config_path.as_deref()).await?;
-    
+
     // Discover services and generate entries
     let entries = discovery.discover_and_generate().await?;
-    
+
     if entries.is_empty() {
         println!("⚠️  No services found to expose!");
         return Ok(());
     }
-    
+
     // Generate client configurations
     discovery.generate_client_configs(&entries)?;
-    
+
     // Print summary
     let summary = discovery.generate_summary(&entries);
     println!("{}", summary);
-    
+
     println!("✨ Discovery Complete!");
     println!("\n📍 Next Steps:");
     println!("1. Copy configs to your MCP client's config directory");
     println!("2. Restart your MCP client");
     println!("3. All discovered services will be available as separate MCP servers!");
-    
+
     Ok(())
 }

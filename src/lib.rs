@@ -3,15 +3,15 @@
 //! This crate provides declarative system state management through native Linux protocols.
 
 // Core modules
-pub mod state;
-pub mod native;
-pub mod cache;
 pub mod blockchain;
+pub mod cache;
+pub mod native;
 pub mod nonnet_db;
+pub mod state;
 
 // Loose coupling modules
-pub mod plugin_system;
 pub mod event_bus;
+pub mod plugin_system;
 
 // Optional modules
 #[cfg(feature = "web")]
@@ -24,6 +24,6 @@ pub mod ml;
 pub mod mcp;
 
 // Re-exports for convenience
-pub use state::StateManager;
+pub use event_bus::{Event, EventBus};
 pub use plugin_system::{Plugin, PluginRegistry};
-pub use event_bus::{EventBus, Event};
+pub use state::StateManager;

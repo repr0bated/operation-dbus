@@ -549,6 +549,12 @@ impl NetStatePlugin {
         result
     }
 }
+
+impl Default for NetStatePlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 #[async_trait]
 impl StatePlugin for NetStatePlugin {
     fn name(&self) -> &str {

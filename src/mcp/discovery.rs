@@ -75,7 +75,10 @@ impl DbusDiscovery {
         Ok(services)
     }
 
-    async fn introspect_service(&self, service_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    async fn introspect_service(
+        &self,
+        service_name: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         // Determine the correct D-Bus path for introspection
         // Pattern: org.freedesktop.systemd1 -> /org/freedesktop/systemd1
         let path = if service_name.starts_with("org.") || service_name.starts_with("com.") {
@@ -90,8 +93,9 @@ impl DbusDiscovery {
             &self.connection,
             service_name,
             path.as_str(),
-            "org.freedesktop.DBus.Introspectable"
-        ).await?;
+            "org.freedesktop.DBus.Introspectable",
+        )
+        .await?;
 
         let xml: String = proxy.call("Introspect", &()).await?;
         Ok(xml)
@@ -169,7 +173,12 @@ impl DbusDiscovery {
             .to_lowercase()
     }
 
-    pub fn write_config(&self, config: &McpServerConfig, output_dir: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn write_config(
+        &self,
+        config: &McpServerConfig,
+        output_dir: &str,
+        name: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let filename = format!("{}/{}.json", output_dir, name);
         let json = serde_json::to_string_pretty(&config)?;
         std::fs::write(&filename, json)?;
