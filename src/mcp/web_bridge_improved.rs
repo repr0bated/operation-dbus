@@ -157,9 +157,7 @@ pub async fn run_improved_web_server() -> Result<(), Box<dyn std::error::Error>>
 
     // Initialize system info
     let system_info = SystemInfo {
-        hostname: gethostname::gethostname()
-            .to_string_lossy()
-            .to_string(),
+        hostname: gethostname::gethostname().to_string_lossy().to_string(),
         os: std::env::consts::OS.to_string(),
         cpu_count: num_cpus::get(),
         memory_total: 0, // Would need sys-info crate for actual memory
@@ -209,7 +207,6 @@ fn create_app(state: AppState) -> Router {
         // Static files and index
         .route("/", get(serve_index))
         .nest_service("/static", ServeDir::new(&web_dir))
-        
         // API routes
         .route("/api/status", get(api_status))
         .route("/api/tools", get(api_list_tools))
@@ -220,10 +217,8 @@ fn create_app(state: AppState) -> Router {
         .route("/api/agents/:id/task", post(api_send_task))
         .route("/api/discovery/run", post(api_run_discovery))
         .route("/api/discovery/services", get(api_list_services))
-        
         // WebSocket endpoint
         .route("/ws", get(websocket_handler))
-        
         // Add CORS layer
         .layer(
             CorsLayer::new()
@@ -231,10 +226,8 @@ fn create_app(state: AppState) -> Router {
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
-        
         // Add tracing
         .layer(TraceLayer::new_for_http())
-        
         // Add state
         .with_state(state)
 }
@@ -250,7 +243,7 @@ async fn api_status(State(state): State<AppState>) -> impl IntoResponse {
     let mut status = state.status.write().await;
     status.uptime_secs = state.start_time.elapsed().as_secs();
     status.request_count += 1;
-    
+
     Json(ApiResponse::success(status.clone()))
 }
 
@@ -306,10 +299,7 @@ async fn api_list_agents(State(state): State<AppState>) -> impl IntoResponse {
                                     .as_str()
                                     .unwrap_or("unknown")
                                     .to_string(),
-                                status: status["status"]
-                                    .as_str()
-                                    .unwrap_or("unknown")
-                                    .to_string(),
+                                status: status["status"].as_str().unwrap_or("unknown").to_string(),
                                 task: status["task"].as_str().map(String::from),
                                 uptime: status["uptime"].as_u64().unwrap_or(0),
                             });
@@ -329,10 +319,7 @@ async fn api_spawn_agent(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
 ) -> impl IntoResponse {
-    let agent_type = payload["type"]
-        .as_str()
-        .unwrap_or("executor")
-        .to_string();
+    let agent_type = payload["type"].as_str().unwrap_or("executor").to_string();
     let config = payload["config"].to_string();
 
     if let Some(orchestrator) = &state.orchestrator {
@@ -532,7 +519,7 @@ async fn monitor_agents_task(state: AppState) {
         if let Some(orchestrator) = &state.orchestrator {
             if let Ok(agent_ids) = orchestrator.list_agents().await {
                 let mut agents = vec![];
-                
+
                 for id in agent_ids {
                     if let Ok(status_json) = orchestrator.get_agent_status(id.clone()).await {
                         if let Ok(status) = serde_json::from_str::<Value>(&status_json) {
@@ -542,10 +529,7 @@ async fn monitor_agents_task(state: AppState) {
                                     .as_str()
                                     .unwrap_or("unknown")
                                     .to_string(),
-                                status: status["status"]
-                                    .as_str()
-                                    .unwrap_or("unknown")
-                                    .to_string(),
+                                status: status["status"].as_str().unwrap_or("unknown").to_string(),
                                 task: status["task"].as_str().map(String::from),
                                 uptime: status["uptime"].as_u64().unwrap_or(0),
                             });

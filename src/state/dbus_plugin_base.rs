@@ -1,3 +1,4 @@
+#![allow(async_fn_in_trait)]
 //! Base trait for D-Bus state plugins
 //! Provides common D-Bus operations, hash footprints, and blockchain integration
 
@@ -11,7 +12,7 @@ use zbus::{Connection, Proxy};
 
 /// Base trait for all D-Bus-based state plugins
 /// Provides common functionality for interacting with D-Bus services
-#[allow(dead_code)]
+#[allow(dead_code, async_fn_in_trait)]
 pub trait DbusStatePluginBase: StatePlugin {
     /// D-Bus service name (e.g., "org.freedesktop.systemd1")
     fn service_name(&self) -> &str;

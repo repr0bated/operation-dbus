@@ -45,7 +45,10 @@ struct DbusMcpBridge {
 }
 
 impl DbusMcpBridge {
-    async fn new(service_name: String, use_system_bus: bool) -> Result<Self, Box<dyn std::error::Error>> {
+    async fn new(
+        service_name: String,
+        use_system_bus: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let connection = if use_system_bus {
             Connection::system().await?
         } else {
@@ -60,8 +63,12 @@ impl DbusMcpBridge {
             "/".to_string()
         };
 
-        eprintln!("Introspecting {} at path {} (bus: {})", 
-                 service_name, path, if use_system_bus { "system" } else { "session" });
+        eprintln!(
+            "Introspecting {} at path {} (bus: {})",
+            service_name,
+            path,
+            if use_system_bus { "system" } else { "session" }
+        );
 
         // Introspect using busctl command
         let mut cmd = std::process::Command::new("busctl");
@@ -70,7 +77,7 @@ impl DbusMcpBridge {
         } else {
             cmd.arg("--user");
         }
-        
+
         let output = cmd
             .arg("introspect")
             .arg("--xml-interface")
@@ -296,10 +303,9 @@ impl DbusMcpBridge {
         } else {
             cmd.arg("--user");
         }
-        cmd
-           .arg("call")
-           .arg(&self.service_name)
-           .arg(&self.object_path);
+        cmd.arg("call")
+            .arg(&self.service_name)
+            .arg(&self.object_path);
 
         // We need to determine the interface from introspection data
         // For now, use a common pattern or make it configurable
@@ -309,7 +315,12 @@ impl DbusMcpBridge {
             format!("{}.Manager", self.service_name)
         } else if self.service_name.contains("dbusmcp") {
             // Our own services
-            format!("{}.Agent", self.service_name.trim_end_matches(char::is_numeric).trim_end_matches('.'))
+            format!(
+                "{}.Agent",
+                self.service_name
+                    .trim_end_matches(char::is_numeric)
+                    .trim_end_matches('.')
+            )
         } else {
             // Default: use service name as interface
             self.service_name.clone()
@@ -371,12 +382,20 @@ impl DbusMcpBridge {
         }
     }
 
-    fn json_to_dbus_arg(value: &Value, type_sig: &str) -> Result<String, Box<dyn std::error::Error>> {
+    fn json_to_dbus_arg(
+        value: &Value,
+        type_sig: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         match type_sig {
             "s" => Ok(value.as_str().unwrap_or("").to_string()),
             "i" | "u" | "x" | "t" => Ok(value.as_i64().unwrap_or(0).to_string()),
             "d" => Ok(value.as_f64().unwrap_or(0.0).to_string()),
-            "b" => Ok(if value.as_bool().unwrap_or(false) { "true" } else { "false" }.to_string()),
+            "b" => Ok(if value.as_bool().unwrap_or(false) {
+                "true"
+            } else {
+                "false"
+            }
+            .to_string()),
             _ => Ok(format!("{}", value)), // Fallback to JSON representation
         }
     }
@@ -389,7 +408,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
     let mut service_name = String::new();
     let mut use_system_bus = false;
-    
+
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -398,15 +417,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     service_name = args[i + 1].clone();
                     i += 1;
                 }
-            },
+            }
             "--system" => {
                 use_system_bus = true;
-            },
+            }
             _ => {}
         }
         i += 1;
     }
-    
+
     // Fallback to env var if not provided via args
     if service_name.is_empty() {
         service_name = std::env::var("DBUS_SERVICE").unwrap_or_else(|_| {

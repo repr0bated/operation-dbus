@@ -39,7 +39,7 @@ pub struct SignalInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArgInfo {
     pub name: String,
-    pub type_sig: String, // D-Bus type signature (s=string, i=int, etc)
+    pub type_sig: String,  // D-Bus type signature (s=string, i=int, etc)
     pub type_name: String, // Friendly name (string, int, etc)
 }
 
@@ -92,7 +92,9 @@ impl IntrospectionParser {
 
             // Method end
             if trimmed.starts_with("</method>") {
-                if let (Some(ref mut iface), Some(method)) = (&mut current_interface, current_method.take()) {
+                if let (Some(ref mut iface), Some(method)) =
+                    (&mut current_interface, current_method.take())
+                {
                     iface.methods.push(method);
                 }
             }
@@ -137,7 +139,9 @@ impl IntrospectionParser {
 
             // Signal
             if trimmed.starts_with("<signal name=") {
-                if let (Some(ref mut iface), Some(name)) = (&mut current_interface, Self::extract_attr(trimmed, "name")) {
+                if let (Some(ref mut iface), Some(name)) =
+                    (&mut current_interface, Self::extract_attr(trimmed, "name"))
+                {
                     iface.signals.push(SignalInfo {
                         name,
                         args: Vec::new(),
@@ -192,17 +196,23 @@ impl IntrospectionParser {
             "s" => json!({"type": "string", "description": "String value"}),
             "o" => json!({"type": "string", "description": "D-Bus object path"}),
             "g" => json!({"type": "string", "description": "D-Bus signature"}),
-            "y" => json!({"type": "integer", "minimum": 0, "maximum": 255, "description": "Byte (0-255)"}),
+            "y" => {
+                json!({"type": "integer", "minimum": 0, "maximum": 255, "description": "Byte (0-255)"})
+            }
             "b" => json!({"type": "boolean", "description": "Boolean value"}),
             "n" => json!({"type": "integer", "minimum": -32768, "maximum": 32767}),
             "q" => json!({"type": "integer", "minimum": 0, "maximum": 65535}),
             "i" => json!({"type": "integer", "description": "32-bit signed integer"}),
-            "u" => json!({"type": "integer", "minimum": 0, "description": "32-bit unsigned integer"}),
+            "u" => {
+                json!({"type": "integer", "minimum": 0, "description": "32-bit unsigned integer"})
+            }
             "x" => json!({"type": "integer", "description": "64-bit signed integer"}),
-            "t" => json!({"type": "integer", "minimum": 0, "description": "64-bit unsigned integer"}),
+            "t" => {
+                json!({"type": "integer", "minimum": 0, "description": "64-bit unsigned integer"})
+            }
             "d" => json!({"type": "number", "description": "Double precision float"}),
             "h" => json!({"type": "integer", "description": "File descriptor handle"}),
-            
+
             // Array types
             "as" => json!({
                 "type": "array",
@@ -228,7 +238,7 @@ impl IntrospectionParser {
                 "items": {"type": "integer", "minimum": 0},
                 "description": "Array of unsigned integers"
             }),
-            
+
             // Dictionary types
             "a{sv}" => json!({
                 "type": "object",
@@ -248,7 +258,7 @@ impl IntrospectionParser {
                 },
                 "description": "Nested dictionary structure"
             }),
-            
+
             // Tuple/struct types
             "(ss)" => json!({
                 "type": "array",
@@ -257,7 +267,7 @@ impl IntrospectionParser {
                 "maxItems": 2,
                 "description": "Tuple of two strings"
             }),
-            
+
             // Complex or unknown types default to structured input
             _ if sig.starts_with("a{") => json!({
                 "type": "object",
@@ -272,12 +282,12 @@ impl IntrospectionParser {
                 "type": "array",
                 "description": format!("Tuple/struct type: {}", sig)
             }),
-            
+
             // Fallback
             _ => json!({
                 "type": "string",
                 "description": format!("D-Bus type: {} (provide as JSON string)", sig)
-            })
+            }),
         }
     }
 }

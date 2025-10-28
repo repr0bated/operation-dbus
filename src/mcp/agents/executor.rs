@@ -6,11 +6,13 @@ use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
 
 // Security configuration
 const ALLOWED_COMMANDS: &[&str] = &[
-    "ls", "cat", "grep", "ps", "top", "df", "du", "free", "uptime",
-    "whoami", "date", "hostname", "pwd", "echo", "wc", "sort", "head", "tail"
+    "ls", "cat", "grep", "ps", "top", "df", "du", "free", "uptime", "whoami", "date", "hostname",
+    "pwd", "echo", "wc", "sort", "head", "tail",
 ];
 
-const FORBIDDEN_CHARS: &[char] = &['$', '`', ';', '&', '|', '>', '<', '(', ')', '{', '}', '\n', '\r'];
+const FORBIDDEN_CHARS: &[char] = &[
+    '$', '`', ';', '&', '|', '>', '<', '(', ')', '{', '}', '\n', '\r',
+];
 const MAX_COMMAND_LENGTH: usize = 1024;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const MAX_TIMEOUT_SECS: u64 = 300;
@@ -42,9 +44,8 @@ struct ExecutorAgent {
 
 impl ExecutorAgent {
     fn new(agent_id: String) -> Self {
-        let allowed_commands: HashSet<String> = ALLOWED_COMMANDS.iter()
-            .map(|s| s.to_string())
-            .collect();
+        let allowed_commands: HashSet<String> =
+            ALLOWED_COMMANDS.iter().map(|s| s.to_string()).collect();
 
         Self {
             agent_id,
@@ -55,7 +56,10 @@ impl ExecutorAgent {
     fn validate_command(&self, command: &str) -> Result<(), String> {
         // Check command length
         if command.len() > MAX_COMMAND_LENGTH {
-            return Err(format!("Command exceeds maximum length of {} characters", MAX_COMMAND_LENGTH));
+            return Err(format!(
+                "Command exceeds maximum length of {} characters",
+                MAX_COMMAND_LENGTH
+            ));
         }
 
         // Check for empty command
@@ -66,18 +70,25 @@ impl ExecutorAgent {
         // Check for forbidden characters that could lead to injection
         for forbidden_char in FORBIDDEN_CHARS {
             if command.contains(*forbidden_char) {
-                return Err(format!("Command contains forbidden character: {:?}", forbidden_char));
+                return Err(format!(
+                    "Command contains forbidden character: {:?}",
+                    forbidden_char
+                ));
             }
         }
 
         // Extract the base command (first word)
-        let base_command = command.split_whitespace()
+        let base_command = command
+            .split_whitespace()
             .next()
             .ok_or_else(|| "Invalid command format".to_string())?;
 
         // Check if command is in allowlist
         if !self.allowed_commands.contains(base_command) {
-            return Err(format!("Command '{}' is not in the allowed list", base_command));
+            return Err(format!(
+                "Command '{}' is not in the allowed list",
+                base_command
+            ));
         }
 
         Ok(())
@@ -89,10 +100,13 @@ impl ExecutorAgent {
             if arg.contains("..") {
                 return Err("Path traversal detected in arguments".to_string());
             }
-            
+
             for forbidden_char in FORBIDDEN_CHARS {
                 if arg.contains(*forbidden_char) {
-                    return Err(format!("Argument contains forbidden character: {:?}", forbidden_char));
+                    return Err(format!(
+                        "Argument contains forbidden character: {:?}",
+                        forbidden_char
+                    ));
                 }
             }
 
@@ -110,7 +124,8 @@ impl ExecutorAgent {
         }
 
         // Check if path is absolute and within allowed directories
-        if !dir.starts_with("/home/") && !dir.starts_with("/tmp/") && !dir.starts_with("/var/log/") {
+        if !dir.starts_with("/home/") && !dir.starts_with("/tmp/") && !dir.starts_with("/var/log/")
+        {
             return Err("Working directory must be within /home/, /tmp/, or /var/log/".to_string());
         }
 
@@ -157,15 +172,17 @@ impl ExecutorAgent {
         }
 
         // Set timeout
-        let timeout_secs = task.timeout
+        let timeout_secs = task
+            .timeout
             .unwrap_or(DEFAULT_TIMEOUT_SECS)
             .min(MAX_TIMEOUT_SECS);
 
         // Execute with timeout
         let output = tokio::time::timeout(
             Duration::from_secs(timeout_secs),
-            tokio::task::spawn_blocking(move || cmd.output())
-        ).await;
+            tokio::task::spawn_blocking(move || cmd.output()),
+        )
+        .await;
 
         match output {
             Ok(Ok(Ok(output))) => {
@@ -181,15 +198,9 @@ impl ExecutorAgent {
                     error: None,
                 })
             }
-            Ok(Ok(Err(e))) => {
-                Err(format!("Failed to execute command: {}", e))
-            }
-            Ok(Err(e)) => {
-                Err(format!("Task panic: {}", e))
-            }
-            Err(_) => {
-                Err(format!("Command timed out after {} seconds", timeout_secs))
-            }
+            Ok(Ok(Err(e))) => Err(format!("Failed to execute command: {}", e)),
+            Ok(Err(e)) => Err(format!("Task panic: {}", e)),
+            Err(_) => Err(format!("Command timed out after {} seconds", timeout_secs)),
         }
     }
 }
@@ -203,26 +214,32 @@ impl ExecutorAgent {
         let task: ExecuteTask = match serde_json::from_str(&task_json) {
             Ok(t) => t,
             Err(e) => {
-                return Err(zbus::fdo::Error::InvalidArgs(
-                    format!("Failed to parse task: {}", e)
-                ));
+                return Err(zbus::fdo::Error::InvalidArgs(format!(
+                    "Failed to parse task: {}",
+                    e
+                )));
             }
         };
 
         if task.task_type != "execute" {
-            return Err(zbus::fdo::Error::InvalidArgs(
-                format!("Unknown task type: {}", task.task_type)
-            ));
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "Unknown task type: {}",
+                task.task_type
+            )));
         }
 
         // Validate command before execution
         if let Err(e) = self.validate_command(&task.command) {
-            return Err(zbus::fdo::Error::AccessDenied(
-                format!("Command validation failed: {}", e)
-            ));
+            return Err(zbus::fdo::Error::AccessDenied(format!(
+                "Command validation failed: {}",
+                e
+            )));
         }
 
-        println!("[{}] Executing validated command: {}", self.agent_id, task.command);
+        println!(
+            "[{}] Executing validated command: {}",
+            self.agent_id, task.command
+        );
 
         match self.execute_safely(task).await {
             Ok(result) => {
@@ -230,9 +247,7 @@ impl ExecutorAgent {
                     .unwrap_or_else(|e| format!(r#"{{"error": "Serialization failed: {}"}}"#, e));
                 Ok(json)
             }
-            Err(e) => {
-                Err(zbus::fdo::Error::Failed(format!("Execution failed: {}", e)))
-            }
+            Err(e) => Err(zbus::fdo::Error::Failed(format!("Execution failed: {}", e))),
         }
     }
 
@@ -259,7 +274,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_id = if args.len() > 1 {
         args[1].clone()
     } else {
-        format!("executor-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
+        format!(
+            "executor-{}",
+            uuid::Uuid::new_v4().to_string()[..8].to_string()
+        )
     };
 
     println!("Starting Secure Executor Agent: {}", agent_id);
