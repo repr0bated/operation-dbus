@@ -572,7 +572,7 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
 
         # Auto-add netmaker interfaces to mesh bridge
         echo "Checking for netmaker interfaces to add to mesh bridge..."
-        for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-")) | .ifname'); do
+        for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-") or . == "netmaker") | .ifname'); do
             if sudo ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
                 echo -e "${GREEN}✓${NC} Interface $iface already in mesh bridge"
             else
@@ -596,7 +596,7 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
 
             # Auto-add netmaker interfaces to mesh bridge
             echo "Checking for netmaker interfaces to add to mesh bridge..."
-            for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-")) | .ifname'); do
+            for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-") or . == "netmaker") | .ifname'); do
                 if sudo ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
                     echo -e "${GREEN}✓${NC} Interface $iface already in mesh bridge"
                 else

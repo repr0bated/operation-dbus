@@ -30,7 +30,15 @@ fi
 echo -e "${GREEN}✓${NC} netclient installed"
 
 # Check if host is joined to netmaker
-if ! netclient list >/dev/null 2>&1 || ! netclient list | grep -q "Connected networks:"; then
+if ! netclient list >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠${NC}  Host not joined to netmaker network"
+    echo "Join first: netclient join -t \$NETMAKER_TOKEN"
+    exit 1
+fi
+
+# Check if netclient returned any networks (empty array or null means not joined)
+NETWORK_COUNT=$(netclient list 2>/dev/null | jq -r 'if type == "array" then length else 0 end' || echo "0")
+if [ "$NETWORK_COUNT" = "0" ]; then
     echo -e "${YELLOW}⚠${NC}  Host not joined to netmaker network"
     echo "Join first: netclient join -t \$NETMAKER_TOKEN"
     exit 1
@@ -40,10 +48,11 @@ echo -e "${GREEN}✓${NC} Host joined to netmaker"
 
 # Find and add netmaker interfaces
 echo ""
-echo "Scanning for netmaker interfaces (nm-*)..."
+echo "Scanning for netmaker interfaces (nm-* or netmaker)..."
 
 FOUND_INTERFACES=false
-for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-")) | .ifname'); do
+# Look for interfaces starting with nm- or exact name "netmaker"
+for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-") or . == "netmaker") | .ifname'); do
     FOUND_INTERFACES=true
 
     # Check if already added
