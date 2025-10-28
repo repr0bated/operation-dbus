@@ -335,11 +335,21 @@ impl LxcPlugin {
                     if let Some(token_value) = line.strip_prefix("NETMAKER_TOKEN=") {
                         let token_clean = token_value.trim_matches('"').trim();
 
-                        // Write token to container's rootfs
-                        let rootfs_path =
-                            format!("/var/lib/lxc/{}/rootfs/etc/netmaker-token", container.id);
-                        if tokio::fs::write(&rootfs_path, token_clean).await.is_ok() {
-                            log::info!("Injected netmaker token into container {}", container.id);
+                        // Write token to container's rootfs /root/.bashrc
+                        let bashrc_path =
+                            format!("/var/lib/lxc/{}/rootfs/root/.bashrc", container.id);
+                        
+                        // Append export statement to bashrc
+                        let export_line = format!("\nexport NETMAKER_TOKEN={}\n", token_clean);
+                        
+                        // Read existing bashrc if it exists
+                        let existing_content = tokio::fs::read_to_string(&bashrc_path).await.unwrap_or_default();
+                        
+                        // Append export if not already present
+                        if !existing_content.contains("NETMAKER_TOKEN") {
+                            if tokio::fs::write(&bashrc_path, format!("{}{}", existing_content, export_line)).await.is_ok() {
+                                log::info!("Injected netmaker token into {} .bashrc", container.id);
+                            }
                         }
                         break;
                     }
