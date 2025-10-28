@@ -171,10 +171,7 @@ impl PlugTree for LxcPlugin {
 impl LxcPlugin {
     /// Find container's veth interface name
     async fn find_container_veth(ct_id: &str) -> Result<String> {
-        // Container network namespace path
-        let _netns_path = format!("/run/netns/ct{}", ct_id);
-
-        // List all interfaces and find veth peer
+        // Try to get the actual interface name from the container's eth0 peer
         let output = tokio::process::Command::new("ip")
             .args([
                 "netns",
@@ -183,44 +180,72 @@ impl LxcPlugin {
                 "ip",
                 "link",
                 "show",
+                "eth0",
             ])
             .output()
             .await?;
 
-        if !output.status.success() {
-            // Try alternative: check host for veth pairs
-            let output = tokio::process::Command::new("ip")
-                .args(["link", "show", "type", "veth"])
-                .output()
-                .await?;
-
+        if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            // Parse output to find veth matching container
-            // Format: "vethXXX@if" - we want the host side
+            // Look for the peer link index
             for line in stdout.lines() {
-                if line.contains("@if") && line.contains("veth") {
-                    if let Some(name) = line.split(':').nth(1) {
-                        return Ok(name.split('@').next().unwrap_or("").trim().to_string());
+                if line.contains("link-netnsid") || line.contains("@if") {
+                    // Parse the peer interface name from the host side
+                    // Format: "veth<random>@if<index>"
+                    let host_side = tokio::process::Command::new("ip")
+                        .args(["link", "show", "type", "veth"])
+                        .output()
+                        .await?;
+                    
+                    if host_side.status.success() {
+                        let host_stdout = String::from_utf8_lossy(&host_side.stdout);
+                        // Find veth that matches this container's namespace
+                        for host_line in host_stdout.lines() {
+                            if host_line.contains("@"){
+                                // Extract interface name
+                                if let Some(col_pos) = host_line.find(':') {
+                                    let name_part = &host_line[col_pos+1..];
+                                    if let Some(name_end) = name_part.find('@') {
+                                        let veth_name = name_part[..name_end].trim();
+                                        if !veth_name.is_empty() {
+                                            return Ok(veth_name.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
-            return Err(anyhow::anyhow!(
-                "Could not find veth for container {}",
-                ct_id
-            ));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if line.contains("eth0") {
-                // This is the container's eth0, find its host peer
-                // For now, assume naming pattern vethXXX
-                return Ok(format!("veth{}", ct_id));
+        // Fallback: try to find veth by checking all veth pairs
+        let output = tokio::process::Command::new("ip")
+            .args(["link", "show", "type", "veth"])
+            .output()
+            .await?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Look for any veth interface (first one found)
+            for line in stdout.lines() {
+                if line.contains("@if") {
+                    if let Some(col_pos) = line.find(':') {
+                        let name_part = &line[col_pos+1..];
+                        if let Some(name_end) = name_part.find('@') {
+                            let veth_name = name_part[..name_end].trim();
+                            if !veth_name.is_empty() && veth_name.starts_with("veth") {
+                                log::info!("Found veth interface: {}", veth_name);
+                                return Ok(veth_name.to_string());
+                            }
+                        }
+                    }
+                }
             }
         }
 
         Err(anyhow::anyhow!(
-            "Could not determine veth name for container {}",
+            "Could not find veth interface for container {}",
             ct_id
         ))
     }
@@ -255,7 +280,7 @@ impl LxcPlugin {
             .as_ref()
             .and_then(|p| p.get("template"))
             .and_then(|v| v.as_str())
-            .unwrap_or("local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst");
+            .unwrap_or("local-btrfs:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst");
 
         log::info!("Using template: {}", template);
 
@@ -335,6 +360,21 @@ impl LxcPlugin {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(anyhow::anyhow!("pct start failed: {}", stderr));
+        }
+
+        Ok(())
+    }
+
+    /// Stop LXC container
+    async fn stop_container(ct_id: &str) -> Result<()> {
+        let output = tokio::process::Command::new("pct")
+            .args(["stop", ct_id])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("pct stop failed: {}", stderr));
         }
 
         Ok(())
@@ -508,6 +548,12 @@ impl StatePlugin for LxcPlugin {
                                     }
                                 }
                                 Err(e) => {
+                                    // If we can't find the veth, stop the container to prevent orphan
+                                    log::warn!(
+                                        "Failed to find veth for container {}, stopping container",
+                                        container.id
+                                    );
+                                    let _ = Self::stop_container(&container.id).await;
                                     errors.push(format!(
                                         "Failed to find veth for container {}: {}",
                                         container.id, e
