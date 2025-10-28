@@ -67,8 +67,12 @@ MCP_FILES=(
     "MCP-README.md"
     "MCP-INTEGRATION.md"
     "MCP-WEB-IMPROVEMENTS.md"
+    "MCP-CHAT-INTERFACE.md"
+    "MCP-FORK-SYNC-STATUS.md"
+    "SYNC-MCP-FORK.md"
     "COUPLING-FIXES.md"
     "SECURITY-FIXES.md"
+    "test-mcp-chat.sh"
 )
 
 MCP_DOCS=(
@@ -184,20 +188,24 @@ authors = ["Operation D-Bus Team"]
 [dependencies]
 # Include all MCP-related dependencies from main Cargo.toml
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zbus = { version = "4", features = ["tokio"] }
 uuid = { version = "1.6", features = ["v4"] }
 toml = "0.8"
 axum = { version = "0.7", features = ["ws"] }
-tower-http = { version = "0.5", features = ["fs", "cors"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
 anyhow = "1"
+thiserror = "1"
 async-trait = "0.1"
 once_cell = "1.19"
 log = "0.4"
 env_logger = "0.10"
 tracing = "0.1"
-chrono = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
 gethostname = "0.5"
 num_cpus = "1.16"
 base64 = "0.22"
@@ -250,6 +258,11 @@ path = "src/mcp/agents/systemd.rs"
 [[bin]]
 name = "dbus-agent-monitor"
 path = "src/mcp/agents/monitor.rs"
+
+# Chat interface
+[[bin]]
+name = "mcp-chat"
+path = "src/mcp/chat_main.rs"
 EOF
 
 # Create lib.rs for the fork
