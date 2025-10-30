@@ -7,7 +7,68 @@
         "RUST_LOG": "info",
         "DBUS_SESSION_BUS_ADDRESS": "${DBUS_SESSION_BUS_ADDRESS}"
       }
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/git", "/home/jeremy", "/git/agents", "/git/commands"]
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "sqlite": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "--db-path", "/home/jeremy/.mcp/mcp.db"]
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "puppeteer": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
+    },
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "/git/operation-dbus"]
+    },
+    "everart": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everart"]
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"]
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      },
+      "disabled": true
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": {
+        "POSTGRES_CONNECTION_STRING": "postgresql://localhost/postgres"
+      },
+      "disabled": true
     }
   },
-  "globalShortcut": "Cmd+Shift+D"
+  "globalShortcut": "Cmd+Shift+D",
+  "env": {
+    "HF_TOKEN": "${HF_TOKEN}",
+    "OLLAMA_API_KEY": "${OLLAMA_API_KEY}",
+    "PINECONE_API_KEY": "${PINECONE_API_KEY}",
+    "GH_TOKEN": "${GH_TOKEN}"
+  }
 }
