@@ -11,8 +11,10 @@ use crate::blockchain::PluginFootprint;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::process::Command;
-use tokio::time::{sleep, Duration};
+use tokio::sync::RwLock;
+use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,14 +27,65 @@ pub struct BlockEvent {
     pub vector: Vec<f32>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SnapshotInterval {
+    PerOperation,
+    EveryMinute,
+    Every5Minutes,
+    Every15Minutes,
+    Every30Minutes,
+    Hourly,
+    Daily,
+    Weekly,
+}
+
+impl SnapshotInterval {
+    /// Parse from environment variable or string
+    pub fn from_env() -> Self {
+        match std::env::var("OPDBUS_SNAPSHOT_INTERVAL")
+            .unwrap_or_else(|_| "every-15-minutes".to_string())
+            .to_lowercase()
+            .as_str()
+        {
+            "per-op" | "per-operation" | "per_operation" => SnapshotInterval::PerOperation,
+            "every-minute" | "1-minute" | "1min" => SnapshotInterval::EveryMinute,
+            "every-5-minutes" | "5-minutes" | "5min" => SnapshotInterval::Every5Minutes,
+            "every-15-minutes" | "15-minutes" | "15min" => SnapshotInterval::Every15Minutes,
+            "every-30-minutes" | "30-minutes" | "30min" => SnapshotInterval::Every30Minutes,
+            "hourly" | "1-hour" | "1h" => SnapshotInterval::Hourly,
+            "daily" | "1-day" | "1d" => SnapshotInterval::Daily,
+            "weekly" | "1-week" | "1w" => SnapshotInterval::Weekly,
+            _ => {
+                warn!("Invalid OPDBUS_SNAPSHOT_INTERVAL, defaulting to every-15-minutes");
+                SnapshotInterval::Every15Minutes
+            }
+        }
+    }
+}
+
+impl Default for SnapshotInterval {
+    fn default() -> Self {
+        SnapshotInterval::Every15Minutes // Default to every 15 minutes for production
+    }
+}
+
 pub struct StreamingBlockchain {
     base_path: PathBuf,
     timing_subvol: PathBuf,
     vector_subvol: PathBuf,
+    snapshot_interval: SnapshotInterval,
+    last_snapshot_time: Arc<RwLock<Instant>>,
 }
 
 impl StreamingBlockchain {
     pub async fn new(base_path: impl AsRef<Path>) -> Result<Self> {
+        Self::new_with_interval(base_path, SnapshotInterval::from_env()).await
+    }
+
+    pub async fn new_with_interval(
+        base_path: impl AsRef<Path>,
+        snapshot_interval: SnapshotInterval
+    ) -> Result<Self> {
         let base_path = base_path.as_ref().to_path_buf();
         let timing_subvol = base_path.join("timing");
         let vector_subvol = base_path.join("vectors");
@@ -45,6 +98,8 @@ impl StreamingBlockchain {
             base_path,
             timing_subvol,
             vector_subvol,
+            snapshot_interval,
+            last_snapshot_time: Arc::new(RwLock::new(Instant::now())),
         })
     }
 
@@ -107,9 +162,29 @@ impl StreamingBlockchain {
         });
         tokio::fs::write(&vector_file, serde_json::to_string(&vector_data)?).await?;
 
-        self.create_snapshot(&event.hash).await?;
+        // Only create snapshot if interval requires it
+        self.create_snapshot_if_needed(&event.hash).await?;
         info!("Plugin footprint added with hash: {}", event.hash);
         Ok(event.hash)
+    }
+
+    /// Add multiple footprints in batch (for bulk operations)
+    pub async fn add_footprints_batch(&self, footprints: Vec<PluginFootprint>) -> Result<Vec<String>> {
+        let mut hashes = Vec::new();
+
+        for footprint in footprints {
+            let hash = self.add_footprint(footprint).await?;
+            hashes.push(hash);
+        }
+
+        // Create a batch snapshot after processing all footprints
+        if !hashes.is_empty() {
+            let batch_hash = format!("batch-{}", hashes.len());
+            self.create_snapshot(&batch_hash).await?;
+            info!("Created batch snapshot for {} footprints", hashes.len());
+        }
+
+        Ok(hashes)
     }
 
     pub async fn start_footprint_receiver(
@@ -127,6 +202,93 @@ impl StreamingBlockchain {
 
         info!("Plugin footprint receiver shutting down");
         Ok(())
+    }
+
+    /// Create snapshot only if the time interval has elapsed
+    async fn create_snapshot_if_needed(&self, block_hash: &str) -> Result<()> {
+        match self.snapshot_interval {
+            SnapshotInterval::PerOperation => {
+                // Always create snapshot (original behavior)
+                self.create_snapshot(block_hash).await
+            }
+            SnapshotInterval::EveryMinute => {
+                let now = Instant::now();
+                let last_snapshot = *self.last_snapshot_time.read().await;
+
+                if now.duration_since(last_snapshot) >= Duration::from_secs(60) {
+                    // 1 minute has passed
+                    self.create_snapshot(block_hash).await?;
+                    *self.last_snapshot_time.write().await = now;
+                }
+                Ok(())
+            }
+            SnapshotInterval::Every5Minutes => {
+                let now = Instant::now();
+                let last_snapshot = *self.last_snapshot_time.read().await;
+
+                if now.duration_since(last_snapshot) >= Duration::from_secs(300) {
+                    // 5 minutes have passed
+                    self.create_snapshot(block_hash).await?;
+                    *self.last_snapshot_time.write().await = now;
+                }
+                Ok(())
+            }
+            SnapshotInterval::Every15Minutes => {
+                let now = Instant::now();
+                let last_snapshot = *self.last_snapshot_time.read().await;
+
+                if now.duration_since(last_snapshot) >= Duration::from_secs(900) {
+                    // 15 minutes have passed
+                    self.create_snapshot(block_hash).await?;
+                    *self.last_snapshot_time.write().await = now;
+                }
+                Ok(())
+            }
+            SnapshotInterval::Every30Minutes => {
+                let now = Instant::now();
+                let last_snapshot = *self.last_snapshot_time.read().await;
+
+                if now.duration_since(last_snapshot) >= Duration::from_secs(1800) {
+                    // 30 minutes have passed
+                    self.create_snapshot(block_hash).await?;
+                    *self.last_snapshot_time.write().await = now;
+                }
+                Ok(())
+            }
+            SnapshotInterval::Hourly => {
+                let now = Instant::now();
+                let last_snapshot = *self.last_snapshot_time.read().await;
+
+                if now.duration_since(last_snapshot) >= Duration::from_secs(3600) {
+                    // 1 hour has passed
+                    self.create_snapshot(block_hash).await?;
+                    *self.last_snapshot_time.write().await = now;
+                }
+                Ok(())
+            }
+            SnapshotInterval::Daily => {
+                let now = Instant::now();
+                let last_snapshot = *self.last_snapshot_time.read().await;
+
+                if now.duration_since(last_snapshot) >= Duration::from_secs(86400) {
+                    // 24 hours have passed
+                    self.create_snapshot(block_hash).await?;
+                    *self.last_snapshot_time.write().await = now;
+                }
+                Ok(())
+            }
+            SnapshotInterval::Weekly => {
+                let now = Instant::now();
+                let last_snapshot = *self.last_snapshot_time.read().await;
+
+                if now.duration_since(last_snapshot) >= Duration::from_secs(604800) {
+                    // 7 days have passed
+                    self.create_snapshot(block_hash).await?;
+                    *self.last_snapshot_time.write().await = now;
+                }
+                Ok(())
+            }
+        }
     }
 
     async fn create_snapshot(&self, block_hash: &str) -> Result<()> {
@@ -220,5 +382,15 @@ impl StreamingBlockchain {
         }
 
         Ok(())
+    }
+
+    /// Get current snapshot interval configuration
+    pub fn snapshot_interval(&self) -> SnapshotInterval {
+        self.snapshot_interval
+    }
+
+    /// Set snapshot interval (for runtime configuration)
+    pub fn set_snapshot_interval(&mut self, interval: SnapshotInterval) {
+        self.snapshot_interval = interval;
     }
 }

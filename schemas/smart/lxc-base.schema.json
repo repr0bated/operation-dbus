@@ -1,0 +1,679 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LXC Container Configuration",
+  "type": "object",
+  "properties": {
+    "container": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Container ID/VMID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Container hostname"
+        },
+        "rootfs": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path to container rootfs",
+              "example": "/var/lib/lxc/100/rootfs"
+            },
+            "backend": {
+              "type": "string",
+              "enum": ["dir", "zfs", "btrfs", "lvm", "overlay"],
+              "description": "Storage backend type"
+            },
+            "size": {
+              "type": "string",
+              "description": "Root filesystem size",
+              "example": "8G"
+            }
+          }
+        },
+        "mount": {
+          "type": "object",
+          "properties": {
+            "auto": {
+              "type": "string",
+              "description": "Path to fstab file for automatic mounts"
+            },
+            "entries": {
+              "type": "array",
+              "description": "Bind mount entries",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "description": "Host path to mount from",
+                    "example": "/mnt/host/data"
+                  },
+                  "destination": {
+                    "type": "string",
+                    "description": "Container path to mount to (relative to rootfs)",
+                    "example": "/opt/data"
+                  },
+                  "fstype": {
+                    "type": "string",
+                    "description": "Filesystem type (usually 'none' for bind mounts)",
+                    "default": "none"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "bind",
+                        "rbind",
+                        "ro",
+                        "rw",
+                        "nosuid",
+                        "nodev",
+                        "noexec",
+                        "sync",
+                        "async",
+                        "remount",
+                        "mand",
+                        "nomand",
+                        "dirsync",
+                        "noatime",
+                        "nodiratime",
+                        "relatime",
+                        "strictatime",
+                        "lazytime",
+                        "create=dir",
+                        "create=file",
+                        "optional"
+                      ]
+                    },
+                    "description": "Mount options",
+                    "example": ["bind", "ro", "create=dir"]
+                  },
+                  "dump": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Dump frequency (usually 0)"
+                  },
+                  "pass": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "fsck pass number (usually 0)"
+                  }
+                },
+                "required": ["source", "destination"]
+              }
+            }
+          }
+        },
+        "network": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "description": "Network interface index",
+                "example": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": ["veth", "vlan", "macvlan", "phys", "empty", "none"],
+                "description": "Network interface type"
+              },
+              "link": {
+                "type": "string",
+                "description": "Host bridge or interface to attach to",
+                "example": "vmbr0"
+              },
+              "name": {
+                "type": "string",
+                "description": "Interface name inside container",
+                "example": "eth0"
+              },
+              "flags": {
+                "type": "string",
+                "enum": ["up", "down"],
+                "description": "Interface flags"
+              },
+              "hwaddr": {
+                "type": "string",
+                "pattern": "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$",
+                "description": "MAC address",
+                "example": "00:16:3e:xx:xx:xx"
+              },
+              "ipv4": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "description": "IPv4 address with CIDR",
+                    "example": "10.0.0.100/24"
+                  },
+                  "gateway": {
+                    "type": "string",
+                    "description": "IPv4 gateway",
+                    "example": "10.0.0.1"
+                  }
+                }
+              },
+              "ipv6": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "description": "IPv6 address with CIDR",
+                    "example": "2001:db8::100/64"
+                  },
+                  "gateway": {
+                    "type": "string",
+                    "description": "IPv6 gateway",
+                    "example": "2001:db8::1"
+                  }
+                }
+              },
+              "mtu": {
+                "type": "integer",
+                "description": "MTU size",
+                "example": 1500
+              },
+              "veth_pair": {
+                "type": "string",
+                "description": "Host-side veth name",
+                "example": "vethXXXXXX"
+              },
+              "vlan_id": {
+                "type": "integer",
+                "description": "VLAN ID for vlan type",
+                "minimum": 1,
+                "maximum": 4094
+              }
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "properties": {
+            "memory": {
+              "type": "object",
+              "properties": {
+                "limit": {
+                  "type": "string",
+                  "description": "Memory limit",
+                  "example": "512M"
+                },
+                "swap": {
+                  "type": "string",
+                  "description": "Swap limit",
+                  "example": "512M"
+                },
+                "swappiness": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "description": "Swappiness value"
+                }
+              }
+            },
+            "cpu": {
+              "type": "object",
+              "properties": {
+                "shares": {
+                  "type": "integer",
+                  "description": "CPU shares (relative weight)",
+                  "example": 1024
+                },
+                "quota": {
+                  "type": "integer",
+                  "description": "CPU quota in microseconds per period",
+                  "example": 100000
+                },
+                "period": {
+                  "type": "integer",
+                  "description": "CPU period in microseconds",
+                  "default": 100000
+                },
+                "cpus": {
+                  "type": "string",
+                  "description": "CPUs to use (comma-separated or ranges)",
+                  "example": "0-3,6"
+                }
+              }
+            },
+            "blkio": {
+              "type": "object",
+              "properties": {
+                "weight": {
+                  "type": "integer",
+                  "minimum": 10,
+                  "maximum": 1000,
+                  "description": "Block I/O weight"
+                }
+              }
+            },
+            "pids": {
+              "type": "object",
+              "properties": {
+                "max": {
+                  "type": "integer",
+                  "description": "Maximum number of PIDs",
+                  "example": 1024
+                }
+              }
+            }
+          }
+        },
+        "cgroup": {
+          "type": "object",
+          "properties": {
+            "dir": {
+              "type": "string",
+              "description": "Cgroup directory name"
+            },
+            "relative": {
+              "type": "boolean",
+              "description": "Use relative cgroup path"
+            },
+            "devices": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "allow": {
+                    "type": "boolean",
+                    "description": "Allow or deny device access"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["a", "b", "c"],
+                    "description": "Device type: a=all, b=block, c=char"
+                  },
+                  "major": {
+                    "type": "integer",
+                    "description": "Device major number"
+                  },
+                  "minor": {
+                    "type": "integer",
+                    "description": "Device minor number"
+                  },
+                  "access": {
+                    "type": "string",
+                    "pattern": "^[rwm]+$",
+                    "description": "Access permissions: r=read, w=write, m=mknod",
+                    "example": "rwm"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": {
+          "type": "object",
+          "properties": {
+            "privileged": {
+              "type": "boolean",
+              "description": "Run as privileged container",
+              "default": false
+            },
+            "apparmor": {
+              "type": "object",
+              "properties": {
+                "profile": {
+                  "type": "string",
+                  "description": "AppArmor profile name",
+                  "example": "lxc-container-default"
+                },
+                "allow_incomplete": {
+                  "type": "boolean",
+                  "description": "Allow incomplete AppArmor profiles"
+                }
+              }
+            },
+            "selinux": {
+              "type": "object",
+              "properties": {
+                "context": {
+                  "type": "string",
+                  "description": "SELinux context"
+                }
+              }
+            },
+            "seccomp": {
+              "type": "object",
+              "properties": {
+                "profile": {
+                  "type": "string",
+                  "description": "Path to seccomp profile"
+                }
+              }
+            },
+            "capabilities": {
+              "type": "object",
+              "properties": {
+                "drop": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "AUDIT_CONTROL",
+                      "AUDIT_WRITE",
+                      "BLOCK_SUSPEND",
+                      "CHOWN",
+                      "DAC_OVERRIDE",
+                      "DAC_READ_SEARCH",
+                      "FOWNER",
+                      "FSETID",
+                      "IPC_LOCK",
+                      "IPC_OWNER",
+                      "KILL",
+                      "LEASE",
+                      "LINUX_IMMUTABLE",
+                      "MAC_ADMIN",
+                      "MAC_OVERRIDE",
+                      "MKNOD",
+                      "NET_ADMIN",
+                      "NET_BIND_SERVICE",
+                      "NET_BROADCAST",
+                      "NET_RAW",
+                      "SETFCAP",
+                      "SETGID",
+                      "SETPCAP",
+                      "SETUID",
+                      "SYS_ADMIN",
+                      "SYS_BOOT",
+                      "SYS_CHROOT",
+                      "SYS_MODULE",
+                      "SYS_NICE",
+                      "SYS_PACCT",
+                      "SYS_PTRACE",
+                      "SYS_RAWIO",
+                      "SYS_RESOURCE",
+                      "SYS_TIME",
+                      "SYS_TTY_CONFIG",
+                      "SYSLOG",
+                      "WAKE_ALARM"
+                    ]
+                  },
+                  "description": "Capabilities to drop"
+                },
+                "keep": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Capabilities to keep"
+                }
+              }
+            },
+            "idmap": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["u", "g", "b"],
+                    "description": "ID type: u=user, g=group, b=both"
+                  },
+                  "container_id": {
+                    "type": "integer",
+                    "description": "Starting ID in container",
+                    "example": 0
+                  },
+                  "host_id": {
+                    "type": "integer",
+                    "description": "Starting ID on host",
+                    "example": 100000
+                  },
+                  "count": {
+                    "type": "integer",
+                    "description": "Number of IDs to map",
+                    "example": 65536
+                  }
+                }
+              },
+              "description": "User/group ID mappings for unprivileged containers"
+            }
+          }
+        },
+        "environment": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "Environment variable name"
+              },
+              "value": {
+                "type": "string",
+                "description": "Environment variable value"
+              }
+            }
+          },
+          "description": "Environment variables to set in container"
+        },
+        "init": {
+          "type": "object",
+          "properties": {
+            "cmd": {
+              "type": "string",
+              "description": "Init command to run",
+              "example": "/sbin/init"
+            },
+            "uid": {
+              "type": "integer",
+              "description": "UID to run init as"
+            },
+            "gid": {
+              "type": "integer",
+              "description": "GID to run init as"
+            }
+          }
+        },
+        "console": {
+          "type": "object",
+          "properties": {
+            "logfile": {
+              "type": "string",
+              "description": "Console log file path"
+            },
+            "rotate": {
+              "type": "integer",
+              "description": "Number of rotated log files to keep"
+            },
+            "buffer_size": {
+              "type": "integer",
+              "description": "Console buffer size in bytes"
+            },
+            "size": {
+              "type": "string",
+              "description": "Console size (e.g., '512KB')"
+            }
+          }
+        },
+        "hooks": {
+          "type": "object",
+          "properties": {
+            "pre_start": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Scripts to run before container starts"
+            },
+            "start": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Scripts to run when container starts"
+            },
+            "post_start": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Scripts to run after container starts"
+            },
+            "pre_stop": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Scripts to run before container stops"
+            },
+            "stop": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Scripts to run when container stops"
+            },
+            "post_stop": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Scripts to run after container stops"
+            },
+            "clone": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Scripts to run when container is cloned"
+            },
+            "destroy": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Scripts to run when container is destroyed"
+            }
+          }
+        },
+        "autostart": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable autostart"
+            },
+            "delay": {
+              "type": "integer",
+              "description": "Delay in seconds before starting"
+            },
+            "order": {
+              "type": "integer",
+              "description": "Start order (lower numbers start first)"
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "nofile": {
+              "type": "integer",
+              "description": "Maximum number of open files"
+            },
+            "nproc": {
+              "type": "integer",
+              "description": "Maximum number of processes"
+            },
+            "core": {
+              "type": "string",
+              "description": "Core file size limit",
+              "example": "unlimited"
+            },
+            "as": {
+              "type": "string",
+              "description": "Address space limit"
+            }
+          }
+        },
+        "features": {
+          "type": "object",
+          "properties": {
+            "nesting": {
+              "type": "boolean",
+              "description": "Enable nested containerization",
+              "default": false
+            },
+            "keyctl": {
+              "type": "boolean",
+              "description": "Enable keyctl syscall",
+              "default": false
+            },
+            "fuse": {
+              "type": "boolean",
+              "description": "Enable FUSE filesystems",
+              "default": false
+            },
+            "mount": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["nfs", "cifs", "proc", "sys"]
+              },
+              "description": "Allowed mount types"
+            }
+          }
+        },
+        "pty": {
+          "type": "object",
+          "properties": {
+            "max": {
+              "type": "integer",
+              "description": "Maximum number of PTYs",
+              "default": 1024
+            }
+          }
+        },
+        "log": {
+          "type": "object",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["TRACE", "DEBUG", "INFO", "NOTICE", "WARN", "ERROR", "CRIT", "ALERT", "FATAL"],
+              "description": "Log level"
+            },
+            "file": {
+              "type": "string",
+              "description": "Log file path"
+            }
+          }
+        },
+        "signal": {
+          "type": "object",
+          "properties": {
+            "halt": {
+              "type": "string",
+              "description": "Signal to send for halt",
+              "example": "SIGPWR"
+            },
+            "reboot": {
+              "type": "string",
+              "description": "Signal to send for reboot",
+              "example": "SIGINT"
+            },
+            "stop": {
+              "type": "string",
+              "description": "Signal to send for stop",
+              "example": "SIGTERM"
+            }
+          }
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "Create ephemeral container (destroyed on stop)",
+          "default": false
+        }
+      }
+    }
+  }
+}
+

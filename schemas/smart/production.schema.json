@@ -1,0 +1,1171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schema/production.container.schema.json",
+  "title": "Smart Aquarium Controller - Production Container Spec",
+  "description": "Hardened production configuration schema overlay for LXC containers.",
+  "type": "object",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "security": {
+            "properties": {
+              "privileged": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "security": {
+            "required": [
+              "change_control_ticket"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "metadata": {
+            "properties": {
+              "environment": {
+                "const": "prod"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "observability": {
+            "properties": {
+              "logs": {
+                "properties": {
+                  "retention_days": {
+                    "minimum": 30
+                  }
+                }
+              },
+              "audit": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "backup_dr": {
+            "properties": {
+              "backup_class": {
+                "not": {
+                  "const": "none"
+                }
+              }
+            }
+          },
+          "reliability": {
+            "properties": {
+              "availability_target": {
+                "minimum": 99.9
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "lifecycle": {
+            "properties": {
+              "deployment_strategy": {
+                "const": "canary"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "lifecycle": {
+            "properties": {
+              "canary_percent": {
+                "minimum": 5,
+                "maximum": 25
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "networking": {
+            "properties": {
+              "interfaces": {
+                "items": {
+                  "properties": {
+                    "type": {
+                      "const": "vlan"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "networking": {
+            "properties": {
+              "interfaces": {
+                "items": {
+                  "required": [
+                    "vlan"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "networking": {
+            "properties": {
+              "ipv6_required": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "networking": {
+            "properties": {
+              "interfaces": {
+                "items": {
+                  "required": [
+                    "ipv6"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "cidrV4": {
+      "type": "string",
+      "pattern": "^(?:\\d{1,3}\\.){3}\\d{1,3}/(?:[0-9]|[1-2][0-9]|3[0-2])$"
+    },
+    "ipv4": {
+      "type": "string",
+      "format": "ipv4"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^P(?!$)(\\d+Y)?(\\d+M)?(\\d+W)?(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$"
+    },
+    "percent01to100": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "capability": {
+      "type": "string",
+      "enum": [
+        "CHOWN",
+        "DAC_OVERRIDE",
+        "FOWNER",
+        "FSETID",
+        "KILL",
+        "SETGID",
+        "SETUID",
+        "SETPCAP",
+        "LINUX_IMMUTABLE",
+        "NET_BIND_SERVICE",
+        "NET_BROADCAST",
+        "NET_ADMIN",
+        "NET_RAW",
+        "IPC_LOCK",
+        "IPC_OWNER",
+        "SYS_MODULE",
+        "SYS_RAWIO",
+        "SYS_CHROOT",
+        "SYS_PTRACE",
+        "SYS_PACCT",
+        "SYS_ADMIN",
+        "SYS_BOOT",
+        "SYS_NICE",
+        "SYS_RESOURCE",
+        "SYS_TIME",
+        "SYS_TTY_CONFIG",
+        "MKNOD",
+        "LEASE",
+        "AUDIT_WRITE",
+        "AUDIT_CONTROL",
+        "SETFCAP",
+        "MAC_OVERRIDE",
+        "MAC_ADMIN",
+        "SYSLOG",
+        "WAKE_ALARM",
+        "BLOCK_SUSPEND",
+        "AUDIT_READ"
+      ]
+    },
+    "logLevel": {
+      "type": "string",
+      "enum": [
+        "trace",
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ]
+    },
+    "restartPolicy": {
+      "type": "string",
+      "enum": [
+        "never",
+        "on-failure",
+        "always"
+      ]
+    },
+    "deploymentStrategy": {
+      "type": "string",
+      "enum": [
+        "recreate",
+        "rolling",
+        "blue_green",
+        "canary"
+      ]
+    },
+    "cpuClass": {
+      "type": "string",
+      "enum": [
+        "tiny",
+        "small",
+        "medium",
+        "large",
+        "xlarge"
+      ]
+    },
+    "memClass": {
+      "type": "string",
+      "enum": [
+        "tiny",
+        "small",
+        "medium",
+        "large",
+        "xlarge"
+      ]
+    },
+    "dataClassification": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "restricted",
+        "confidential"
+      ]
+    },
+    "dnsPolicy": {
+      "type": "string",
+      "enum": [
+        "cluster-first",
+        "default",
+        "none"
+      ]
+    },
+    "overcommitPolicy": {
+      "type": "string",
+      "enum": [
+        "none",
+        "conservative",
+        "balanced",
+        "aggressive"
+      ]
+    },
+    "backupClass": {
+      "type": "string",
+      "enum": [
+        "none",
+        "standard",
+        "gold"
+      ]
+    },
+    "mountOption": {
+      "type": "string",
+      "enum": [
+        "ro",
+        "rw",
+        "noexec",
+        "nodev",
+        "nosuid",
+        "sync",
+        "dirsync"
+      ]
+    },
+    "proto": {
+      "type": "string",
+      "enum": [
+        "tcp",
+        "udp"
+      ]
+    }
+  },
+  "required": [
+    "metadata",
+    "security",
+    "networking",
+    "reliability",
+    "resources",
+    "observability",
+    "lifecycle",
+    "backup_dr",
+    "compliance"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "service_name",
+        "service_tier",
+        "environment",
+        "region",
+        "release_version",
+        "rollout_strategy",
+        "owner",
+        "cost_center",
+        "data_classification",
+        "runbook_url",
+        "alert_route"
+      ],
+      "properties": {
+        "service_name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "service_tier": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "standard",
+            "best_effort"
+          ]
+        },
+        "environment": {
+          "type": "string",
+          "enum": [
+            "dev",
+            "stage",
+            "prod"
+          ]
+        },
+        "region": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{2,20}$"
+        },
+        "release_version": {
+          "type": "string",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        },
+        "rollout_strategy": {
+          "$ref": "#/$defs/deploymentStrategy"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 2
+        },
+        "cost_center": {
+          "type": "string",
+          "pattern": "^[A-Z]{2,5}-\\d{3,6}$"
+        },
+        "data_classification": {
+          "$ref": "#/$defs/dataClassification"
+        },
+        "runbook_url": {
+          "$ref": "#/$defs/url"
+        },
+        "alert_route": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{3,64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "privileged": {
+          "type": "boolean",
+          "default": false
+        },
+        "allowed_capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability"
+          },
+          "uniqueItems": true
+        },
+        "forbidden_mounts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^/(?:boot|proc|sys|dev|etc|var/lib/lxd|var/lib/lxc)"
+          }
+        },
+        "secrets_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+        },
+        "seccomp_profile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "apparmor_profile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selinux_context": {
+          "type": "string"
+        },
+        "idmap": {
+          "type": "string"
+        },
+        "read_only_rootfs": {
+          "type": "boolean",
+          "default": true
+        },
+        "allowed_mount_options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mountOption"
+          },
+          "uniqueItems": true
+        },
+        "change_control_ticket": {
+          "type": "string",
+          "pattern": "^CHG-\\d{6}$"
+        }
+      },
+      "required": [
+        "privileged",
+        "seccomp_profile",
+        "apparmor_profile",
+        "read_only_rootfs"
+      ],
+      "additionalProperties": false
+    },
+    "networking": {
+      "type": "object",
+      "required": [
+        "net_policy_id",
+        "dns_policy",
+        "interfaces"
+      ],
+      "properties": {
+        "net_policy_id": {
+          "type": "string",
+          "pattern": "^[A-Z0-9]{4,12}$"
+        },
+        "dns_policy": {
+          "$ref": "#/$defs/dnsPolicy"
+        },
+        "mtu_policy": {
+          "type": "integer",
+          "minimum": 576,
+          "maximum": 9000
+        },
+        "ipv6_required": {
+          "type": "boolean",
+          "default": false
+        },
+        "interfaces": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^(eth|ens|enp)[a-z0-9]*$"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "bridge",
+                  "macvlan",
+                  "vlan"
+                ]
+              },
+              "ipv4": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "$ref": "#/$defs/ipv4"
+                  },
+                  "cidr": {
+                    "$ref": "#/$defs/cidrV4"
+                  },
+                  "gateway": {
+                    "$ref": "#/$defs/ipv4"
+                  }
+                },
+                "required": [
+                  "address",
+                  "cidr",
+                  "gateway"
+                ],
+                "additionalProperties": false
+              },
+              "ipv6": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "format": "ipv6"
+                  },
+                  "cidr": {
+                    "type": "string",
+                    "pattern": "^\\d{1,3}$"
+                  },
+                  "gateway": {
+                    "type": "string",
+                    "format": "ipv6"
+                  }
+                },
+                "required": [
+                  "address",
+                  "cidr",
+                  "gateway"
+                ],
+                "additionalProperties": false
+              },
+              "vlan": {
+                "type": "object",
+                "properties": {
+                  "vlan_id": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4094
+                  },
+                  "mtu": {
+                    "type": "integer",
+                    "minimum": 576,
+                    "maximum": 9000
+                  }
+                },
+                "required": []
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "ingress_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "port",
+              "proto",
+              "cidr"
+            ],
+            "properties": {
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "proto": {
+                "$ref": "#/$defs/proto"
+              },
+              "cidr": {
+                "$ref": "#/$defs/cidrV4"
+              },
+              "sni": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "egress_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "proto",
+              "cidr"
+            ],
+            "properties": {
+              "proto": {
+                "$ref": "#/$defs/proto"
+              },
+              "cidr": {
+                "$ref": "#/$defs/cidrV4"
+              },
+              "ports": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "lawful_intercept": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "reliability": {
+      "type": "object",
+      "required": [
+        "availability_target",
+        "p99_latency_budget_ms",
+        "restart_policy",
+        "replica_set",
+        "startup_grace",
+        "shutdown_grace",
+        "healthcheck"
+      ],
+      "properties": {
+        "availability_target": {
+          "type": "number",
+          "minimum": 99.0,
+          "maximum": 99.999
+        },
+        "p99_latency_budget_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600000
+        },
+        "restart_policy": {
+          "$ref": "#/$defs/restartPolicy"
+        },
+        "replica_set": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "disruption_budget": {
+          "type": "object",
+          "properties": {
+            "max_unavailable": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,2}%$"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "startup_grace": {
+          "$ref": "#/$defs/duration"
+        },
+        "shutdown_grace": {
+          "$ref": "#/$defs/duration"
+        },
+        "healthcheck": {
+          "type": "object",
+          "required": [
+            "cmd",
+            "interval",
+            "timeout",
+            "retries"
+          ],
+          "properties": {
+            "cmd": {
+              "type": "string",
+              "minLength": 1
+            },
+            "interval": {
+              "$ref": "#/$defs/duration"
+            },
+            "timeout": {
+              "$ref": "#/$defs/duration"
+            },
+            "retries": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "required": [
+        "cpu_class",
+        "mem_class",
+        "hard_limits",
+        "overcommit_policy"
+      ],
+      "properties": {
+        "cpu_class": {
+          "$ref": "#/$defs/cpuClass"
+        },
+        "mem_class": {
+          "$ref": "#/$defs/memClass"
+        },
+        "hard_limits": {
+          "type": "object",
+          "required": [
+            "cpu_millicores",
+            "memory_mib",
+            "pids"
+          ],
+          "properties": {
+            "cpu_millicores": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 64000
+            },
+            "memory_mib": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 1048576
+            },
+            "pids": {
+              "type": "integer",
+              "minimum": 32,
+              "maximum": 65536
+            },
+            "blkio": {
+              "type": "object",
+              "properties": {
+                "read_iops": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "write_iops": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "overcommit_policy": {
+          "$ref": "#/$defs/overcommitPolicy"
+        },
+        "hugepages_policy": {
+          "type": "object",
+          "properties": {
+            "size": {
+              "type": "string",
+              "enum": [
+                "2Mi",
+                "1Gi"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "observability": {
+      "type": "object",
+      "required": [
+        "logs",
+        "metrics",
+        "traces",
+        "audit"
+      ],
+      "properties": {
+        "logs": {
+          "type": "object",
+          "required": [
+            "retention_days",
+            "max_size_mb",
+            "level"
+          ],
+          "properties": {
+            "retention_days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
+            },
+            "max_size_mb": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8192
+            },
+            "level": {
+              "$ref": "#/$defs/logLevel"
+            }
+          },
+          "additionalProperties": false
+        },
+        "metrics": {
+          "type": "object",
+          "required": [
+            "exporter",
+            "scrape",
+            "ports"
+          ],
+          "properties": {
+            "exporter": {
+              "type": "string",
+              "enum": [
+                "node_exporter",
+                "statsd",
+                "custom"
+              ]
+            },
+            "scrape": {
+              "type": "boolean",
+              "default": true
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "traces": {
+          "type": "object",
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "endpoint": {
+              "$ref": "#/$defs/url"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "endpoint"
+                ]
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "audit": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "retention_days"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "retention_days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": [
+        "deployment_strategy",
+        "max_unavailable",
+        "max_surge",
+        "rollback_on_failure"
+      ],
+      "properties": {
+        "deployment_strategy": {
+          "$ref": "#/$defs/deploymentStrategy"
+        },
+        "max_unavailable": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d{1,2}%$"
+            }
+          ]
+        },
+        "max_surge": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d{1,2}%$"
+            }
+          ]
+        },
+        "canary_percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rollback_on_failure": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "backup_dr": {
+      "type": "object",
+      "required": [
+        "backup_class",
+        "rpo_minutes",
+        "rto_minutes",
+        "snapshot_policy",
+        "offsite_copy",
+        "restore_runbook_url"
+      ],
+      "properties": {
+        "backup_class": {
+          "$ref": "#/$defs/backupClass"
+        },
+        "rpo_minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 525600
+        },
+        "rto_minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 525600
+        },
+        "snapshot_policy": {
+          "type": "string",
+          "pattern": "^cron:.+"
+        },
+        "offsite_copy": {
+          "type": "boolean",
+          "default": true
+        },
+        "restore_runbook_url": {
+          "$ref": "#/$defs/url"
+        }
+      },
+      "additionalProperties": false
+    },
+    "compliance": {
+      "type": "object",
+      "required": [
+        "pii",
+        "phi",
+        "retention_policy",
+        "legal_hold_supported",
+        "evidence_tags",
+        "change_control_ticket"
+      ],
+      "properties": {
+        "pii": {
+          "type": "boolean",
+          "default": false
+        },
+        "phi": {
+          "type": "boolean",
+          "default": false
+        },
+        "retention_policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "legal_hold_supported": {
+          "type": "boolean",
+          "default": false
+        },
+        "evidence_tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "change_control_ticket": {
+          "type": "string",
+          "pattern": "^CHG-\\d{6}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "metadata": {
+        "service_name": "reef-gateway",
+        "service_tier": "critical",
+        "environment": "prod",
+        "region": "us-east",
+        "release_version": "v1.2.3",
+        "rollout_strategy": "blue_green",
+        "owner": "aquatics-platform",
+        "cost_center": "AQ-123456",
+        "data_classification": "internal",
+        "runbook_url": "https://ops.example.org/runbooks/reef-gateway",
+        "alert_route": "pagerduty-reef"
+      },
+      "security": {
+        "privileged": false,
+        "seccomp_profile": "default.json",
+        "apparmor_profile": "lxc-default",
+        "read_only_rootfs": true,
+        "allowed_capabilities": [
+          "NET_BIND_SERVICE"
+        ]
+      },
+      "networking": {
+        "net_policy_id": "AQNET001",
+        "dns_policy": "default",
+        "mtu_policy": 1500,
+        "ipv6_required": false,
+        "interfaces": [
+          {
+            "name": "eth0",
+            "type": "bridge",
+            "ipv4": {
+              "address": "10.44.1.10",
+              "cidr": "10.44.1.10/24",
+              "gateway": "10.44.1.1"
+            }
+          }
+        ]
+      },
+      "reliability": {
+        "availability_target": 99.99,
+        "p99_latency_budget_ms": 200,
+        "restart_policy": "on-failure",
+        "replica_set": 2,
+        "startup_grace": "PT30S",
+        "shutdown_grace": "PT15S",
+        "healthcheck": {
+          "cmd": "curl -fsS http://127.0.0.1:8080/health",
+          "interval": "PT30S",
+          "timeout": "PT5S",
+          "retries": 3
+        }
+      },
+      "resources": {
+        "cpu_class": "small",
+        "mem_class": "medium",
+        "hard_limits": {
+          "cpu_millicores": 2000,
+          "memory_mib": 2048,
+          "pids": 512
+        }
+      },
+      "observability": {
+        "logs": {
+          "retention_days": 30,
+          "max_size_mb": 256,
+          "level": "info"
+        },
+        "metrics": {
+          "exporter": "node_exporter",
+          "scrape": true,
+          "ports": [
+            9100
+          ]
+        },
+        "traces": {
+          "enabled": false
+        },
+        "audit": {
+          "enabled": true,
+          "retention_days": 365
+        }
+      },
+      "lifecycle": {
+        "deployment_strategy": "blue_green",
+        "max_unavailable": "0%",
+        "max_surge": "25%",
+        "rollback_on_failure": true
+      },
+      "backup_dr": {
+        "backup_class": "standard",
+        "rpo_minutes": 60,
+        "rto_minutes": 30,
+        "snapshot_policy": "cron:0 2 * * *",
+        "offsite_copy": true,
+        "restore_runbook_url": "https://ops.example.org/runbooks/restore-reef"
+      },
+      "compliance": {
+        "pii": false,
+        "phi": false,
+        "retention_policy": "telemetry-365d",
+        "legal_hold_supported": false,
+        "evidence_tags": [
+          "sox-lite"
+        ],
+        "change_control_ticket": "CHG-123456"
+      }
+    }
+  ]
+}

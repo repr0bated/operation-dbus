@@ -1,0 +1,103 @@
+{
+  "metadata": {
+    "service_name": "reef-gw",
+    "service_tier": "critical",
+    "environment": "prod",
+    "region": "us-east",
+    "release_version": "v1.0.0",
+    "rollout_strategy": "rolling",
+    "owner": "ops",
+    "cost_center": "AQ-111111",
+    "data_classification": "internal",
+    "runbook_url": "https://ops.example.org",
+    "alert_route": "pagerduty"
+  },
+  "security": {
+    "privileged": false,
+    "seccomp_profile": "default.json",
+    "apparmor_profile": "lxc-default",
+    "read_only_rootfs": true
+  },
+  "networking": {
+    "net_policy_id": "AQN0001",
+    "dns_policy": "default",
+    "interfaces": [
+      {
+        "name": "eth0",
+        "type": "bridge",
+        "ipv4": {
+          "address": "10.0.0.2",
+          "cidr": "10.0.0.2/24",
+          "gateway": "10.0.0.1"
+        }
+      }
+    ]
+  },
+  "reliability": {
+    "availability_target": 99.99,
+    "p99_latency_budget_ms": 200,
+    "restart_policy": "on-failure",
+    "replica_set": 2,
+    "startup_grace": "PT30S",
+    "shutdown_grace": "PT15S",
+    "healthcheck": {
+      "cmd": "true",
+      "interval": "PT30S",
+      "timeout": "PT5S",
+      "retries": 3
+    }
+  },
+  "resources": {
+    "cpu_class": "small",
+    "mem_class": "small",
+    "hard_limits": {
+      "cpu_millicores": 2000,
+      "memory_mib": 2048,
+      "pids": 512
+    },
+    "overcommit_policy": "balanced"
+  },
+  "observability": {
+    "logs": {
+      "retention_days": 7,
+      "max_size_mb": 64,
+      "level": "info"
+    },
+    "metrics": {
+      "exporter": "node_exporter",
+      "scrape": true,
+      "ports": [
+        9100
+      ]
+    },
+    "traces": {
+      "enabled": false
+    },
+    "audit": {
+      "enabled": true,
+      "retention_days": 30
+    }
+  },
+  "lifecycle": {
+    "deployment_strategy": "rolling",
+    "max_unavailable": "0%",
+    "max_surge": "10%",
+    "rollback_on_failure": true
+  },
+  "backup_dr": {
+    "backup_class": "standard",
+    "rpo_minutes": 60,
+    "rto_minutes": 30,
+    "snapshot_policy": "cron:@daily",
+    "offsite_copy": true,
+    "restore_runbook_url": "https://ops.example.org/restore"
+  },
+  "compliance": {
+    "pii": false,
+    "phi": false,
+    "retention_policy": "default",
+    "legal_hold_supported": false,
+    "evidence_tags": [],
+    "change_control_ticket": "CHG-333333"
+  }
+}

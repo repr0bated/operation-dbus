@@ -1,0 +1,180 @@
+Generate an op-dbus plugin for [RANDOM TOPIC FROM LIST BELOW].
+
+Requirements:
+- Use Command::new() for system calls, NOT D-Bus
+- StateAction::NoOp has NO reason field
+- Make enums Copy if pattern-matched
+- Return empty on errors, don't panic
+
+Deliver ZIP with 3 files:
+
+1. <name>_plugin.rs - Full source code implementing StatePlugin trait
+2. <name>_example.json - Example configuration showing JSON schema
+3. register.sh - Registration script with PLUGIN_NAME and PLUGIN_STRUCT set
+
+Required imports:
+```rust
+use anyhow::{Context, Result};
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::process::Command;
+use crate::state::plugin::{ApplyResult, Checkpoint, PluginCapabilities, StateAction, StateDiff, StatePlugin, DiffMetadata};
+```
+
+Structure template:
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MyState { pub version: u32, pub items: Vec<MyItem> }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MyItem { pub id: String, /* fields */ }
+
+pub struct MyPlugin;
+impl MyPlugin {
+    pub fn new() -> Self { Self }
+    fn query_system() -> Vec<MyItem> { /* use Command */ }
+}
+
+#[async_trait]
+impl StatePlugin for MyPlugin {
+    fn name(&self) -> &str { "myplugin" }
+    fn version(&self) -> &str { "1.0.0" }
+    async fn query_current_state(&self) -> Result<Value> { /* impl */ }
+    async fn calculate_diff(&self, _current: &Value, desired: &Value) -> Result<StateDiff> { /* impl */ }
+    async fn apply_state(&self, diff: &StateDiff) -> Result<ApplyResult> {
+        let mut changes_applied = Vec::new();
+        let mut errors = Vec::new();
+        for action in &diff.actions {
+            match action {
+                StateAction::Create { resource, config } => { /* impl */ }
+                StateAction::Modify { resource, changes } => { /* impl */ }
+                StateAction::Delete { resource } => { /* impl */ }
+                StateAction::NoOp { resource } => {
+                    changes_applied.push(format!("{}: no action required", resource));
+                }
+            }
+        }
+        Ok(ApplyResult { success: errors.is_empty(), changes_applied, errors, checkpoint: None })
+    }
+    async fn verify_state(&self, _desired: &Value) -> Result<bool> { Ok(true) }
+    async fn create_checkpoint(&self) -> Result<Checkpoint> {
+        Ok(Checkpoint {
+            id: format!("{}-{}", self.name(), chrono::Utc::now().timestamp()),
+            plugin: self.name().to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            state_snapshot: serde_json::json!({}),
+            backend_checkpoint: None,
+        })
+    }
+    async fn rollback(&self, _checkpoint: &Checkpoint) -> Result<()> { Ok(()) }
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities {
+            supports_rollback: false,
+            supports_checkpoints: true,
+            supports_verification: true,
+            atomic_operations: false,
+        }
+    }
+}
+```
+
+register.sh template (set PLUGIN_NAME and PLUGIN_STRUCT):
+```bash
+#!/bin/bash
+set -e
+PLUGIN_NAME="myplugin"
+PLUGIN_STRUCT="MyPlugin"
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+echo "=== op-dbus Plugin Registration ==="
+MOD_FILE="src/state/plugins/mod.rs"
+if ! grep -q "pub mod ${PLUGIN_NAME};" "${MOD_FILE}"; then
+    LINE=$(grep -n "^pub use" "${MOD_FILE}" | head -1 | cut -d: -f1)
+    [ -n "$LINE" ] && sed -i "${LINE}i pub mod ${PLUGIN_NAME};" "${MOD_FILE}"
+fi
+grep -q "pub use ${PLUGIN_NAME}::${PLUGIN_STRUCT};" "${MOD_FILE}" || echo "pub use ${PLUGIN_NAME}::${PLUGIN_STRUCT};" >> "${MOD_FILE}"
+MAIN_FILE="src/main.rs"
+if ! grep -q "plugins::${PLUGIN_STRUCT}::new" "${MAIN_FILE}"; then
+    LAST_LINE=$(grep -n "\.register_plugin" "${MAIN_FILE}" | tail -1 | cut -d: -f1)
+    [ -n "$LAST_LINE" ] && sed -i "${LAST_LINE}a\\    state_manager\\n        .register_plugin(Box::new(state::plugins::${PLUGIN_STRUCT}::new()))\\n        .await;" "${MAIN_FILE}"
+fi
+echo -e "${GREEN}✓ Complete!${NC}"
+```
+
+ZIP filename format: <name>_pack_YYYYMMDD_HHMM.zip
+
+========================
+PLUGIN TOPICS (Pick Random Each Hour):
+========================
+
+1. firewall - UFW/iptables rules (allow/deny ports and IPs)
+2. docker-images - Docker image presence/absence management
+3. btrfs-subvolumes - BTRFS subvolume and snapshot management
+4. pci-devices - PCI device driver binding/unbinding (e.g., GPU to vfio-pci)
+5. cron - Crontab entry management (system and user crontabs)
+6. selinux - SELinux policy boolean management
+7. dns-resolver - /etc/resolv.conf nameserver configuration
+8. systemd-timers - Systemd timer unit scheduling
+9. apt-packages - Debian/Ubuntu package install/remove state
+10. sysctl - Kernel parameter management (/etc/sysctl.d/)
+11. users - Local user account creation/deletion
+12. ssh-keys - authorized_keys file management per user
+13. hosts-file - /etc/hosts static hostname entries
+14. mounts - Filesystem mount state (NFS, CIFS, local)
+15. swap - Swap file/partition management and swappiness
+16. certificates - SSL/TLS certificate deployment
+17. rsyslog-rules - Rsyslog forwarding rules configuration
+18. kernel-modules - Kernel module loading/blacklisting
+19. wireguard - WireGuard VPN interface and peer management
+20. fail2ban - Fail2ban jail configuration and rules
+21. docker-containers - Running Docker container state
+22. zfs-datasets - ZFS dataset creation and snapshots
+23. lvm-volumes - LVM logical volume management
+24. usb-devices - USB device authorization and power management
+25. network-cards - NIC offload and ring buffer settings
+26. apparmor - AppArmor profile management
+27. sudo-rules - /etc/sudoers.d/ rule management
+28. pam-limits - User/group resource limits (/etc/security/limits.conf)
+29. routing-tables - Static route and policy routing management
+30. ipsec-tunnels - IPsec VPN tunnel state management
+31. docker-compose - Docker Compose stack state
+32. samba-shares - Samba share configuration (smb.conf)
+33. nfs-exports - NFS export management (/etc/exports)
+34. pip-packages - Python package state (pip/pip3)
+35. npm-packages - Node.js global package management
+36. snap-packages - Snap package state and channel management
+37. flatpak-apps - Flatpak application state
+38. grub-config - GRUB bootloader kernel parameter management
+39. hugepages - Huge page allocation and configuration
+40. cpu-governor - CPU frequency scaling governor
+41. io-scheduler - I/O scheduler per block device
+42. groups - Group membership and GID management
+43. ldap-config - LDAP client configuration (NSS/PAM)
+44. kerberos - Kerberos client setup (krb5.conf)
+45. logrotate - Log rotation policy configuration
+46. audit-rules - Linux audit framework rules
+47. node-exporter - Prometheus node exporter textfile collector
+48. snmp-config - SNMP agent configuration
+49. time-config - Timezone and NTP server configuration
+50. locale - System locale settings
+51. hostname - System hostname configuration
+52. fstab-entries - /etc/fstab persistent mount management
+53. bridge-networks - Linux bridge creation and port management
+54. bond-interfaces - Network bonding/teaming configuration
+55. vlan-interfaces - VLAN tagging and sub-interface creation
+56. openvpn - OpenVPN client/server connection state
+57. block-devices - Block device scheduler and queue settings
+58. gpu - GPU power limits and frequency management
+59. bridge-networks - Linux bridge and port configuration
+60. quota - Filesystem quota management (user/group quotas)
+
+========================
+EXAMPLE OUTPUT:
+========================
+
+For "firewall" topic, generate:
+
+firewall_pack_20251031_1430.zip containing:
+- firewall_plugin.rs (manages UFW rules via "ufw" command)
+- firewall_example.json (shows rule schema)
+- register.sh (PLUGIN_NAME="firewall", PLUGIN_STRUCT="FirewallPlugin")

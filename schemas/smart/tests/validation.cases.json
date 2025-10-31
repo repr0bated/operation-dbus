@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "file": "invalid_privileged_no_ticket.json",
+      "reason": "privileged=true without change_control_ticket",
+      "expected": "fail"
+    },
+    {
+      "file": "invalid_prod_low_logging.json",
+      "reason": "prod logging.retention_days < 30",
+      "expected": "fail"
+    },
+    {
+      "file": "invalid_canary_pct.json",
+      "reason": "canary_percent outside 5..25 when deployment_strategy=canary",
+      "expected": "fail"
+    },
+    {
+      "file": "invalid_vlan_id.json",
+      "reason": "vlan_id outside 1..4094",
+      "expected": "fail"
+    },
+    {
+      "file": "invalid_ipv6_required_missing.json",
+      "reason": "ipv6_required=true but interface missing ipv6 block",
+      "expected": "fail"
+    }
+  ]
+}
