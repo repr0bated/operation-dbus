@@ -1,8 +1,9 @@
 //! Modular plugin system for loose coupling
-//! 
+//!
 //! This module provides a trait-based plugin architecture that allows
 //! plugins to be added, removed, and modified without changing core code.
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -10,50 +11,53 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::{Result, Context};
 
 /// Core plugin trait that all plugins must implement
 #[async_trait]
 pub trait Plugin: Send + Sync {
     /// Unique name for this plugin
     fn name(&self) -> &str;
-    
+
     /// Description of what this plugin does
     fn description(&self) -> &str;
-    
+
     /// Version of the plugin
     fn version(&self) -> &str;
-    
+
     /// Get the current state managed by this plugin
     async fn get_state(&self) -> Result<Value>;
-    
+
     /// Apply a desired state
     async fn apply_state(&self, desired: Value) -> Result<()>;
-    
+
     /// Calculate diff between current and desired state
     async fn diff(&self, current: Value, desired: Value) -> Result<Vec<Change>>;
-    
+
     /// Validate a configuration before applying
     async fn validate(&self, config: Value) -> Result<ValidationResult>;
-    
+
     /// Get plugin capabilities
     fn capabilities(&self) -> PluginCapabilities;
-    
+
     /// Handle plugin-specific commands
-    async fn handle_command(&self, command: &str, args: Value) -> Result<Value> {
-        Err(anyhow::anyhow!("Command '{}' not supported by plugin '{}'", command, self.name()))
+    async fn handle_command(&self, command: &str, _args: Value) -> Result<Value> {
+        Err(anyhow::anyhow!(
+            "Command '{}' not supported by plugin '{}'",
+            command,
+            self.name()
+        ))
     }
-    
+
     /// Initialize the plugin
     async fn initialize(&mut self) -> Result<()> {
         Ok(())
     }
-    
+
     /// Cleanup when plugin is being removed
     async fn cleanup(&mut self) -> Result<()> {
         Ok(())
     }
-    
+
     /// Get plugin metadata
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
@@ -65,7 +69,7 @@ pub trait Plugin: Send + Sync {
             dependencies: vec![],
         }
     }
-    
+
     /// Convert to Any for downcasting if needed
     fn as_any(&self) -> &dyn Any;
 }
@@ -107,7 +111,7 @@ impl ValidationResult {
             suggestions: vec![],
         }
     }
-    
+
     pub fn failure(error: impl Into<String>) -> Self {
         Self {
             valid: false,
@@ -158,8 +162,10 @@ pub struct PluginMetadata {
 }
 
 /// Plugin registry for managing all plugins
+type PluginMap = HashMap<String, Arc<Box<dyn Plugin>>>;
+
 pub struct PluginRegistry {
-    plugins: Arc<RwLock<HashMap<String, Arc<Box<dyn Plugin>>>>>,
+    plugins: Arc<RwLock<PluginMap>>,
     hooks: Arc<RwLock<PluginHooks>>,
 }
 
@@ -170,85 +176,101 @@ impl PluginRegistry {
             hooks: Arc::new(RwLock::new(PluginHooks::default())),
         }
     }
-    
+
     /// Register a new plugin
     pub async fn register(&self, plugin: Box<dyn Plugin>) -> Result<()> {
         let name = plugin.name().to_string();
-        
+
         // Call pre-registration hook
-        self.call_hook(PluginEvent::PreRegister { name: name.clone() }).await?;
-        
+        self.call_hook(PluginEvent::PreRegister { name: name.clone() })
+            .await?;
+
         // Initialize the plugin
         let mut plugin = plugin;
-        plugin.initialize().await
+        plugin
+            .initialize()
+            .await
             .context("Failed to initialize plugin")?;
-        
+
         // Store the plugin
         let mut plugins = self.plugins.write().await;
         if plugins.contains_key(&name) {
             return Err(anyhow::anyhow!("Plugin '{}' is already registered", name));
         }
-        
+
         plugins.insert(name.clone(), Arc::new(plugin));
-        
+
         // Call post-registration hook
-        self.call_hook(PluginEvent::PostRegister { name: name.clone() }).await?;
-        
+        self.call_hook(PluginEvent::PostRegister { name: name.clone() })
+            .await?;
+
         Ok(())
     }
-    
+
     /// Unregister a plugin
     pub async fn unregister(&self, name: &str) -> Result<()> {
         // Call pre-unregister hook
-        self.call_hook(PluginEvent::PreUnregister { name: name.to_string() }).await?;
-        
+        self.call_hook(PluginEvent::PreUnregister {
+            name: name.to_string(),
+        })
+        .await?;
+
         let mut plugins = self.plugins.write().await;
-        
+
         if let Some(plugin) = plugins.get_mut(name) {
             // Get mutable access to cleanup
             if let Some(plugin) = Arc::get_mut(plugin) {
-                plugin.cleanup().await
-                    .context("Failed to cleanup plugin")?;
+                plugin.cleanup().await.context("Failed to cleanup plugin")?;
             }
         }
-        
-        plugins.remove(name)
+
+        plugins
+            .remove(name)
             .ok_or_else(|| anyhow::anyhow!("Plugin '{}' not found", name))?;
-        
+
         // Call post-unregister hook
-        self.call_hook(PluginEvent::PostUnregister { name: name.to_string() }).await?;
-        
+        self.call_hook(PluginEvent::PostUnregister {
+            name: name.to_string(),
+        })
+        .await?;
+
         Ok(())
     }
-    
+
     /// Get a plugin by name
     pub async fn get(&self, name: &str) -> Option<Arc<Box<dyn Plugin>>> {
         let plugins = self.plugins.read().await;
         plugins.get(name).cloned()
     }
-    
+
     /// List all registered plugins
     pub async fn list(&self) -> Vec<String> {
         let plugins = self.plugins.read().await;
         plugins.keys().cloned().collect()
     }
-    
+
     /// Get metadata for all plugins
     pub async fn get_all_metadata(&self) -> Vec<PluginMetadata> {
         let plugins = self.plugins.read().await;
         plugins.values().map(|p| p.metadata()).collect()
     }
-    
+
     /// Register a hook
     pub async fn register_hook(&self, event: PluginEventType, handler: PluginHookHandler) {
         let mut hooks = self.hooks.write().await;
         hooks.register(event, handler);
     }
-    
+
     /// Call hooks for an event
     async fn call_hook(&self, event: PluginEvent) -> Result<()> {
         let hooks = self.hooks.read().await;
         hooks.call(event).await
+    }
+}
+
+impl Default for PluginRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -284,12 +306,9 @@ struct PluginHooks {
 
 impl PluginHooks {
     fn register(&mut self, event: PluginEventType, handler: PluginHookHandler) {
-        self.handlers
-            .entry(event)
-            .or_insert_with(Vec::new)
-            .push(handler);
+        self.handlers.entry(event).or_default().push(handler);
     }
-    
+
     async fn call(&self, event: PluginEvent) -> Result<()> {
         let event_type = match &event {
             PluginEvent::PreRegister { .. } => PluginEventType::PreRegister,
@@ -299,13 +318,13 @@ impl PluginHooks {
             PluginEvent::StateChanged { .. } => PluginEventType::StateChanged,
             PluginEvent::Error { .. } => PluginEventType::Error,
         };
-        
+
         if let Some(handlers) = self.handlers.get(&event_type) {
             for handler in handlers {
                 handler(event.clone())?;
             }
         }
-        
+
         Ok(())
     }
 }
@@ -318,15 +337,15 @@ macro_rules! impl_plugin {
             fn name(&self) -> &str {
                 stringify!($name)
             }
-            
+
             fn version(&self) -> &str {
                 $version
             }
-            
+
             fn description(&self) -> &str {
                 $description
             }
-            
+
             fn as_any(&self) -> &dyn std::any::Any {
                 self
             }

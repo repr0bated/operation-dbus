@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 //! Plugin footprint mechanism with hash for blockchain vectorization
 
 use anyhow::{Context, Result};
@@ -153,6 +152,7 @@ impl FootprintGenerator {
     }
 
     /// Prepare text from footprint data for embedding
+    #[cfg(feature = "ml")]
     fn prepare_text_for_embedding(
         &self,
         operation: &str,
