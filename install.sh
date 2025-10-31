@@ -77,7 +77,7 @@ echo ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Error: Please run as root (sudo ./install.sh)${NC}"
+    echo -e "${RED}Error: Please run as root ( ./install.sh)${NC}"
     exit 1
 fi
 
@@ -123,7 +123,7 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
     echo "Detected BTRFS filesystem, setting up subvolumes..."
 
     # Check for existing op-dbus blockchain subvolumes
-    EXISTING_SUBVOLS=$(sudo btrfs subvolume list / 2>/dev/null | grep -E "@var/lib/op-dbus/blockchain|@blockchain/op-dbus" || true)
+    EXISTING_SUBVOLS=$( btrfs subvolume list / 2>/dev/null | grep -E "@var/lib/op-dbus/blockchain|@blockchain/op-dbus" || true)
 
     if [ -n "$EXISTING_SUBVOLS" ]; then
         echo -e "${YELLOW}⚠${NC}  Found existing blockchain subvolumes:"
@@ -138,7 +138,7 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
 
                 # Delete old blockchain data
                 if [ -d "$BLOCKCHAIN_DIR" ]; then
-                    sudo rm -rf "$BLOCKCHAIN_DIR"/*
+                     rm -rf "$BLOCKCHAIN_DIR"/*
                     echo -e "${GREEN}✓${NC} Cleared old blockchain data"
                 fi
             else
@@ -152,30 +152,30 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
 
     # Create cache subvolume
     CACHE_DIR="/var/lib/op-dbus/@cache"
-    if ! sudo btrfs subvolume show "$CACHE_DIR" >/dev/null 2>&1; then
+    if !  btrfs subvolume show "$CACHE_DIR" >/dev/null 2>&1; then
         # Remove empty directory if exists
         if [ -d "$CACHE_DIR" ]; then
-            sudo rmdir "$CACHE_DIR" 2>/dev/null || true
+             rmdir "$CACHE_DIR" 2>/dev/null || true
         fi
-        sudo mkdir -p "$(dirname $CACHE_DIR)"
-        sudo btrfs subvolume create "$CACHE_DIR"
-        sudo btrfs property set "$CACHE_DIR" compression zstd
+         mkdir -p "$(dirname $CACHE_DIR)"
+         btrfs subvolume create "$CACHE_DIR"
+         btrfs property set "$CACHE_DIR" compression zstd
         echo -e "${GREEN}✓${NC} Created cache subvolume with zstd compression"
     else
         # Ensure compression is enabled
-        sudo btrfs property set "$CACHE_DIR" compression zstd
+         btrfs property set "$CACHE_DIR" compression zstd
         echo -e "${GREEN}✓${NC} Cache subvolume exists, ensured zstd compression"
     fi
 
     # Create cache directory structure
-    sudo mkdir -p "$CACHE_DIR"/{embeddings/vectors,blocks/{by-number,by-hash},queries,diffs}
+     mkdir -p "$CACHE_DIR"/{embeddings/vectors,blocks/{by-number,by-hash},queries,diffs}
     echo -e "${GREEN}✓${NC} Created cache directory structure"
 
     # Create snapshot directory
-    sudo mkdir -p "/var/lib/op-dbus/@cache-snapshots"
+     mkdir -p "/var/lib/op-dbus/@cache-snapshots"
 
     # Create subvolumes if they don't exist
-    if ! sudo btrfs subvolume show "$BLOCKCHAIN_DIR" >/dev/null 2>&1; then
+    if !  btrfs subvolume show "$BLOCKCHAIN_DIR" >/dev/null 2>&1; then
         # Check if it's already a regular directory with files
         if [ -d "$BLOCKCHAIN_DIR" ] && [ "$(ls -A $BLOCKCHAIN_DIR 2>/dev/null)" ]; then
             echo -e "${YELLOW}⚠${NC}  $BLOCKCHAIN_DIR exists as regular directory with files"
@@ -183,28 +183,28 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
 
             # Move data temporarily
             TEMP_BACKUP="/tmp/op-dbus-blockchain-backup-$$"
-            sudo mv "$BLOCKCHAIN_DIR" "$TEMP_BACKUP"
-            sudo mkdir -p "$(dirname $BLOCKCHAIN_DIR)"
+             mv "$BLOCKCHAIN_DIR" "$TEMP_BACKUP"
+             mkdir -p "$(dirname $BLOCKCHAIN_DIR)"
 
             # Create subvolume
-            sudo btrfs subvolume create "$BLOCKCHAIN_DIR"
+             btrfs subvolume create "$BLOCKCHAIN_DIR"
 
             # Restore data
-            sudo mv "$TEMP_BACKUP"/* "$BLOCKCHAIN_DIR/" 2>/dev/null || true
-            sudo rm -rf "$TEMP_BACKUP"
+             mv "$TEMP_BACKUP"/* "$BLOCKCHAIN_DIR/" 2>/dev/null || true
+             rm -rf "$TEMP_BACKUP"
 
             echo -e "${GREEN}✓${NC} Converted to BTRFS subvolume with data preserved"
         else
             # Remove empty directory if it exists
             if [ -d "$BLOCKCHAIN_DIR" ]; then
-                sudo rmdir "$BLOCKCHAIN_DIR" 2>/dev/null || true
+                 rmdir "$BLOCKCHAIN_DIR" 2>/dev/null || true
             fi
 
             # Ensure parent directory exists
-            sudo mkdir -p "$(dirname $BLOCKCHAIN_DIR)"
+             mkdir -p "$(dirname $BLOCKCHAIN_DIR)"
 
             # Create fresh subvolume
-            sudo btrfs subvolume create "$BLOCKCHAIN_DIR"
+             btrfs subvolume create "$BLOCKCHAIN_DIR"
             echo -e "${GREEN}✓${NC} Created blockchain BTRFS subvolume"
         fi
     else
@@ -212,13 +212,13 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
     fi
 
     # Set permissions
-    sudo chown -R root:root "$BLOCKCHAIN_DIR"
-    sudo chmod 755 "$BLOCKCHAIN_DIR"
+     chown -R root:root "$BLOCKCHAIN_DIR"
+     chmod 755 "$BLOCKCHAIN_DIR"
 
 else
     # Not BTRFS, just use regular directory
     echo "Using regular directory (not BTRFS)"
-    sudo mkdir -p "$BLOCKCHAIN_DIR"
+     mkdir -p "$BLOCKCHAIN_DIR"
     echo -e "${GREEN}✓${NC} Created blockchain directory: $BLOCKCHAIN_DIR"
 fi
 
@@ -401,7 +401,7 @@ if [ "$NO_PROXMOX" = false ]; then
             export PATH="/usr/sbin:$PATH"
             bash ./create-netmaker-template.sh || {
                 echo -e "${YELLOW}⚠${NC}  Template creation failed"
-                echo -e "${YELLOW}⚠${NC}  You can create it manually later with: sudo ./create-netmaker-template.sh"
+                echo -e "${YELLOW}⚠${NC}  You can create it manually later with:  ./create-netmaker-template.sh"
                 echo -e "${YELLOW}⚠${NC}  Continuing installation..."
             }
         else
@@ -425,18 +425,18 @@ fi
 if [ "$NO_PROXMOX" = false ]; then
 
 if command -v ovs-vsctl >/dev/null 2>&1; then
-    if ! sudo ovs-vsctl br-exists mesh 2>/dev/null; then
-        sudo ovs-vsctl add-br mesh
-        sudo ip link set mesh up
+    if !  ovs-vsctl br-exists mesh 2>/dev/null; then
+         ovs-vsctl add-br mesh
+         ip link set mesh up
         echo -e "${GREEN}✓${NC} Created 'mesh' bridge for netmaker containers"
 
         # Add to /etc/network/interfaces for persistence
         if [ -f /etc/network/interfaces ]; then
             if ! grep -q "^auto mesh" /etc/network/interfaces; then
-                echo -e "\n# Netmaker mesh bridge" | sudo tee -a /etc/network/interfaces > /dev/null
-                echo "auto mesh" | sudo tee -a /etc/network/interfaces > /dev/null
-                echo "iface mesh inet manual" | sudo tee -a /etc/network/interfaces > /dev/null
-                echo "    ovs_type OVSBridge" | sudo tee -a /etc/network/interfaces > /dev/null
+                echo -e "\n# Netmaker mesh bridge" |  tee -a /etc/network/interfaces > /dev/null
+                echo "auto mesh" |  tee -a /etc/network/interfaces > /dev/null
+                echo "iface mesh inet manual" |  tee -a /etc/network/interfaces > /dev/null
+                echo "    ovs_type OVSBridge" |  tee -a /etc/network/interfaces > /dev/null
                 echo -e "${GREEN}✓${NC} Added mesh bridge to /etc/network/interfaces"
             fi
         fi
@@ -573,11 +573,11 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
         # Auto-add netmaker interfaces to mesh bridge
         echo "Checking for netmaker interfaces to add to mesh bridge..."
         for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-") or . == "netmaker") | .ifname'); do
-            if sudo ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
+            if  ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
                 echo -e "${GREEN}✓${NC} Interface $iface already in mesh bridge"
             else
                 echo "Adding netmaker interface $iface to mesh bridge..."
-                if sudo ovs-vsctl add-port mesh "$iface" 2>/dev/null; then
+                if  ovs-vsctl add-port mesh "$iface" 2>/dev/null; then
                     echo -e "${GREEN}✓${NC} Added $iface to mesh bridge"
                 else
                     echo -e "${YELLOW}⚠${NC}  Could not add $iface to mesh bridge"
@@ -597,11 +597,11 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
             # Auto-add netmaker interfaces to mesh bridge
             echo "Checking for netmaker interfaces to add to mesh bridge..."
             for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-") or . == "netmaker") | .ifname'); do
-                if sudo ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
+                if  ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
                     echo -e "${GREEN}✓${NC} Interface $iface already in mesh bridge"
                 else
                     echo "Adding netmaker interface $iface to mesh bridge..."
-                    if sudo ovs-vsctl add-port mesh "$iface" 2>/dev/null; then
+                    if  ovs-vsctl add-port mesh "$iface" 2>/dev/null; then
                         echo -e "${GREEN}✓${NC} Added $iface to mesh bridge"
                     else
                         echo -e "${YELLOW}⚠${NC}  Could not add $iface to mesh bridge"
@@ -622,10 +622,10 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
     # Install LXC hook for automatic container netmaker join
     echo "Installing LXC netmaker hook..."
     HOOK_DIR="/usr/share/lxc/hooks"
-    sudo mkdir -p "$HOOK_DIR"
+     mkdir -p "$HOOK_DIR"
 
     # Create hook script inline
-    sudo tee "$HOOK_DIR/netmaker-join" > /dev/null <<'HOOK_EOF'
+     tee "$HOOK_DIR/netmaker-join" > /dev/null <<'HOOK_EOF'
 #!/bin/bash
 # LXC hook to automatically join container to netmaker on start
 # Installed by op-dbus install.sh
@@ -701,15 +701,15 @@ log "Hook completed"
 exit 0
 HOOK_EOF
 
-    sudo chmod +x "$HOOK_DIR/netmaker-join"
+     chmod +x "$HOOK_DIR/netmaker-join"
     echo -e "${GREEN}✓${NC} LXC hook installed: $HOOK_DIR/netmaker-join"
     echo -e "${GREEN}✓${NC} Containers will auto-join netmaker on startup"
 
     # Create global LXC config to enable hook for all containers
     LXC_COMMON_CONF="/usr/share/lxc/config/common.conf.d"
-    sudo mkdir -p "$LXC_COMMON_CONF"
+     mkdir -p "$LXC_COMMON_CONF"
 
-    sudo tee "$LXC_COMMON_CONF/netmaker.conf" > /dev/null <<'LXC_CONF_EOF'
+     tee "$LXC_COMMON_CONF/netmaker.conf" > /dev/null <<'LXC_CONF_EOF'
 # Automatic netmaker join hook for op-dbus containers
 # Only triggers for containers using mesh bridge
 lxc.hook.start-host = /usr/share/lxc/hooks/netmaker-join
