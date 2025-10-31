@@ -1,6 +1,6 @@
 //! Refactored MCP server using tool registry for loose coupling
 
-use op_dbus::mcp::tool_registry::{
+use crate::mcp::tool_registry::{
     AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,
     ToolResult,
 };
