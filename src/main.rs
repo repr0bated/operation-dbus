@@ -3,6 +3,7 @@
 
 mod blockchain;
 mod cache;
+#[cfg(feature = "ml")]
 mod ml;
 mod native;
 mod nonnet_db;

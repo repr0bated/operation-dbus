@@ -5,4 +5,5 @@ pub mod downloader;
 pub mod embedder;
 pub mod model_manager;
 
+#[cfg(feature = "ml")]
 pub use model_manager::ModelManager;
