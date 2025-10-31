@@ -1,0 +1,118 @@
+{
+  "metadata": {
+    "service_name": "reef-analytics",
+    "service_tier": "standard",
+    "environment": "stage",
+    "region": "us-east",
+    "release_version": "v0.9.0",
+    "rollout_strategy": "canary",
+    "owner": "dataops",
+    "cost_center": "AQ-654321",
+    "data_classification": "internal",
+    "runbook_url": "https://ops.example.org/runbooks/reef-analytics",
+    "alert_route": "pagerduty-reef"
+  },
+  "security": {
+    "privileged": false,
+    "seccomp_profile": "lenient.json",
+    "apparmor_profile": "lxc-default",
+    "read_only_rootfs": true
+  },
+  "networking": {
+    "net_policy_id": "AQNET002",
+    "dns_policy": "default",
+    "mtu_policy": 1500,
+    "ipv6_required": false,
+    "interfaces": [
+      {
+        "name": "eth0",
+        "type": "bridge",
+        "ipv4": {
+          "address": "10.44.2.20",
+          "cidr": "10.44.2.20/24",
+          "gateway": "10.44.2.1"
+        }
+      }
+    ],
+    "ingress_rules": [],
+    "egress_rules": [
+      {
+        "proto": "tcp",
+        "cidr": "10.44.3.0/24",
+        "ports": [
+          443,
+          9092
+        ]
+      }
+    ]
+  },
+  "reliability": {
+    "availability_target": 99.5,
+    "p99_latency_budget_ms": 5000,
+    "restart_policy": "on-failure",
+    "replica_set": 1,
+    "startup_grace": "PT60S",
+    "shutdown_grace": "PT30S",
+    "healthcheck": {
+      "cmd": "bash -lc 'exit 0'",
+      "interval": "PT5M",
+      "timeout": "PT10S",
+      "retries": 1
+    }
+  },
+  "resources": {
+    "cpu_class": "medium",
+    "mem_class": "large",
+    "hard_limits": {
+      "cpu_millicores": 4000,
+      "memory_mib": 8192,
+      "pids": 1024
+    },
+    "overcommit_policy": "balanced"
+  },
+  "observability": {
+    "logs": {
+      "retention_days": 14,
+      "max_size_mb": 512,
+      "level": "info"
+    },
+    "metrics": {
+      "exporter": "statsd",
+      "scrape": true,
+      "ports": [
+        8125
+      ]
+    },
+    "traces": {
+      "enabled": true,
+      "endpoint": "https://traces.example.org"
+    },
+    "audit": {
+      "enabled": true,
+      "retention_days": 90
+    }
+  },
+  "lifecycle": {
+    "deployment_strategy": "canary",
+    "max_unavailable": 1,
+    "max_surge": "10%",
+    "canary_percent": 10,
+    "rollback_on_failure": true
+  },
+  "backup_dr": {
+    "backup_class": "standard",
+    "rpo_minutes": 1440,
+    "rto_minutes": 120,
+    "snapshot_policy": "cron:0 3 * * *",
+    "offsite_copy": true,
+    "restore_runbook_url": "https://ops.example.org/runbooks/restore-reef-analytics"
+  },
+  "compliance": {
+    "pii": false,
+    "phi": false,
+    "retention_policy": "analytics-180d",
+    "legal_hold_supported": false,
+    "evidence_tags": [],
+    "change_control_ticket": "CHG-654321"
+  }
+}

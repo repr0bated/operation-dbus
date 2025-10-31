@@ -328,7 +328,7 @@ pub async fn add_footprint_batched(&self, footprints: Vec<PluginFootprint>) -> R
 
 Add environment variable:
 ```bash
-OPDBUS_SNAPSHOT_INTERVAL=hourly  # or: daily, weekly, per-op
+OPDBUS_SNAPSHOT_INTERVAL=every-15-minutes  # or: per-op, 1min, 5min, 15min, 30min, 1h, 1d, 1w
 ```
 
 ### 3. Vector Database Export
@@ -420,24 +420,27 @@ Overhead: ~5-10%
    ```bash
    OP_DBUS_VECTOR_LEVEL=none
    OPDBUS_MAX_CACHE_SNAPSHOTS=24
+   OPDBUS_SNAPSHOT_INTERVAL=every-15-minutes
    ```
 
 2. **Analytics Config (DevOps):**
    ```bash
    OP_DBUS_VECTOR_LEVEL=low
    OPDBUS_MAX_CACHE_SNAPSHOTS=48
+   OPDBUS_SNAPSHOT_INTERVAL=every-5-minutes
    ```
 
 3. **Research Config (ML/Analytics):**
    ```bash
    OP_DBUS_VECTOR_LEVEL=high
    OPDBUS_MAX_CACHE_SNAPSHOTS=100
+   OPDBUS_SNAPSHOT_INTERVAL=every-minute
    ```
 
 ### Next Steps
 
 1. ✅ Implement batched snapshots (reduce overhead 1000x)
-2. ✅ Add configurable snapshot interval
+2. ✅ Add configurable snapshot interval (with granular options)
 3. ⚠️  Add Qdrant export connector (enable fleet-wide search)
 4. ⚠️  Add memory limits to event bus
 
