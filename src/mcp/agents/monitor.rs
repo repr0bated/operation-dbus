@@ -24,16 +24,18 @@ impl MonitorAgent {
         let task: MonitorTask = match serde_json::from_str(&task_json) {
             Ok(t) => t,
             Err(e) => {
-                return Err(zbus::fdo::Error::InvalidArgs(
-                    format!("Failed to parse task: {}", e)
-                ));
+                return Err(zbus::fdo::Error::InvalidArgs(format!(
+                    "Failed to parse task: {}",
+                    e
+                )));
             }
         };
 
         if task.task_type != "monitor" {
-            return Err(zbus::fdo::Error::InvalidArgs(
-                format!("Unknown task type: {}", task.task_type)
-            ));
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "Unknown task type: {}",
+                task.task_type
+            )));
         }
 
         println!("[{}] Monitoring metric: {}", self.agent_id, task.metric);
@@ -57,9 +59,7 @@ impl MonitorAgent {
                 });
                 Ok(response.to_string())
             }
-            Err(e) => {
-                Err(zbus::fdo::Error::Failed(e))
-            }
+            Err(e) => Err(zbus::fdo::Error::Failed(e)),
         }
     }
 
@@ -120,7 +120,13 @@ impl MonitorAgent {
         let output = if detailed {
             Command::new("ps").arg("aux").arg("--sort=-pmem").output()
         } else {
-            Command::new("ps").arg("aux").arg("--sort=-pmem").arg("|").arg("head").arg("-20").output()
+            Command::new("ps")
+                .arg("aux")
+                .arg("--sort=-pmem")
+                .arg("|")
+                .arg("head")
+                .arg("-20")
+                .output()
         };
 
         match output {
@@ -155,7 +161,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_id = if args.len() > 1 {
         args[1].clone()
     } else {
-        format!("monitor-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
+        format!(
+            "monitor-{}",
+            uuid::Uuid::new_v4().to_string()[..8].to_string()
+        )
     };
 
     println!("Starting Monitor Agent: {}", agent_id);

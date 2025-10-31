@@ -1,8 +1,9 @@
 //! Agent registry for dynamic agent management
-//! 
+//!
 //! This eliminates tight coupling by allowing agents to be registered
 //! dynamically without hardcoding in the orchestrator.
 
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,49 +12,48 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::{Result, Context};
 
 /// Agent specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSpec {
     /// Unique agent type identifier
     pub agent_type: String,
-    
+
     /// Human-readable name
     pub name: String,
-    
+
     /// Description of agent functionality
     pub description: String,
-    
+
     /// Command to execute the agent
     pub command: String,
-    
+
     /// Arguments to pass to the command
     #[serde(default)]
     pub args: Vec<String>,
-    
+
     /// Environment variables
     #[serde(default)]
     pub env: HashMap<String, String>,
-    
+
     /// Working directory
     pub working_dir: Option<PathBuf>,
-    
+
     /// Capabilities this agent provides
     pub capabilities: Vec<String>,
-    
+
     /// Whether this agent requires root privileges
     #[serde(default)]
     pub requires_root: bool,
-    
+
     /// Maximum number of instances
     #[serde(default = "default_max_instances")]
     pub max_instances: usize,
-    
+
     /// Restart policy
     #[serde(default)]
     pub restart_policy: RestartPolicy,
-    
+
     /// Health check configuration
     pub health_check: Option<HealthCheck>,
 }
@@ -68,20 +68,22 @@ pub enum RestartPolicy {
     #[default]
     Never,
     Always,
-    OnFailure { max_retries: u32 },
+    OnFailure {
+        max_retries: u32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthCheck {
     /// D-Bus method to call for health check
     pub method: String,
-    
+
     /// Interval in seconds
     pub interval_secs: u64,
-    
+
     /// Timeout in seconds
     pub timeout_secs: u64,
-    
+
     /// Number of consecutive failures before marking unhealthy
     pub unhealthy_threshold: u32,
 }
@@ -115,7 +117,7 @@ pub enum AgentStatus {
 pub trait AgentFactory: Send + Sync {
     /// Create a new agent instance
     async fn create_agent(&self, spec: &AgentSpec, instance_id: &str) -> Result<AgentHandle>;
-    
+
     /// Check if an agent type is supported
     fn supports(&self, agent_type: &str) -> bool;
 }
@@ -134,35 +136,36 @@ pub struct ProcessAgentFactory;
 impl AgentFactory for ProcessAgentFactory {
     async fn create_agent(&self, spec: &AgentSpec, instance_id: &str) -> Result<AgentHandle> {
         let mut cmd = tokio::process::Command::new(&spec.command);
-        
+
         // Add arguments
         cmd.args(&spec.args);
-        
+
         // Add instance ID as environment variable
         cmd.env("AGENT_ID", instance_id);
         cmd.env("AGENT_TYPE", &spec.agent_type);
-        
+
         // Add custom environment variables
         for (key, value) in &spec.env {
             cmd.env(key, value);
         }
-        
+
         // Set working directory
         if let Some(dir) = &spec.working_dir {
             cmd.current_dir(dir);
         }
-        
+
         // Spawn the process
-        let process = cmd.spawn()
+        let process = cmd
+            .spawn()
             .context(format!("Failed to spawn agent: {}", spec.command))?;
-        
+
         Ok(AgentHandle {
             id: instance_id.to_string(),
             process,
             spec: spec.clone(),
         })
     }
-    
+
     fn supports(&self, _agent_type: &str) -> bool {
         true // Default factory supports all types
     }
@@ -172,13 +175,13 @@ impl AgentFactory for ProcessAgentFactory {
 pub struct AgentRegistry {
     /// Registered agent specifications
     specs: Arc<RwLock<HashMap<String, AgentSpec>>>,
-    
+
     /// Running agent instances
     instances: Arc<RwLock<HashMap<String, AgentInstance>>>,
-    
+
     /// Agent factories
     factories: Arc<RwLock<Vec<Box<dyn AgentFactory>>>>,
-    
+
     /// Agent handles
     handles: Arc<RwLock<HashMap<String, AgentHandle>>>,
 }
@@ -191,90 +194,95 @@ impl AgentRegistry {
             factories: Arc::new(RwLock::new(Vec::new())),
             handles: Arc::new(RwLock::new(HashMap::new())),
         };
-        
+
         // Register default factory
         let default_factory = Box::new(ProcessAgentFactory);
-        
+
         // We need to do this in a blocking context since new() is not async
         let factories = registry.factories.clone();
         tokio::spawn(async move {
             let mut factories = factories.write().await;
             factories.push(default_factory);
         });
-        
+
         registry
     }
-    
+
     /// Register an agent specification
     pub async fn register_spec(&self, spec: AgentSpec) -> Result<()> {
         let mut specs = self.specs.write().await;
-        
+
         if specs.contains_key(&spec.agent_type) {
             return Err(anyhow::anyhow!(
                 "Agent type '{}' is already registered",
                 spec.agent_type
             ));
         }
-        
+
         specs.insert(spec.agent_type.clone(), spec);
         Ok(())
     }
-    
+
     /// Load specifications from a configuration file
     pub async fn load_specs_from_file(&self, path: &PathBuf) -> Result<()> {
         let content = tokio::fs::read_to_string(path)
             .await
             .context("Failed to read agent specifications file")?;
-        
-        let specs: Vec<AgentSpec> = serde_json::from_str(&content)
-            .context("Failed to parse agent specifications")?;
-        
+
+        let specs: Vec<AgentSpec> =
+            serde_json::from_str(&content).context("Failed to parse agent specifications")?;
+
         for spec in specs {
             self.register_spec(spec).await?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Load specifications from a directory
     pub async fn load_specs_from_directory(&self, dir: &PathBuf) -> Result<()> {
         let mut entries = tokio::fs::read_dir(dir)
             .await
             .context("Failed to read specifications directory")?;
-        
+
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            
+
             if path.extension().and_then(|s| s.to_str()) == Some("json") {
                 if let Err(e) = self.load_specs_from_file(&path).await {
                     log::warn!("Failed to load spec from {:?}: {}", path, e);
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Register a custom agent factory
     pub async fn register_factory(&self, factory: Box<dyn AgentFactory>) {
         let mut factories = self.factories.write().await;
         factories.push(factory);
     }
-    
+
     /// Spawn an agent instance
     pub async fn spawn_agent(&self, agent_type: &str, config: Option<Value>) -> Result<String> {
         // Get the specification
         let specs = self.specs.read().await;
-        let spec = specs.get(agent_type)
+        let spec = specs
+            .get(agent_type)
             .ok_or_else(|| anyhow::anyhow!("Unknown agent type: {}", agent_type))?
             .clone();
-        
+
         // Check max instances
         let instances = self.instances.read().await;
-        let current_count = instances.values()
-            .filter(|i| i.agent_type == agent_type && matches!(i.status, AgentStatus::Running | AgentStatus::Healthy))
+        let current_count = instances
+            .values()
+            .filter(|i| {
+                i.agent_type == agent_type
+                    && matches!(i.status, AgentStatus::Running | AgentStatus::Healthy)
+            })
             .count();
-        
+
         if current_count >= spec.max_instances {
             return Err(anyhow::anyhow!(
                 "Maximum instances ({}) reached for agent type '{}'",
@@ -283,24 +291,25 @@ impl AgentRegistry {
             ));
         }
         drop(instances);
-        
+
         // Generate instance ID
         let instance_id = format!("{}-{}", agent_type, uuid::Uuid::new_v4().to_string());
-        
+
         // Find suitable factory
         let factories = self.factories.read().await;
-        let factory = factories.iter()
+        let factory = factories
+            .iter()
             .find(|f| f.supports(agent_type))
             .ok_or_else(|| anyhow::anyhow!("No factory supports agent type: {}", agent_type))?;
-        
+
         // Create the agent
         let handle = factory.create_agent(&spec, &instance_id).await?;
         let pid = handle.process.id();
-        
+
         // Store the handle
         let mut handles = self.handles.write().await;
         handles.insert(instance_id.clone(), handle);
-        
+
         // Create instance record
         let instance = AgentInstance {
             id: instance_id.clone(),
@@ -311,57 +320,64 @@ impl AgentRegistry {
             last_health_check: None,
             restart_count: 0,
         };
-        
+
         // Store instance
         let mut instances = self.instances.write().await;
         instances.insert(instance_id.clone(), instance);
-        
+
         // TODO: Start health check task if configured
-        
+
         Ok(instance_id)
     }
-    
+
     /// Kill an agent instance
     pub async fn kill_agent(&self, instance_id: &str) -> Result<()> {
         let mut handles = self.handles.write().await;
-        
+
         if let Some(mut handle) = handles.remove(instance_id) {
             // Try graceful shutdown first
-            handle.process.kill().await
+            handle
+                .process
+                .kill()
+                .await
                 .context("Failed to kill agent process")?;
-            
+
             // Update instance status
             let mut instances = self.instances.write().await;
             if let Some(instance) = instances.get_mut(instance_id) {
                 instance.status = AgentStatus::Stopped;
             }
-            
+
             Ok(())
         } else {
-            Err(anyhow::anyhow!("Agent instance '{}' not found", instance_id))
+            Err(anyhow::anyhow!(
+                "Agent instance '{}' not found",
+                instance_id
+            ))
         }
     }
-    
+
     /// Get agent instance status
     pub async fn get_instance_status(&self, instance_id: &str) -> Result<AgentInstance> {
         let instances = self.instances.read().await;
-        instances.get(instance_id)
+        instances
+            .get(instance_id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Agent instance '{}' not found", instance_id))
     }
-    
+
     /// List all agent instances
     pub async fn list_instances(&self) -> Vec<AgentInstance> {
         let instances = self.instances.read().await;
         instances.values().cloned().collect()
     }
-    
+
     /// List all registered agent types
     pub async fn list_agent_types(&self) -> Vec<String> {
         let specs = self.specs.read().await;
         specs.keys().cloned().collect()
     }
-    
+
     /// Get agent specification
     pub async fn get_spec(&self, agent_type: &str) -> Option<AgentSpec> {
         let specs = self.specs.read().await;
@@ -399,7 +415,11 @@ pub async fn load_default_specs(registry: &AgentRegistry) -> Result<()> {
             args: vec![],
             env: HashMap::new(),
             working_dir: None,
-            capabilities: vec!["read".to_string(), "write".to_string(), "delete".to_string()],
+            capabilities: vec![
+                "read".to_string(),
+                "write".to_string(),
+                "delete".to_string(),
+            ],
             requires_root: false,
             max_instances: 5,
             restart_policy: RestartPolicy::OnFailure { max_retries: 3 },
@@ -468,10 +488,10 @@ pub async fn load_default_specs(registry: &AgentRegistry) -> Result<()> {
             }),
         },
     ];
-    
+
     for spec in specs {
         registry.register_spec(spec).await?;
     }
-    
+
     Ok(())
 }

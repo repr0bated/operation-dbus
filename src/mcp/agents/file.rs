@@ -4,12 +4,7 @@ use std::path::{Path, PathBuf};
 use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
 
 // Security configuration
-const ALLOWED_DIRECTORIES: &[&str] = &[
-    "/home",
-    "/tmp",
-    "/var/log",
-    "/opt",
-];
+const ALLOWED_DIRECTORIES: &[&str] = &["/home", "/tmp", "/var/log", "/opt"];
 
 const FORBIDDEN_DIRECTORIES: &[&str] = &[
     "/etc",
@@ -72,8 +67,7 @@ impl FileAgent {
     fn new(agent_id: String) -> Self {
         // Set a safe base directory - can be configured
         let base_directory = PathBuf::from(
-            std::env::var("FILE_AGENT_BASE_DIR")
-                .unwrap_or_else(|_| "/tmp/file-agent".to_string())
+            std::env::var("FILE_AGENT_BASE_DIR").unwrap_or_else(|_| "/tmp/file-agent".to_string()),
         );
 
         // Ensure base directory exists
@@ -93,7 +87,7 @@ impl FileAgent {
 
         // Convert to PathBuf and canonicalize
         let path_buf = Path::new(path);
-        
+
         // Check if path is absolute
         let absolute_path = if path_buf.is_absolute() {
             path_buf.to_path_buf()
@@ -103,19 +97,26 @@ impl FileAgent {
         };
 
         // Canonicalize to resolve .. and symlinks
-        let canonical = absolute_path.canonicalize()
+        let canonical = absolute_path
+            .canonicalize()
             .or_else(|_| {
                 // If file doesn't exist yet (for write operations), canonicalize parent
                 if let Some(parent) = absolute_path.parent() {
-                    parent.canonicalize().map(|p| p.join(absolute_path.file_name().unwrap_or_default()))
+                    parent
+                        .canonicalize()
+                        .map(|p| p.join(absolute_path.file_name().unwrap_or_default()))
                 } else {
-                    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Invalid path"))
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Invalid path",
+                    ))
                 }
             })
             .map_err(|e| format!("Failed to resolve path: {}", e))?;
 
         // Convert to string for validation
-        let path_str = canonical.to_str()
+        let path_str = canonical
+            .to_str()
             .ok_or_else(|| "Invalid UTF-8 in path".to_string())?;
 
         // Check against forbidden directories
@@ -149,8 +150,7 @@ impl FileAgent {
         if !is_allowed {
             return Err(format!(
                 "Path must be within allowed directories: {:?} or base directory: {:?}",
-                ALLOWED_DIRECTORIES,
-                self.base_directory
+                ALLOWED_DIRECTORIES, self.base_directory
             ));
         }
 
@@ -159,30 +159,35 @@ impl FileAgent {
 
     fn read_file(&self, path: &str) -> Result<String, String> {
         let validated_path = self.validate_path(path)?;
-        
+
         // Check file size before reading
         let metadata = fs::metadata(&validated_path)
             .map_err(|e| format!("Failed to get file metadata: {}", e))?;
-        
+
         if metadata.len() > MAX_FILE_SIZE {
-            return Err(format!("File size exceeds maximum of {} bytes", MAX_FILE_SIZE));
+            return Err(format!(
+                "File size exceeds maximum of {} bytes",
+                MAX_FILE_SIZE
+            ));
         }
 
         // Read file
-        fs::read_to_string(validated_path)
-            .map_err(|e| format!("Failed to read file: {}", e))
+        fs::read_to_string(validated_path).map_err(|e| format!("Failed to read file: {}", e))
     }
 
     fn write_file(&self, path: &str, content: Option<&str>) -> Result<String, String> {
         let content = content.ok_or("Content is required for write operation")?;
-        
+
         // Check content size
         if content.len() > MAX_FILE_SIZE as usize {
-            return Err(format!("Content size exceeds maximum of {} bytes", MAX_FILE_SIZE));
+            return Err(format!(
+                "Content size exceeds maximum of {} bytes",
+                MAX_FILE_SIZE
+            ));
         }
 
         let validated_path = self.validate_path(path)?;
-        
+
         // Ensure parent directory exists
         if let Some(parent) = validated_path.parent() {
             fs::create_dir_all(parent)
@@ -190,15 +195,14 @@ impl FileAgent {
         }
 
         // Write file
-        fs::write(validated_path, content)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
-        
+        fs::write(validated_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
+
         Ok(format!("Wrote {} bytes", content.len()))
     }
 
     fn delete_file(&self, path: &str, recursive: bool) -> Result<String, String> {
         let validated_path = self.validate_path(path)?;
-        
+
         // Extra safety: Don't allow recursive deletion of important directories
         if recursive && validated_path.parent() == Some(Path::new("/")) {
             return Err("Cannot recursively delete root-level directories".to_string());
@@ -210,11 +214,14 @@ impl FileAgent {
                 let count = fs::read_dir(&validated_path)
                     .map_err(|e| format!("Failed to read directory: {}", e))?
                     .count();
-                
+
                 if count > 100 {
-                    return Err(format!("Directory contains {} items. Too many for safe deletion", count));
+                    return Err(format!(
+                        "Directory contains {} items. Too many for safe deletion",
+                        count
+                    ));
                 }
-                
+
                 fs::remove_dir_all(validated_path)
                     .map_err(|e| format!("Failed to delete directory: {}", e))?;
             } else {
@@ -222,10 +229,9 @@ impl FileAgent {
                     .map_err(|e| format!("Failed to delete directory: {}", e))?;
             }
         } else {
-            fs::remove_file(validated_path)
-                .map_err(|e| format!("Failed to delete file: {}", e))?;
+            fs::remove_file(validated_path).map_err(|e| format!("Failed to delete file: {}", e))?;
         }
-        
+
         Ok("Deleted successfully".to_string())
     }
 
@@ -244,14 +250,14 @@ impl FileAgent {
 
     fn list_directory(&self, path: &str) -> Result<String, String> {
         let validated_path = self.validate_path(path)?;
-        
+
         if !validated_path.is_dir() {
             return Err("Path is not a directory".to_string());
         }
 
-        let entries = fs::read_dir(validated_path)
-            .map_err(|e| format!("Failed to read directory: {}", e))?;
-        
+        let entries =
+            fs::read_dir(validated_path).map_err(|e| format!("Failed to read directory: {}", e))?;
+
         let mut files = Vec::new();
         for entry in entries {
             if let Ok(entry) = entry {
@@ -263,13 +269,13 @@ impl FileAgent {
                 }
             }
         }
-        
+
         Ok(serde_json::to_string(&files).unwrap_or_else(|_| "[]".to_string()))
     }
 
     fn create_directory(&self, path: &str, recursive: bool) -> Result<String, String> {
         let validated_path = self.validate_path(path)?;
-        
+
         if recursive {
             fs::create_dir_all(validated_path)
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
@@ -277,7 +283,7 @@ impl FileAgent {
             fs::create_dir(validated_path)
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
         }
-        
+
         Ok("Directory created successfully".to_string())
     }
 }
@@ -291,19 +297,24 @@ impl FileAgent {
         let task: FileTask = match serde_json::from_str(&task_json) {
             Ok(t) => t,
             Err(e) => {
-                return Err(zbus::fdo::Error::InvalidArgs(
-                    format!("Failed to parse task: {}", e)
-                ));
+                return Err(zbus::fdo::Error::InvalidArgs(format!(
+                    "Failed to parse task: {}",
+                    e
+                )));
             }
         };
 
         if task.task_type != "file" {
-            return Err(zbus::fdo::Error::InvalidArgs(
-                format!("Unknown task type: {}", task.task_type)
-            ));
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "Unknown task type: {}",
+                task.task_type
+            )));
         }
 
-        println!("[{}] File operation: {} on path: {}", self.agent_id, task.operation, task.path);
+        println!(
+            "[{}] File operation: {} on path: {}",
+            self.agent_id, task.operation, task.path
+        );
 
         let result = match task.operation.as_str() {
             "read" => self.read_file(&task.path),

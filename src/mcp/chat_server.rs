@@ -9,17 +9,30 @@ use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::CorsLayer;
 
-use super::tool_registry::ToolRegistry;
 use super::agent_registry::AgentRegistry;
+use super::tool_registry::ToolRegistry;
 
 // Chat message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatMessage {
-    User { content: String, timestamp: u64 },
-    Assistant { content: String, timestamp: u64, tools_used: Vec<String> },
-    System { content: String, timestamp: u64 },
-    Error { content: String, timestamp: u64 },
+    User {
+        content: String,
+        timestamp: u64,
+    },
+    Assistant {
+        content: String,
+        timestamp: u64,
+        tools_used: Vec<String>,
+    },
+    System {
+        content: String,
+        timestamp: u64,
+    },
+    Error {
+        content: String,
+        timestamp: u64,
+    },
 }
 
 // Command parsing result
@@ -58,19 +71,20 @@ impl NaturalLanguageProcessor {
     pub fn parse_command(input: &str) -> ParsedCommand {
         let lower = input.to_lowercase();
         let mut parameters = HashMap::new();
-        
+
         // Pattern matching for different command types
         let intent = if lower.starts_with("run ") || lower.starts_with("execute ") {
             // Extract tool name and parameters
             let parts: Vec<&str> = input.split_whitespace().collect();
             if parts.len() > 1 {
                 let tool_name = parts[1].to_string();
-                
+
                 // Parse remaining as parameters
                 if parts.len() > 2 {
                     let params_str = parts[2..].join(" ");
                     // Try to parse as JSON first
-                    if let Ok(json_params) = serde_json::from_str::<serde_json::Value>(&params_str) {
+                    if let Ok(json_params) = serde_json::from_str::<serde_json::Value>(&params_str)
+                    {
                         if let serde_json::Value::Object(map) = json_params {
                             for (k, v) in map {
                                 parameters.insert(k, v);
@@ -82,13 +96,13 @@ impl NaturalLanguageProcessor {
                             if let Some((key, value)) = param.split_once('=') {
                                 parameters.insert(
                                     key.trim().to_string(),
-                                    serde_json::Value::String(value.trim().to_string())
+                                    serde_json::Value::String(value.trim().to_string()),
                                 );
                             }
                         }
                     }
                 }
-                
+
                 CommandIntent::ExecuteTool { tool_name }
             } else {
                 CommandIntent::Unknown
@@ -131,32 +145,36 @@ impl NaturalLanguageProcessor {
         } else {
             // Try to infer intent from keywords
             if lower.contains("systemd") || lower.contains("service") {
-                parameters.insert("service".to_string(), serde_json::Value::String(
-                    extract_service_name(&lower).unwrap_or_default()
-                ));
+                parameters.insert(
+                    "service".to_string(),
+                    serde_json::Value::String(extract_service_name(&lower).unwrap_or_default()),
+                );
                 CommandIntent::ExecuteTool {
-                    tool_name: "systemd".to_string()
+                    tool_name: "systemd".to_string(),
                 }
             } else if lower.contains("file") || lower.contains("read") || lower.contains("write") {
                 CommandIntent::ExecuteTool {
-                    tool_name: "file".to_string()
+                    tool_name: "file".to_string(),
                 }
-            } else if lower.contains("network") || lower.contains("interface") || lower.contains("ip") {
+            } else if lower.contains("network")
+                || lower.contains("interface")
+                || lower.contains("ip")
+            {
                 CommandIntent::ExecuteTool {
-                    tool_name: "network".to_string()
+                    tool_name: "network".to_string(),
                 }
             } else {
                 CommandIntent::Unknown
             }
         };
-        
+
         ParsedCommand {
             intent,
             parameters,
             raw_text: input.to_string(),
         }
     }
-    
+
     pub fn generate_suggestions(partial_input: &str) -> Vec<String> {
         let suggestions = vec![
             "run systemd status service=",
@@ -169,7 +187,7 @@ impl NaturalLanguageProcessor {
             "status",
             "help",
         ];
-        
+
         suggestions
             .into_iter()
             .filter(|s| s.starts_with(&partial_input.to_lowercase()))
@@ -200,7 +218,7 @@ pub struct ChatServerState {
 impl ChatServerState {
     pub fn new(tool_registry: Arc<ToolRegistry>, agent_registry: Arc<AgentRegistry>) -> Self {
         let (broadcast_tx, _) = broadcast::channel(100);
-        
+
         Self {
             tool_registry,
             agent_registry,
@@ -208,11 +226,11 @@ impl ChatServerState {
             broadcast_tx,
         }
     }
-    
+
     pub async fn process_message(&self, conversation_id: &str, message: &str) -> ChatMessage {
         // Parse the command
         let parsed = NaturalLanguageProcessor::parse_command(message);
-        
+
         // Store user message
         let user_msg = ChatMessage::User {
             content: message.to_string(),
@@ -221,9 +239,9 @@ impl ChatServerState {
                 .unwrap()
                 .as_secs(),
         };
-        
+
         self.add_message(conversation_id, user_msg.clone()).await;
-        
+
         // Process based on intent
         let response = match parsed.intent {
             CommandIntent::ExecuteTool { tool_name } => {
@@ -236,48 +254,55 @@ impl ChatServerState {
             CommandIntent::ListTools => self.list_tools().await,
             CommandIntent::ListAgents => self.list_agents().await,
             CommandIntent::GetHelp { topic } => self.get_help(topic.as_deref()).await,
-            CommandIntent::Unknown => {
-                ChatMessage::Assistant {
-                    content: format!(
-                        "I didn't understand '{}'. Try:\n\
+            CommandIntent::Unknown => ChatMessage::Assistant {
+                content: format!(
+                    "I didn't understand '{}'. Try:\n\
                         • 'run <tool> <params>' to execute a tool\n\
                         • 'list tools' to see available tools\n\
                         • 'status' to check system status\n\
                         • 'help' for more information",
-                        message
-                    ),
-                    timestamp: SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    tools_used: vec![],
-                }
-            }
+                    message
+                ),
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                tools_used: vec![],
+            },
         };
-        
+
         // Store assistant response
         self.add_message(conversation_id, response.clone()).await;
-        
+
         response
     }
-    
+
     async fn execute_tool(
         &self,
         tool_name: &str,
-        params: HashMap<String, serde_json::Value>
+        params: HashMap<String, serde_json::Value>,
     ) -> ChatMessage {
-        match self.tool_registry.execute_tool(tool_name, serde_json::Value::Object(
-            params.into_iter().collect()
-        )).await {
+        match self
+            .tool_registry
+            .execute_tool(
+                tool_name,
+                serde_json::Value::Object(params.into_iter().collect()),
+            )
+            .await
+        {
             Ok(result) => {
-                let content_str = result.content
+                let content_str = result
+                    .content
                     .iter()
                     .filter_map(|c| c.text.as_ref())
                     .map(|s| s.as_str())
                     .collect::<Vec<_>>()
                     .join("\n");
                 ChatMessage::Assistant {
-                    content: format!("✅ Tool '{}' executed successfully:\n{}", tool_name, content_str),
+                    content: format!(
+                        "✅ Tool '{}' executed successfully:\n{}",
+                        tool_name, content_str
+                    ),
                     timestamp: SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
@@ -294,24 +319,22 @@ impl ChatServerState {
             },
         }
     }
-    
+
     async fn manage_agent(&self, action: &str, agent_name: &str) -> ChatMessage {
         let result = match action {
-            "start" | "spawn" => {
-                match self.agent_registry.spawn_agent(agent_name, None).await {
-                    Ok(instance_id) => format!("✅ Agent '{}' started (ID: {})", agent_name, instance_id),
-                    Err(e) => format!("❌ Failed to start agent '{}': {}", agent_name, e),
+            "start" | "spawn" => match self.agent_registry.spawn_agent(agent_name, None).await {
+                Ok(instance_id) => {
+                    format!("✅ Agent '{}' started (ID: {})", agent_name, instance_id)
                 }
-            }
-            "stop" | "kill" => {
-                match self.agent_registry.kill_agent(agent_name).await {
-                    Ok(_) => format!("✅ Agent '{}' stopped", agent_name),
-                    Err(e) => format!("❌ Failed to stop agent '{}': {}", agent_name, e),
-                }
-            }
+                Err(e) => format!("❌ Failed to start agent '{}': {}", agent_name, e),
+            },
+            "stop" | "kill" => match self.agent_registry.kill_agent(agent_name).await {
+                Ok(_) => format!("✅ Agent '{}' stopped", agent_name),
+                Err(e) => format!("❌ Failed to stop agent '{}': {}", agent_name, e),
+            },
             _ => format!("❓ Unknown agent action: {}", action),
         };
-        
+
         ChatMessage::Assistant {
             content: result,
             timestamp: SystemTime::now()
@@ -321,12 +344,12 @@ impl ChatServerState {
             tools_used: vec![],
         }
     }
-    
+
     async fn get_status(&self) -> ChatMessage {
         let tools = self.tool_registry.list_tools().await;
         let agent_types = self.agent_registry.list_agent_types().await;
         let instances = self.agent_registry.list_instances().await;
-        
+
         let content = format!(
             "📊 System Status\n\
             ═══════════════\n\
@@ -338,7 +361,7 @@ impl ChatServerState {
             instances.len(),
             self.conversations.read().await.len()
         );
-        
+
         ChatMessage::Assistant {
             content,
             timestamp: SystemTime::now()
@@ -348,15 +371,15 @@ impl ChatServerState {
             tools_used: vec![],
         }
     }
-    
+
     async fn list_tools(&self) -> ChatMessage {
         let tools = self.tool_registry.list_tools().await;
-        
+
         let mut content = String::from("🔧 Available Tools\n═════════════════\n");
         for tool in tools {
             content.push_str(&format!("• {} - {}\n", tool.name, tool.description));
         }
-        
+
         ChatMessage::Assistant {
             content,
             timestamp: SystemTime::now()
@@ -366,25 +389,28 @@ impl ChatServerState {
             tools_used: vec![],
         }
     }
-    
+
     async fn list_agents(&self) -> ChatMessage {
         let agent_types = self.agent_registry.list_agent_types().await;
         let instances = self.agent_registry.list_instances().await;
-        
+
         let mut content = String::from("🤖 Agents\n════════\n");
-        
+
         content.push_str("Registered:\n");
         for agent_type in &agent_types {
             content.push_str(&format!("• {}\n", agent_type));
         }
-        
+
         if !instances.is_empty() {
             content.push_str("\nRunning:\n");
             for instance in &instances {
-                content.push_str(&format!("• {} (ID: {})\n", instance.agent_type, instance.id));
+                content.push_str(&format!(
+                    "• {} (ID: {})\n",
+                    instance.agent_type, instance.id
+                ));
             }
         }
-        
+
         ChatMessage::Assistant {
             content,
             timestamp: SystemTime::now()
@@ -394,7 +420,7 @@ impl ChatServerState {
             tools_used: vec![],
         }
     }
-    
+
     async fn get_help(&self, topic: Option<&str>) -> ChatMessage {
         let content = match topic {
             Some("tools") => {
@@ -432,7 +458,7 @@ impl ChatServerState {
                 Try 'help tools' or 'help agents' for more details."
             }
         };
-        
+
         ChatMessage::Assistant {
             content: content.to_string(),
             timestamp: SystemTime::now()
@@ -442,25 +468,25 @@ impl ChatServerState {
             tools_used: vec![],
         }
     }
-    
+
     async fn add_message(&self, conversation_id: &str, message: ChatMessage) {
         let mut conversations = self.conversations.write().await;
-        let context = conversations.entry(conversation_id.to_string()).or_insert_with(|| {
-            ConversationContext {
+        let context = conversations
+            .entry(conversation_id.to_string())
+            .or_insert_with(|| ConversationContext {
                 id: conversation_id.to_string(),
                 messages: Vec::new(),
                 current_agent: None,
                 variables: HashMap::new(),
-            }
-        });
-        
+            });
+
         context.messages.push(message.clone());
-        
+
         // Keep only last 100 messages per conversation
         if context.messages.len() > 100 {
             context.messages.remove(0);
         }
-        
+
         // Broadcast to all connected clients
         let _ = self.broadcast_tx.send(message);
     }
@@ -477,24 +503,29 @@ pub async fn websocket_handler(
 async fn handle_socket(socket: axum::extract::ws::WebSocket, state: ChatServerState) {
     use axum::extract::ws::Message;
     use futures::{sink::SinkExt, stream::StreamExt};
-    
+
     let (mut sender, mut receiver) = socket.split();
     let mut rx = state.broadcast_tx.subscribe();
-    
+
     // Generate conversation ID
     let conversation_id = uuid::Uuid::new_v4().to_string();
-    
+
     // Send welcome message
     let welcome = ChatMessage::System {
-        content: format!("Welcome to MCP Chat! (Session: {})\nType 'help' to get started.", &conversation_id[..8]),
+        content: format!(
+            "Welcome to MCP Chat! (Session: {})\nType 'help' to get started.",
+            &conversation_id[..8]
+        ),
         timestamp: SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs(),
     };
-    
-    let _ = sender.send(Message::Text(serde_json::to_string(&welcome).unwrap())).await;
-    
+
+    let _ = sender
+        .send(Message::Text(serde_json::to_string(&welcome).unwrap()))
+        .await;
+
     // Spawn task to handle broadcasts
     let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
@@ -507,17 +538,17 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: ChatServerSt
             }
         }
     });
-    
+
     // Handle incoming messages
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(text))) = receiver.next().await {
             // Process the message
             let response = state.process_message(&conversation_id, &text).await;
-            
+
             // Response is sent via broadcast, so no need to send directly
         }
     });
-    
+
     // Wait for either task to finish
     tokio::select! {
         _ = (&mut send_task) => {
@@ -545,7 +576,7 @@ pub async fn get_conversation_history(
 ) -> Json<Vec<ChatMessage>> {
     let conversation_id = payload.get("id").map(|s| s.as_str()).unwrap_or("");
     let conversations = state.conversations.read().await;
-    
+
     if let Some(context) = conversations.get(conversation_id) {
         Json(context.messages.clone())
     } else {

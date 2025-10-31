@@ -1,5 +1,8 @@
 use axum::{
-    extract::{ws::{WebSocket, WebSocketUpgrade}, State},
+    extract::{
+        ws::{WebSocket, WebSocketUpgrade},
+        State,
+    },
     response::{Html, IntoResponse},
     routing::{get, post},
     Json, Router,
@@ -55,19 +58,20 @@ struct ApiResponse<T> {
 pub async fn run_web_server() -> Result<(), Box<dyn std::error::Error>> {
     // Try to connect to orchestrator
     let orchestrator = match Connection::session().await {
-        Ok(conn) => {
-            match OrchestratorProxy::new(&conn).await {
-                Ok(proxy) => {
-                    eprintln!("Web server connected to orchestrator");
-                    Some(proxy)
-                }
-                Err(e) => {
-                    eprintln!("Warning: Web server could not connect to orchestrator: {}", e);
-                    eprintln!("Agent management features will be unavailable");
-                    None
-                }
+        Ok(conn) => match OrchestratorProxy::new(&conn).await {
+            Ok(proxy) => {
+                eprintln!("Web server connected to orchestrator");
+                Some(proxy)
             }
-        }
+            Err(e) => {
+                eprintln!(
+                    "Warning: Web server could not connect to orchestrator: {}",
+                    e
+                );
+                eprintln!("Agent management features will be unavailable");
+                None
+            }
+        },
         Err(e) => {
             eprintln!("Warning: Could not connect to D-Bus session: {}", e);
             None
@@ -87,25 +91,20 @@ pub async fn run_web_server() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         // Web UI
         .route("/", get(dashboard_handler))
-
         // API endpoints
         .route("/api/status", get(api_status))
         .route("/api/agents", get(api_list_agents))
         .route("/api/agents", post(api_spawn_agent))
         .route("/api/tools", get(api_list_tools))
         .route("/api/tools/:name", post(api_execute_tool))
-
         // MCP Discovery endpoints
         .route("/api/discovery/run", post(api_run_discovery))
         .route("/api/discovery/services", get(api_list_services))
-
         // WebSocket
         .route("/ws/mcp", get(ws_mcp_handler))
         .route("/ws/events", get(ws_events_handler))
-
         // Static files
         .nest_service("/static", ServeDir::new("web"))
-
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
@@ -117,7 +116,8 @@ pub async fn run_web_server() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn dashboard_handler() -> Html<&'static str> {
-    Html(r#"
+    Html(
+        r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -397,7 +397,8 @@ async fn dashboard_handler() -> Html<&'static str> {
     </script>
 </body>
 </html>
-    "#)
+    "#,
+    )
 }
 
 async fn api_status(State(state): State<AppState>) -> Json<ApiResponse<McpStatus>> {
@@ -415,16 +416,19 @@ async fn api_list_agents(State(state): State<AppState>) -> Json<ApiResponse<Vec<
             match orch.list_agents().await {
                 Ok(agent_ids) => {
                     // Convert agent IDs to AgentInfo structures
-                    let agents: Vec<AgentInfo> = agent_ids.iter().map(|id| {
-                        // Extract agent type from ID (format: "type-uuid")
-                        let agent_type = id.split('-').next().unwrap_or("unknown").to_string();
-                        AgentInfo {
-                            id: id.clone(),
-                            agent_type,
-                            status: "running".to_string(),
-                            task: None,
-                        }
-                    }).collect();
+                    let agents: Vec<AgentInfo> = agent_ids
+                        .iter()
+                        .map(|id| {
+                            // Extract agent type from ID (format: "type-uuid")
+                            let agent_type = id.split('-').next().unwrap_or("unknown").to_string();
+                            AgentInfo {
+                                id: id.clone(),
+                                agent_type,
+                                status: "running".to_string(),
+                                task: None,
+                            }
+                        })
+                        .collect();
 
                     Json(ApiResponse {
                         success: true,
@@ -457,32 +461,30 @@ async fn api_spawn_agent(
     Json(req): Json<SpawnAgentRequest>,
 ) -> Json<ApiResponse<AgentInfo>> {
     match &state.orchestrator {
-        Some(orch) => {
-            match orch.spawn_agent(req.agent_type.clone()).await {
-                Ok(agent_id) => {
-                    let agent = AgentInfo {
-                        id: agent_id.clone(),
-                        agent_type: req.agent_type,
-                        status: "spawning".to_string(),
-                        task: None,
-                    };
+        Some(orch) => match orch.spawn_agent(req.agent_type.clone()).await {
+            Ok(agent_id) => {
+                let agent = AgentInfo {
+                    id: agent_id.clone(),
+                    agent_type: req.agent_type,
+                    status: "spawning".to_string(),
+                    task: None,
+                };
 
-                    let mut status = state.mcp_status.write().await;
-                    status.active_agents.push(agent.clone());
+                let mut status = state.mcp_status.write().await;
+                status.active_agents.push(agent.clone());
 
-                    Json(ApiResponse {
-                        success: true,
-                        data: Some(agent),
-                        error: None,
-                    })
-                }
-                Err(e) => Json(ApiResponse {
-                    success: false,
-                    data: None,
-                    error: Some(format!("Failed to spawn agent: {}", e)),
-                }),
+                Json(ApiResponse {
+                    success: true,
+                    data: Some(agent),
+                    error: None,
+                })
             }
-        }
+            Err(e) => Json(ApiResponse {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to spawn agent: {}", e)),
+            }),
+        },
         None => Json(ApiResponse {
             success: false,
             data: None,
@@ -541,13 +543,11 @@ async fn api_run_discovery() -> Json<ApiResponse<Value>> {
                 error: Some(format!("Discovery failed: {}", stderr)),
             })
         }
-        Err(e) => {
-            Json(ApiResponse {
-                success: false,
-                data: None,
-                error: Some(format!("Failed to run discovery: {}", e)),
-            })
-        }
+        Err(e) => Json(ApiResponse {
+            success: false,
+            data: None,
+            error: Some(format!("Failed to run discovery: {}", e)),
+        }),
     }
 }
 
@@ -604,15 +604,20 @@ async fn handle_mcp_socket(mut socket: WebSocket) {
                     "result": {"status": "ok"}
                 });
 
-                let _ = socket.send(axum::extract::ws::Message::Text(
-                    serde_json::to_string(&response).unwrap()
-                )).await;
+                let _ = socket
+                    .send(axum::extract::ws::Message::Text(
+                        serde_json::to_string(&response).unwrap(),
+                    ))
+                    .await;
             }
         }
     }
 }
 
-async fn ws_events_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+async fn ws_events_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_events_socket(socket, state))
 }
 
@@ -629,9 +634,13 @@ async fn handle_events_socket(mut socket: WebSocket, state: AppState) {
             "requests": status.request_count,
         });
 
-        if socket.send(axum::extract::ws::Message::Text(
-            serde_json::to_string(&event).unwrap()
-        )).await.is_err() {
+        if socket
+            .send(axum::extract::ws::Message::Text(
+                serde_json::to_string(&event).unwrap(),
+            ))
+            .await
+            .is_err()
+        {
             break;
         }
     }

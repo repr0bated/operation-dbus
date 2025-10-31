@@ -1,5 +1,5 @@
 //! MCP (Model Context Protocol) integration module
-//! 
+//!
 //! This module provides MCP server functionality with D-Bus orchestration
 //! for Linux system automation.
 

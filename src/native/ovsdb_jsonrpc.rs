@@ -348,3 +348,9 @@ impl OvsdbClient {
         Ok(serde_json::to_string_pretty(&result[0]["rows"][0])?)
     }
 }
+
+impl Default for OvsdbClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
