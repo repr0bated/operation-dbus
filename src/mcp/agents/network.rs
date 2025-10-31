@@ -26,16 +26,18 @@ impl NetworkAgent {
         let task: NetworkTask = match serde_json::from_str(&task_json) {
             Ok(t) => t,
             Err(e) => {
-                return Err(zbus::fdo::Error::InvalidArgs(
-                    format!("Failed to parse task: {}", e)
-                ));
+                return Err(zbus::fdo::Error::InvalidArgs(format!(
+                    "Failed to parse task: {}",
+                    e
+                )));
             }
         };
 
         if task.task_type != "network" {
-            return Err(zbus::fdo::Error::InvalidArgs(
-                format!("Unknown task type: {}", task.task_type)
-            ));
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "Unknown task type: {}",
+                task.task_type
+            )));
         }
 
         println!("[{}] Network operation: {}", self.agent_id, task.operation);
@@ -59,9 +61,7 @@ impl NetworkAgent {
                 });
                 Ok(response.to_string())
             }
-            Err(e) => {
-                Err(zbus::fdo::Error::Failed(e))
-            }
+            Err(e) => Err(zbus::fdo::Error::Failed(e)),
         }
     }
 
@@ -160,7 +160,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_id = if args.len() > 1 {
         args[1].clone()
     } else {
-        format!("network-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
+        format!(
+            "network-{}",
+            uuid::Uuid::new_v4().to_string()[..8].to_string()
+        )
     };
 
     println!("Starting Network Agent: {}", agent_id);

@@ -465,7 +465,5 @@ mod tests {
             }
         }
         // If none succeed, we at least reached D-Bus paths without panicking.
-        // Pass the test to acknowledge environment policy.
-        assert!(true);
     }
 }

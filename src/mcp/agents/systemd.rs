@@ -23,27 +23,42 @@ impl SystemdAgent {
         let task: SystemdTask = match serde_json::from_str(&task_json) {
             Ok(t) => t,
             Err(e) => {
-                return Err(zbus::fdo::Error::InvalidArgs(
-                    format!("Failed to parse task: {}", e)
-                ));
+                return Err(zbus::fdo::Error::InvalidArgs(format!(
+                    "Failed to parse task: {}",
+                    e
+                )));
             }
         };
 
         if task.task_type != "systemd" {
-            return Err(zbus::fdo::Error::InvalidArgs(
-                format!("Unknown task type: {}", task.task_type)
-            ));
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "Unknown task type: {}",
+                task.task_type
+            )));
         }
 
         // Validate action
-        let valid_actions = ["start", "stop", "restart", "status", "enable", "disable", "is-active", "is-enabled"];
+        let valid_actions = [
+            "start",
+            "stop",
+            "restart",
+            "status",
+            "enable",
+            "disable",
+            "is-active",
+            "is-enabled",
+        ];
         if !valid_actions.contains(&task.action.as_str()) {
-            return Err(zbus::fdo::Error::InvalidArgs(
-                format!("Invalid action: {}. Valid actions: {:?}", task.action, valid_actions)
-            ));
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "Invalid action: {}. Valid actions: {:?}",
+                task.action, valid_actions
+            )));
         }
 
-        println!("[{}] Managing service: {} action: {}", self.agent_id, task.service, task.action);
+        println!(
+            "[{}] Managing service: {} action: {}",
+            self.agent_id, task.service, task.action
+        );
 
         let output = Command::new("systemctl")
             .arg(&task.action)
@@ -67,11 +82,10 @@ impl SystemdAgent {
 
                 Ok(result.to_string())
             }
-            Err(e) => {
-                Err(zbus::fdo::Error::Failed(
-                    format!("Failed to execute systemctl: {}", e)
-                ))
-            }
+            Err(e) => Err(zbus::fdo::Error::Failed(format!(
+                "Failed to execute systemctl: {}",
+                e
+            ))),
         }
     }
 
@@ -92,7 +106,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_id = if args.len() > 1 {
         args[1].clone()
     } else {
-        format!("systemd-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
+        format!(
+            "systemd-{}",
+            uuid::Uuid::new_v4().to_string()[..8].to_string()
+        )
     };
 
     println!("Starting Systemd Agent: {}", agent_id);

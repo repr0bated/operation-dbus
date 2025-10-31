@@ -1,15 +1,15 @@
 //! Refactored MCP server using tool registry for loose coupling
 
 use crate::mcp::tool_registry::{
-    ToolRegistry, Tool, ToolResult, ToolContent, 
-    DynamicToolBuilder, LoggingMiddleware, AuditMiddleware
+    AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,
+    ToolResult,
 };
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 use zbus::Connection;
-use anyhow::{Result, Context};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct McpRequest {
@@ -59,28 +59,28 @@ impl McpServer {
     async fn new() -> Result<Self> {
         // Create tool registry
         let registry = Arc::new(ToolRegistry::new());
-        
+
         // Add middleware
         registry.add_middleware(Box::new(LoggingMiddleware)).await;
-        registry.add_middleware(Box::new(AuditMiddleware::new())).await;
-        
+        registry
+            .add_middleware(Box::new(AuditMiddleware::new()))
+            .await;
+
         // Register default tools
         Self::register_default_tools(&registry).await?;
-        
+
         // Try to connect to orchestrator
         let orchestrator = match Connection::session().await {
-            Ok(conn) => {
-                match OrchestratorProxy::new(&conn).await {
-                    Ok(proxy) => {
-                        eprintln!("Connected to orchestrator");
-                        Some(proxy)
-                    }
-                    Err(e) => {
-                        eprintln!("Warning: Could not connect to orchestrator: {}", e);
-                        None
-                    }
+            Ok(conn) => match OrchestratorProxy::new(&conn).await {
+                Ok(proxy) => {
+                    eprintln!("Connected to orchestrator");
+                    Some(proxy)
                 }
-            }
+                Err(e) => {
+                    eprintln!("Warning: Could not connect to orchestrator: {}", e);
+                    None
+                }
+            },
             Err(e) => {
                 eprintln!("Warning: Could not connect to D-Bus session: {}", e);
                 None
@@ -92,7 +92,7 @@ impl McpServer {
             orchestrator,
         })
     }
-    
+
     /// Register default tools dynamically
     async fn register_default_tools(registry: &ToolRegistry) -> Result<()> {
         // Systemd status tool
@@ -112,7 +112,7 @@ impl McpServer {
                 let service = params["service"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing service parameter"))?;
-                
+
                 // In real implementation, would query systemd
                 Ok(ToolResult {
                     content: vec![ToolContent::text(format!("Status of {}: running", service))],
@@ -120,9 +120,9 @@ impl McpServer {
                 })
             })
             .build();
-        
+
         registry.register_tool(Box::new(systemd_status)).await?;
-        
+
         // File read tool
         let file_read = DynamicToolBuilder::new("file_read")
             .description("Read contents of a file")
@@ -140,7 +140,7 @@ impl McpServer {
                 let path = params["path"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing path parameter"))?;
-                
+
                 // In real implementation, would read file with validation
                 Ok(ToolResult {
                     content: vec![ToolContent::text(format!("Contents of {}", path))],
@@ -148,9 +148,9 @@ impl McpServer {
                 })
             })
             .build();
-        
+
         registry.register_tool(Box::new(file_read)).await?;
-        
+
         // Network interfaces tool
         let network_interfaces = DynamicToolBuilder::new("network_interfaces")
             .description("List network interfaces")
@@ -170,9 +170,9 @@ impl McpServer {
                 })
             })
             .build();
-        
+
         registry.register_tool(Box::new(network_interfaces)).await?;
-        
+
         // Process list tool
         let process_list = DynamicToolBuilder::new("process_list")
             .description("List running processes")
@@ -187,19 +187,21 @@ impl McpServer {
             }))
             .handler(|params| {
                 let filter = params["filter"].as_str();
-                
+
                 Ok(ToolResult {
                     content: vec![ToolContent::text(format!(
                         "Processes{}",
-                        filter.map(|f| format!(" filtered by '{}'", f)).unwrap_or_default()
+                        filter
+                            .map(|f| format!(" filtered by '{}'", f))
+                            .unwrap_or_default()
                     ))],
                     metadata: None,
                 })
             })
             .build();
-        
+
         registry.register_tool(Box::new(process_list)).await?;
-        
+
         // Command execution tool
         let exec_command = DynamicToolBuilder::new("exec_command")
             .description("Execute a whitelisted command")
@@ -222,7 +224,7 @@ impl McpServer {
                 let command = params["command"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing command"))?;
-                
+
                 // In real implementation, would validate and execute
                 Ok(ToolResult {
                     content: vec![ToolContent::text(format!("Executed: {}", command))],
@@ -230,9 +232,9 @@ impl McpServer {
                 })
             })
             .build();
-        
+
         registry.register_tool(Box::new(exec_command)).await?;
-        
+
         Ok(())
     }
 
@@ -278,15 +280,18 @@ impl McpServer {
 
     async fn handle_tools_list(&self, id: Option<Value>) -> McpResponse {
         let tools = self.registry.list_tools().await;
-        
-        let tool_list: Vec<Value> = tools.into_iter().map(|tool| {
-            json!({
-                "name": tool.name,
-                "description": tool.description,
-                "inputSchema": tool.input_schema
+
+        let tool_list: Vec<Value> = tools
+            .into_iter()
+            .map(|tool| {
+                json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "inputSchema": tool.input_schema
+                })
             })
-        }).collect();
-        
+            .collect();
+
         McpResponse {
             jsonrpc: "2.0".to_string(),
             id,
@@ -346,26 +351,22 @@ impl McpServer {
 
         // Execute tool through registry
         match self.registry.execute_tool(tool_name, arguments).await {
-            Ok(result) => {
-                McpResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: Some(json!(result)),
-                    error: None,
-                }
-            }
-            Err(e) => {
-                McpResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: None,
-                    error: Some(McpError {
-                        code: -32603,
-                        message: format!("Tool execution failed: {}", e),
-                        data: None,
-                    }),
-                }
-            }
+            Ok(result) => McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: Some(json!(result)),
+                error: None,
+            },
+            Err(e) => McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: None,
+                error: Some(McpError {
+                    code: -32603,
+                    message: format!("Tool execution failed: {}", e),
+                    data: None,
+                }),
+            },
         }
     }
 }
@@ -374,7 +375,7 @@ impl McpServer {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
-    
+
     eprintln!("Starting refactored MCP server with tool registry...");
 
     let server = McpServer::new().await?;

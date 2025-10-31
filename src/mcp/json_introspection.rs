@@ -23,14 +23,14 @@ pub struct JsonMethod {
     pub inputs: Vec<JsonArg>,
     pub outputs: Vec<JsonArg>,
     #[serde(default)]
-    pub async_: bool,  // For long-running methods
+    pub async_: bool, // For long-running methods
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JsonArg {
     pub name: String,
     #[serde(rename = "type")]
-    pub type_: String,  // "string", "number", "boolean", "object", "array"
+    pub type_: String, // "string", "number", "boolean", "object", "array"
     pub description: Option<String>,
     #[serde(default)]
     pub optional: bool,
@@ -41,7 +41,7 @@ pub struct JsonProperty {
     pub name: String,
     #[serde(rename = "type")]
     pub type_: String,
-    pub access: String,  // "read", "write", "readwrite"
+    pub access: String, // "read", "write", "readwrite"
     pub description: Option<String>,
 }
 
