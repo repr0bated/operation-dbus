@@ -658,7 +658,8 @@ elif [ "$NO_PROXMOX" = false ] && [ "$OVS_AVAILABLE" = false ]; then
     echo ""
 fi
 
-# Step 8: Setup netmaker (one-time HOST enrollment)
+# Step 8: Setup netmaker (one-time HOST enrollment) - Proxmox mode only
+if [ "$NO_PROXMOX" = false ]; then
 echo "Setting up netmaker..."
 
 # Check if netclient is installed, if not, install it
