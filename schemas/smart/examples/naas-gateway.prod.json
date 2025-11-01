@@ -1,0 +1,137 @@
+{
+  "metadata": {
+    "service_name": "reef-gateway",
+    "service_tier": "critical",
+    "environment": "prod",
+    "region": "us-east",
+    "release_version": "v1.2.3",
+    "rollout_strategy": "blue_green",
+    "owner": "aquatics-platform",
+    "cost_center": "AQ-123456",
+    "data_classification": "internal",
+    "runbook_url": "https://ops.example.org/runbooks/reef-gateway",
+    "alert_route": "pagerduty-reef"
+  },
+  "security": {
+    "privileged": false,
+    "allowed_capabilities": [
+      "NET_BIND_SERVICE"
+    ],
+    "forbidden_mounts": [
+      "/proc",
+      "/sys"
+    ],
+    "secrets_ref": "reef-secrets",
+    "seccomp_profile": "default.json",
+    "apparmor_profile": "lxc-default",
+    "read_only_rootfs": true
+  },
+  "networking": {
+    "net_policy_id": "AQNET001",
+    "dns_policy": "default",
+    "mtu_policy": 1500,
+    "ipv6_required": false,
+    "interfaces": [
+      {
+        "name": "eth0",
+        "type": "bridge",
+        "ipv4": {
+          "address": "10.44.1.10",
+          "cidr": "10.44.1.10/24",
+          "gateway": "10.44.1.1"
+        }
+      }
+    ],
+    "ingress_rules": [
+      {
+        "port": 443,
+        "proto": "tcp",
+        "cidr": "0.0.0.0/0",
+        "sni": [
+          "reef.example.org"
+        ]
+      }
+    ],
+    "egress_rules": [
+      {
+        "proto": "tcp",
+        "cidr": "10.44.2.0/24",
+        "ports": [
+          443
+        ]
+      }
+    ]
+  },
+  "reliability": {
+    "availability_target": 99.99,
+    "p99_latency_budget_ms": 200,
+    "restart_policy": "on-failure",
+    "replica_set": 2,
+    "disruption_budget": {
+      "max_unavailable": "0%"
+    },
+    "startup_grace": "PT30S",
+    "shutdown_grace": "PT15S",
+    "healthcheck": {
+      "cmd": "curl -fsS http://127.0.0.1:8080/health",
+      "interval": "PT30S",
+      "timeout": "PT5S",
+      "retries": 3
+    }
+  },
+  "resources": {
+    "cpu_class": "small",
+    "mem_class": "medium",
+    "hard_limits": {
+      "cpu_millicores": 2000,
+      "memory_mib": 2048,
+      "pids": 512
+    },
+    "overcommit_policy": "balanced"
+  },
+  "observability": {
+    "logs": {
+      "retention_days": 30,
+      "max_size_mb": 256,
+      "level": "info"
+    },
+    "metrics": {
+      "exporter": "node_exporter",
+      "scrape": true,
+      "ports": [
+        9100
+      ]
+    },
+    "traces": {
+      "enabled": false
+    },
+    "audit": {
+      "enabled": true,
+      "retention_days": 365
+    }
+  },
+  "lifecycle": {
+    "deployment_strategy": "blue_green",
+    "max_unavailable": "0%",
+    "max_surge": "25%",
+    "rollback_on_failure": true
+  },
+  "backup_dr": {
+    "backup_class": "standard",
+    "rpo_minutes": 60,
+    "rto_minutes": 30,
+    "snapshot_policy": "cron:0 2 * * *",
+    "offsite_copy": true,
+    "restore_runbook_url": "https://ops.example.org/runbooks/restore-reef"
+  },
+  "compliance": {
+    "pii": false,
+    "phi": false,
+    "retention_policy": "telemetry-365d",
+    "legal_hold_supported": false,
+    "evidence_tags": [
+      "sox-lite"
+    ],
+    "change_control_ticket": "CHG-123456"
+  }
+}

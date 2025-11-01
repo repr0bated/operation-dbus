@@ -1,0 +1,75 @@
+source_path,target_path,transform,required,notes
+name,metadata.service_name,lower_kebab,true,Normalize to kebab-case
+tier,metadata.service_tier,enum_map(true:critical,false:standard),true,Legacy boolean to enum
+env,metadata.environment,enum_map(dev|stage|prod),true,Strict env set
+region,metadata.region,identity,true,Normalized region code
+version,metadata.release_version,prefix_v_semver,true,Ensure vX.Y.Z
+owner,metadata.owner,identity,true,Service owner
+cost,metadata.cost_center,uppercase,true,Enforce pattern AA-######
+class,metadata.data_classification,enum_map(public|internal|restricted|confidential),true,Default internal
+runbook,metadata.runbook_url,validate_url,true,Must be RFC 3986 URL
+alerts,metadata.alert_route,identity,true,Pager/route key
+privileged,security.privileged,bool,true,Default false
+caps[],security.allowed_capabilities[],filter_allowlist,true,Drop non-allowlisted
+seccomp,security.seccomp_profile,identity,true,Required profile name
+apparmor,security.apparmor_profile,identity,true,Required profile name
+readonly,security.read_only_rootfs,bool,true,Default true
+idmap,security.idmap,identity,false,LXC idmap string
+net.policy,networking.net_policy_id,uppercase,true,Policy identifier
+dns.policy,networking.dns_policy,enum_map(cluster-first|default|none),true,DNS behavior
+mtu,networking.mtu_policy,to_int,false,Clamp 576..9000
+iface[].name,networking.interfaces[].name,identity,true,Interface name
+iface[].type,networking.interfaces[].type,enum_map(bridge|macvlan|vlan),true,Interface type
+iface[].ipv4.address,networking.interfaces[].ipv4.address,validate_ipv4,true,IPv4 address
+iface[].ipv4.cidr,networking.interfaces[].ipv4.cidr,to_cidr,true,IPv4 CIDR
+iface[].ipv4.gateway,networking.interfaces[].ipv4.gateway,validate_ipv4,true,IPv4 gateway
+iface[].vlan.vlan_id,networking.interfaces[].vlan.vlan_id,to_int,false,1..4094 if type=vlan
+ingress[].*,networking.ingress_rules[],normalize_rule,false,Proto/port/cidr
+egress[].*,networking.egress_rules[],normalize_rule,false,Proto/ports/cidr
+avail,reliability.availability_target,to_float,true,>=99.0
+latency_ms,reliability.p99_latency_budget_ms,to_int,true,ms integer
+restart,reliability.restart_policy,enum_map(never|on-failure|always),true,Restart policy
+replicas,reliability.replica_set,to_int,true,>=1
+startup,reliability.startup_grace,to_duration,true,ISO 8601
+shutdown,reliability.shutdown_grace,to_duration,true,ISO 8601
+hc.cmd,reliability.healthcheck.cmd,identity,true,Command
+hc.interval,reliability.healthcheck.interval,to_duration,true,ISO 8601
+hc.timeout,reliability.healthcheck.timeout,to_duration,true,ISO 8601
+hc.retries,reliability.healthcheck.retries,to_int,true,>=0
+cpu_class,resources.cpu_class,enum_map(tiny|small|medium|large|xlarge),true,Capacity class
+mem_class,resources.mem_class,enum_map(tiny|small|medium|large|xlarge),true,Capacity class
+cpu_mc,resources.hard_limits.cpu_millicores,to_int,true,millicores
+mem_mib,resources.hard_limits.memory_mib,to_int,true,MiB
+pids,resources.hard_limits.pids,to_int,true,count
+blkio.read,resources.hard_limits.blkio.read_iops,to_int,false,iops
+blkio.write,resources.hard_limits.blkio.write_iops,to_int,false,iops
+overcommit,resources.overcommit_policy,enum_map(none|conservative|balanced|aggressive),true,Policy
+hugepages.size,resources.hugepages_policy.size,enum_map(2Mi|1Gi),false,Optional
+hugepages.limit,resources.hugepages_policy.limit,to_int,false,Optional
+log.retention,observability.logs.retention_days,to_int,true,days
+log.size_mb,observability.logs.max_size_mb,to_int,true,MB
+log.level,observability.logs.level,enum_map(trace|debug|info|warn|error),true,Level
+metrics.exporter,observability.metrics.exporter,enum_map(node_exporter|statsd|custom),true,Exporter
+metrics.scrape,observability.metrics.scrape,bool,true,Enable scrape
+metrics.ports[],observability.metrics.ports[],to_int_list,true,ports
+traces.enabled,observability.traces.enabled,bool,true,Tracing flag
+traces.endpoint,observability.traces.endpoint,validate_url,false,Required if traces.enabled
+audit.enabled,observability.audit.enabled,bool,true,Prod must be true
+audit.retention,observability.audit.retention_days,to_int,true,days
+deploy.strategy,lifecycle.deployment_strategy,enum_map(recreate|rolling|blue_green|canary),true,Strategy
+deploy.max_unavail,lifecycle.max_unavailable,percent_or_int,true,% or count
+deploy.max_surge,lifecycle.max_surge,percent_or_int,true,% or count
+deploy.canary_pct,lifecycle.canary_percent,to_int,false,5..25 if canary
+deploy.rollback,lifecycle.rollback_on_failure,bool,true,Default true
+backup.class,backup_dr.backup_class,enum_map(none|standard|gold),true,Prod must not be none
+backup.rpo,backup_dr.rpo_minutes,to_int,true,minutes
+backup.rto,backup_dr.rto_minutes,to_int,true,minutes
+backup.snapshot,backup_dr.snapshot_policy,cron,true,cron expression
+backup.offsite,backup_dr.offsite_copy,bool,true,Default true
+backup.restore_url,backup_dr.restore_runbook_url,validate_url,true,URL
+pii,compliance.pii,bool,true,flag
+phi,compliance.phi,bool,true,flag
+retention,compliance.retention_policy,identity,true,policy name
+legal_hold,compliance.legal_hold_supported,bool,true,flag
+evidence[],compliance.evidence_tags[],identity,false,tags
+chg,compliance.change_control_ticket,validate_change_id,true,CHG-######
