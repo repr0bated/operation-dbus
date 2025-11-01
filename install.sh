@@ -791,9 +791,21 @@ if [ "$NO_PROXMOX" = false ] && [ "$OVS_AVAILABLE" = true ]; then
             BRIDGES_CREATED=true
             echo -e "${GREEN}✓${NC} OVS bridges created successfully!"
             echo ""
-            echo "Verifying bridges:"
-            if command -v ovs-vsctl >/dev/null 2>&1; then
-                ovs-vsctl show 2>/dev/null | head -20 || echo "Bridge info not available"
+            echo "Verifying bridges via JSON-RPC:"
+            # Query bridges via OVSDB JSON-RPC
+            BRIDGE_LIST=$(ovsdb_list_bridges 2>/dev/null || echo "")
+            if [ -n "$BRIDGE_LIST" ]; then
+                echo "Bridges in OVSDB: $BRIDGE_LIST"
+                # Show kernel interfaces
+                for br in $BRIDGE_LIST; do
+                    if ip link show "$br" >/dev/null 2>&1; then
+                        echo "  - $br: visible in kernel ($(ip -br link show "$br" | awk '{print $2}'))"
+                    else
+                        echo "  - $br: in OVSDB only (not yet in kernel)"
+                    fi
+                done
+            else
+                echo "No bridges found (check OVSDB connection)"
             fi
         else
             echo -e "${RED}✗${NC} Failed to create OVS bridges"
@@ -967,12 +979,12 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
         echo "Netmaker token found, attempting to join..."
 
         # Bridges should already be created in Step 7.5
-        # Just verify they exist before joining netmaker
+        # Just verify they exist before joining netmaker via OVSDB JSON-RPC
         if [ "$OVS_AVAILABLE" = true ]; then
-            if command -v ovs-vsctl >/dev/null 2>&1 && ovs-vsctl br-exists mesh 2>/dev/null; then
-                echo -e "${GREEN}✓${NC} Mesh bridge exists, ready for netmaker"
+            if ovsdb_bridge_exists mesh 2>/dev/null; then
+                echo -e "${GREEN}✓${NC} Mesh bridge exists in OVSDB, ready for netmaker"
             else
-                echo -e "${YELLOW}⚠${NC}  Mesh bridge not found - netmaker may not work correctly"
+                echo -e "${YELLOW}⚠${NC}  Mesh bridge not found in OVSDB - netmaker may not work correctly"
                 echo -e "${YELLOW}⚠${NC}  Run: op-dbus apply --plugin net $STATE_FILE"
             fi
         fi

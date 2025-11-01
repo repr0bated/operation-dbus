@@ -340,16 +340,12 @@ impl NetStatePlugin {
         // Add ports to bridge if specified via OVSDB JSON-RPC
         // Skip netmaker interfaces (nm-*) - they are managed by netclient
         if let Some(ref ports) = config.tunable.ports {
-            let current_ports_output = std::process::Command::new("ovs-vsctl")
-                .args(["list-ports", &config.name])
-                .output()
-                .context("Failed to list ports")?;
-            let current_ports_str = String::from_utf8_lossy(&current_ports_output.stdout);
-            let current_ports: Vec<String> = current_ports_str
-                .lines()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+            // Get current ports via JSON-RPC instead of ovs-vsctl
+            let current_ports = client
+                .list_bridge_ports(&config.name)
+                .await
+                .context("Failed to list ports via JSON-RPC")?;
+
             for port in ports {
                 // Skip netmaker/wireguard interfaces - netclient manages them
                 if port.starts_with("nm-") || port.starts_with("wg") {
