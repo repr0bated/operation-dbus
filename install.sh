@@ -604,7 +604,7 @@ EOF
             echo -e "${GREEN}✓${NC} $MESH_BRIDGE already in state.json"
         fi
 
-        echo -e "${YELLOW}Note:${NC} Run 'op-dbus apply $STATE_FILE' to create bridges via OVSDB JSON-RPC"
+        echo -e "${GREEN}✓${NC} Bridge configuration added to $STATE_FILE"
     else
         echo -e "${YELLOW}⚠${NC}  state.json not found or jq not available"
         echo -e "${YELLOW}⚠${NC}  Bridges will need to be configured manually in $STATE_FILE"
@@ -613,7 +613,52 @@ else
     echo -e "${YELLOW}Skipping OVS bridge configuration (standalone mode)${NC}"
 fi
 
-# Step 6: Setup netmaker (one-time HOST enrollment)
+# Step 7.5: Create OVS bridges via op-dbus apply (if OVS available)
+BRIDGES_CREATED=false
+if [ "$NO_PROXMOX" = false ] && [ "$OVS_AVAILABLE" = true ]; then
+    if [ -f "$INSTALL_DIR/op-dbus" ] && [ -f "$STATE_FILE" ]; then
+        echo ""
+        echo "Creating OVS bridges from state.json..."
+        echo -e "${YELLOW}Running: op-dbus apply --plugin net $STATE_FILE${NC}"
+
+        if "$INSTALL_DIR/op-dbus" apply --plugin net "$STATE_FILE"; then
+            BRIDGES_CREATED=true
+            echo -e "${GREEN}✓${NC} OVS bridges created successfully!"
+            echo ""
+            echo "Verifying bridges:"
+            if command -v ovs-vsctl >/dev/null 2>&1; then
+                ovs-vsctl show 2>/dev/null | head -20 || echo "Bridge info not available"
+            fi
+        else
+            echo -e "${RED}✗${NC} Failed to create OVS bridges"
+            echo ""
+            echo -e "${YELLOW}Troubleshooting:${NC}"
+            echo "1. Check OpenVSwitch is running:"
+            echo "   systemctl status openvswitch-switch"
+            echo ""
+            echo "2. Verify OVSDB socket exists:"
+            echo "   ls -la /var/run/openvswitch/db.sock"
+            echo ""
+            echo "3. Check state.json is valid:"
+            echo "   jq . $STATE_FILE"
+            echo ""
+            echo "4. Try manually:"
+            echo "   op-dbus apply --plugin net $STATE_FILE"
+            echo ""
+            echo -e "${YELLOW}Installation will continue, but bridges were not created.${NC}"
+            echo ""
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC}  Cannot create bridges: binary or state file missing"
+    fi
+elif [ "$NO_PROXMOX" = false ] && [ "$OVS_AVAILABLE" = false ]; then
+    echo ""
+    echo -e "${YELLOW}⚠${NC}  Skipping bridge creation - OpenVSwitch not available"
+    echo -e "${YELLOW}⚠${NC}  After installing OVS, run: op-dbus apply --plugin net $STATE_FILE"
+    echo ""
+fi
+
+# Step 8: Setup netmaker (one-time HOST enrollment)
 echo "Setting up netmaker..."
 
 # Check if netclient is installed, if not, install it
@@ -754,32 +799,18 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
     elif [ -n "$NETMAKER_TOKEN" ]; then
         echo "Netmaker token found, attempting to join..."
 
-        # First ensure bridges exist by applying ONLY network plugin state
-        if [ "$OVS_AVAILABLE" = true ] && [ -f "$INSTALL_DIR/op-dbus" ] && [ -f "$STATE_FILE" ]; then
-            echo "Applying network plugin state to create bridges before netmaker join..."
-            echo -e "${YELLOW}Running: op-dbus apply --plugin net $STATE_FILE${NC}"
-
-            if "$INSTALL_DIR/op-dbus" apply --plugin net "$STATE_FILE"; then
-                echo -e "${GREEN}✓${NC} Bridges created successfully (network plugin only)"
-                sleep 2  # Wait for bridges to be fully up
+        # Bridges should already be created in Step 7.5
+        # Just verify they exist before joining netmaker
+        if [ "$OVS_AVAILABLE" = true ]; then
+            if command -v ovs-vsctl >/dev/null 2>&1 && ovs-vsctl br-exists mesh 2>/dev/null; then
+                echo -e "${GREEN}✓${NC} Mesh bridge exists, ready for netmaker"
             else
-                echo -e "${RED}✗${NC} Failed to apply network state"
-                echo -e "${YELLOW}This usually means:${NC}"
-                echo "  1. OpenVSwitch is not running"
-                echo "  2. Permission issues with OVSDB socket"
-                echo "  3. Invalid configuration in state.json"
-                echo ""
-                echo "Run manually after fixing: op-dbus apply --plugin net $STATE_FILE"
-                echo ""
+                echo -e "${YELLOW}⚠${NC}  Mesh bridge not found - netmaker may not work correctly"
+                echo -e "${YELLOW}⚠${NC}  Run: op-dbus apply --plugin net $STATE_FILE"
             fi
-        elif [ "$OVS_AVAILABLE" = false ]; then
-            echo -e "${YELLOW}⚠${NC}  Skipping bridge creation - OpenVSwitch not available"
-            echo -e "${YELLOW}⚠${NC}  Install OpenVSwitch and run: op-dbus apply --plugin net $STATE_FILE"
-        else
-            echo -e "${YELLOW}⚠${NC}  Could not apply network state (binary or state file missing)"
         fi
 
-        # Now try to join netmaker
+        # Try to join netmaker
         echo "Joining host to netmaker network..."
         if netclient join -t "$NETMAKER_TOKEN"; then
             echo -e "${GREEN}✓${NC} Successfully joined netmaker network"
@@ -974,8 +1005,14 @@ echo -e "${YELLOW}System Status:${NC}"
 if [ "$NO_PROXMOX" = false ]; then
     if [ "$OVS_AVAILABLE" = true ]; then
         echo -e "OpenVSwitch:    ${GREEN}Available${NC} (/var/run/openvswitch/db.sock)"
+        if [ "$BRIDGES_CREATED" = true ]; then
+            echo -e "OVS Bridges:    ${GREEN}Created${NC} (ovsbr0, mesh)"
+        else
+            echo -e "OVS Bridges:    ${YELLOW}NOT Created${NC} - Check errors above"
+        fi
     else
         echo -e "OpenVSwitch:    ${RED}NOT Available${NC} - Must be installed for bridge creation"
+        echo -e "OVS Bridges:    ${RED}NOT Created${NC} - Requires OpenVSwitch"
     fi
 fi
 if [ -f "$STATE_FILE" ]; then
@@ -994,14 +1031,14 @@ if [ "$NO_PROXMOX" = false ] && [ "$OVS_AVAILABLE" = false ]; then
     echo "                      systemctl start openvswitch-switch"
     echo "                      systemctl enable openvswitch-switch"
     STEP=$((STEP + 1))
+    echo "$STEP. ${GREEN}CREATE BRIDGES${NC}:   op-dbus apply --plugin net $STATE_FILE  ${YELLOW}← Creates bridges!${NC}"
+    STEP=$((STEP + 1))
 fi
 echo "$STEP. Review state file:  nano $STATE_FILE"
 STEP=$((STEP + 1))
 echo "$STEP. Test query:         op-dbus query"
 STEP=$((STEP + 1))
 echo "$STEP. Test diff:          op-dbus diff $STATE_FILE"
-STEP=$((STEP + 1))
-echo "$STEP. ${GREEN}APPLY CONFIG${NC}:     op-dbus apply --plugin net $STATE_FILE  ${YELLOW}← Creates bridges!${NC}"
 STEP=$((STEP + 1))
 if [ "$NO_PROXMOX" = false ]; then
     echo "$STEP. ${GREEN}JOIN NETMAKER${NC}:    Add token to $CONFIG_DIR/netmaker.env"
