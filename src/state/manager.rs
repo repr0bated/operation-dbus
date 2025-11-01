@@ -232,7 +232,7 @@ impl StateManager {
                             "errors": result.errors,
                         }
                     });
-                    self.record_footprint(&diff.plugin, "apply", data);
+                    // self.record_footprint(&diff.plugin, "apply", data);
 
                     // Check if result indicates failure
                     if !result.success {
@@ -270,7 +270,7 @@ impl StateManager {
                         "metadata": diff.metadata,
                         "error": e.to_string(),
                     });
-                    self.record_footprint(&diff.plugin, "apply_error", data);
+                    // self.record_footprint(&diff.plugin, "apply_error", data);
                 }
                 None => {
                     log::error!("Plugin {} not found during apply phase", diff.plugin);
@@ -288,7 +288,7 @@ impl StateManager {
                         "metadata": diff.metadata,
                         "error": "plugin_not_found",
                     });
-                    self.record_footprint(&diff.plugin, "apply_missing_plugin", data);
+                    // self.record_footprint(&diff.plugin, "apply_missing_plugin", data);
                 }
             }
         }
@@ -398,31 +398,31 @@ impl StateManager {
                     result.changes_applied
                 );
 
-                // Record footprint
-                let data = serde_json::json!({
-                    "plugin": plugin_name,
-                    "actions": diff.actions,
-                    "metadata": diff.metadata,
-                    "result": {
-                        "success": result.success,
-                        "changes": result.changes_applied,
-                        "errors": result.errors,
-                    }
-                });
-                self.record_footprint(plugin_name, "apply_single", data);
+//                 // Record footprint
+//                 let data = serde_json::json!({
+//                     "plugin": plugin_name,
+//                     "actions": diff.actions,
+//                     "metadata": diff.metadata,
+//                     "result": {
+//                         "success": result.success,
+//                         "changes": result.changes_applied,
+//                         "errors": result.errors,
+//                     }
+//                 });
+//                 self.record_footprint(plugin_name, "apply_single", data);
 
                 results.push(result);
             }
             Err(e) => {
                 log::error!("Failed to apply state for {}: {}", plugin_name, e);
 
-                // Record error footprint
-                let data = serde_json::json!({
-                    "plugin": plugin_name,
-                    "actions": diff.actions,
-                    "error": e.to_string(),
-                });
-                self.record_footprint(plugin_name, "apply_error", data);
+//                 // Record error footprint
+//                 let data = serde_json::json!({
+//                     "plugin": plugin_name,
+//                     "actions": diff.actions,
+//                     "error": e.to_string(),
+//                 });
+//                 self.record_footprint(plugin_name, "apply_error", data);
 
                 return Err(e);
             }

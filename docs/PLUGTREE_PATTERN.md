@@ -122,7 +122,7 @@ impl PlugTree for LxcPlugin {
 {
   "net": {
     "interfaces": [
-      {"name": "vmbr0", "type": "ovs-bridge"},
+      {"name": "ovsbr0", "type": "ovs-bridge"},
       {"name": "mesh", "type": "ovs-bridge"}
     ]
   }

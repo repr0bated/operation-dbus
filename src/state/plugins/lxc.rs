@@ -261,7 +261,7 @@ impl LxcPlugin {
 
         match network_type {
             "netmaker" => "mesh".to_string(),     // Netmaker mesh bridge
-            "bridge" => container.bridge.clone(), // Traditional bridge (vmbr0)
+            "bridge" => container.bridge.clone(), // Traditional bridge (ovsbr0)
             _ => container.bridge.clone(),
         }
     }
@@ -509,7 +509,7 @@ impl StatePlugin for LxcPlugin {
                                                     }
                                                 }
                                                 "bridge" => {
-                                                    // Add to traditional bridge (vmbr0)
+                                                    // Add to traditional bridge (ovsbr0)
                                                     let client = crate::native::OvsdbClient::new();
                                                     match client
                                                         .add_port(&container.bridge, &veth_name)

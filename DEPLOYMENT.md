@@ -98,7 +98,7 @@
 - [ ] Verify OVS bridge
   ```bash
   ovs-vsctl show
-  ip addr show vmbr0
+  ip addr show ovsbr0
   ip route show
   ```
 
@@ -166,10 +166,10 @@
 - [ ] Manual OVS restore
   ```bash
   # Recreate bridge manually if needed
-  sudo ovs-vsctl add-br vmbr0
-  sudo ovs-vsctl add-port vmbr0 ens1
-  sudo ip addr add 80.209.240.244/25 dev vmbr0
-  sudo ip link set vmbr0 up
+  sudo ovs-vsctl add-br ovsbr0
+  sudo ovs-vsctl add-port ovsbr0 ens1
+  sudo ip addr add 80.209.240.244/25 dev ovsbr0
+  sudo ip link set ovsbr0 up
   sudo ip route add default via 80.209.240.129
   ```
 

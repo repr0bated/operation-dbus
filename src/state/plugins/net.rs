@@ -20,17 +20,40 @@ pub struct NetworkConfig {
     pub interfaces: Vec<InterfaceConfig>,
 }
 
+/// Interface configuration with immutable identity and tunable config
+/// Pattern matches LXC plugin: immutable core + tunable properties
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterfaceConfig {
+    // IMMUTABLE - Core identity (set once, never changes)
+    /// Interface name (e.g., "ovsbr0", "mesh")
     pub name: String,
+
+    /// Interface type (e.g., "ovs-bridge", "ethernet")
     #[serde(rename = "type")]
     pub if_type: InterfaceType,
+
+    // TUNABLE - Configuration that can change (blockchain tracks all changes)
+    /// All tunable configuration in a single object
+    #[serde(flatten)]
+    pub tunable: TunableConfig,
+}
+
+/// Tunable configuration - can be changed, each change tracked in blockchain
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TunableConfig {
+    /// Ports attached to this interface
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
+
+    /// IPv4 configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipv4: Option<Ipv4Config>,
+
+    /// IPv6 configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipv6: Option<Ipv6Config>,
+
+    /// SDN controller (for OpenFlow)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub controller: Option<String>,
 
@@ -282,12 +305,14 @@ impl NetStatePlugin {
             bridges.push(InterfaceConfig {
                 name: bridge_name,
                 if_type: InterfaceType::OvsBridge,
-                ports,
-                ipv4: None, // OVS bridges don't have IP config directly
-                ipv6: None,
-                controller: None,
-                properties: Some(bridge_info),
-                property_schema: Some(vec!["ovsdb".to_string()]),
+                tunable: TunableConfig {
+                    ports,
+                    ipv4: None, // OVS bridges don't have IP config directly
+                    ipv6: None,
+                    controller: None,
+                    properties: Some(bridge_info),
+                    property_schema: Some(vec!["ovsdb".to_string()]),
+                },
             });
         }
 
@@ -297,6 +322,7 @@ impl NetStatePlugin {
     /// Apply OVS bridge configuration via JSON-RPC and rtnetlink
     pub async fn apply_ovs_config(&self, config: &InterfaceConfig) -> Result<()> {
         let client = crate::native::OvsdbClient::new();
+        log::info!("Starting apply_ovs_config for {}", config.name);
 
         // Ensure bridge exists via OVSDB JSON-RPC
         if !client
@@ -313,8 +339,17 @@ impl NetStatePlugin {
 
         // Add ports to bridge if specified via OVSDB JSON-RPC
         // Skip netmaker interfaces (nm-*) - they are managed by netclient
-        let uplink_port = if let Some(ref ports) = config.ports {
-            let current_ports = client.list_bridge_ports(&config.name).await?;
+        if let Some(ref ports) = config.tunable.ports {
+            let current_ports_output = std::process::Command::new("ovs-vsctl")
+                .args(["list-ports", &config.name])
+                .output()
+                .context("Failed to list ports")?;
+            let current_ports_str = String::from_utf8_lossy(&current_ports_output.stdout);
+            let current_ports: Vec<String> = current_ports_str
+                .lines()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
             for port in ports {
                 // Skip netmaker/wireguard interfaces - netclient manages them
                 if port.starts_with("nm-") || port.starts_with("wg") {
@@ -333,17 +368,11 @@ impl NetStatePlugin {
                     log::info!("Added port {} to bridge {} via JSON-RPC", port, config.name);
                 }
             }
-            // Return first non-netmaker port as uplink
-            ports
-                .iter()
-                .find(|p| !p.starts_with("nm-") && !p.starts_with("wg"))
-                .map(|s| s.as_str())
-        } else {
-            None
-        };
+        }
+        log::info!("Finished apply_ovs_config for {}", config.name);
 
         // Update /etc/network/interfaces with bridge and IP configuration
-        self.update_interfaces_file(&config.name, uplink_port, &config.ipv4)
+        self.update_interfaces_file(&config.name, None, &config.tunable.ipv4)
             .await?;
 
         // Bring bridge up via rtnetlink (native netlink)
@@ -351,61 +380,62 @@ impl NetStatePlugin {
             log::warn!("Failed to bring bridge up via netlink: {}", e);
         }
 
-        // Configure IPv4 if specified via rtnetlink (native netlink)
-        if let Some(ref ipv4) = config.ipv4 {
-            if ipv4.enabled {
-                if let Some(ref addresses) = ipv4.address {
-                    for addr in addresses {
-                        match crate::native::rtnetlink_helpers::add_ipv4_address(
-                            &config.name,
-                            &addr.ip,
-                            addr.prefix,
-                        )
-                        .await
-                        {
-                            Ok(_) => {
-                                log::info!(
-                                    "Added IP {}/{} to {} via rtnetlink",
-                                    addr.ip,
-                                    addr.prefix,
-                                    config.name
-                                );
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "Failed to add IP {} (may already exist): {}",
-                                    addr.ip,
-                                    e
-                                );
-                            }
-                        }
-                    }
-                }
+//         // Configure IPv4 if specified via rtnetlink (native netlink)
+//         if let Some(ref ipv4) = config.tunable.ipv4 {
+//             if ipv4.enabled {
+//                 if let Some(ref addresses) = ipv4.address {
+//                     for addr in addresses {
+//                         match crate::native::rtnetlink_helpers::add_ipv4_address(
+//                             &config.name,
+//                             &addr.ip,
+//                             addr.prefix,
+//                         )
+//                         .await
+//                         {
+//                             Ok(_) => {
+//                                 log::info!(
+//                                     "Added IP {}/{} to {} via rtnetlink",
+//                                     addr.ip,
+//                                     addr.prefix,
+//                                     config.name
+//                                 );
+//                             }
+//                             Err(e) => {
+//                                 log::warn!(
+//                                     "Failed to add IP {} (may already exist): {}",
+//                                     addr.ip,
+//                                     e
+//                                 );
+//                             }
+//                         }
+//                     }
+//                 }
+// 
+//                 // Configure gateway if specified via rtnetlink (native netlink)
+//                 if let Some(ref gateway) = ipv4.gateway {
+//                     // Delete existing default route (ignore errors)
+//                     let _ = crate::native::rtnetlink_helpers::del_default_route().await;
+// 
+//                     // Add new default route
+//                     match crate::native::rtnetlink_helpers::add_default_route(&config.name, gateway)
+//                         .await
+//                     {
+//                         Ok(_) => {
+//                             log::info!(
+//                                 "Added default route via {} on {} via rtnetlink",
+//                                 gateway,
+//                                 config.name
+//                             );
+//                         }
+//                         Err(e) => {
+//                             log::warn!("Failed to add default route: {}", e);
+//                         }
+//                     }
+//                 }
+//             }
+//         }
 
-                // Configure gateway if specified via rtnetlink (native netlink)
-                if let Some(ref gateway) = ipv4.gateway {
-                    // Delete existing default route (ignore errors)
-                    let _ = crate::native::rtnetlink_helpers::del_default_route().await;
-
-                    // Add new default route
-                    match crate::native::rtnetlink_helpers::add_default_route(&config.name, gateway)
-                        .await
-                    {
-                        Ok(_) => {
-                            log::info!(
-                                "Added default route via {} on {} via rtnetlink",
-                                gateway,
-                                config.name
-                            );
-                        }
-                        Err(e) => {
-                            log::warn!("Failed to add default route: {}", e);
-                        }
-                    }
-                }
-            }
-        }
-
+        log::info!("Finished apply_ovs_config for {}", config.name);
         Ok(())
     }
 
@@ -439,7 +469,8 @@ impl NetStatePlugin {
         block.push_str(&format!("# Managed by {}. Do not edit manually.\n\n", tag));
 
         // OVS Bridge with IP configuration
-        block.push_str(&format!("auto {}\n", bridge));
+        // Use allow-ovs instead of auto to prevent ifupdown hang
+        block.push_str(&format!("allow-ovs {}\n", bridge));
         block.push_str(&format!("iface {} inet ", bridge));
 
         if let Some(ref ipv4_cfg) = ipv4 {
@@ -481,7 +512,7 @@ impl NetStatePlugin {
 
         // Physical uplink (if specified)
         if let Some(uplink_iface) = uplink {
-            block.push_str(&format!("auto {}\n", uplink_iface));
+            block.push_str(&format!("allow-{} {}\n", bridge, uplink_iface));
             block.push_str(&format!("iface {} inet manual\n", uplink_iface));
             block.push_str(&format!("    ovs_bridge {}\n", bridge));
             block.push_str("    ovs_type OVSPort\n");

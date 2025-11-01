@@ -137,7 +137,7 @@ sudo nano /etc/op-dbus/state.json
       "containers": [{
         "id": "100",
         "veth": "vi100",
-        "bridge": "vmbr0",
+        "bridge": "ovsbr0",
         "running": true,
         "properties": {
           "network_type": "netmaker"
@@ -153,7 +153,7 @@ sudo nano /etc/op-dbus/state.json
 {
   "id": "101",
   "veth": "vi101",
-  "bridge": "vmbr0",
+  "bridge": "ovsbr0",
   "properties": {
     "network_type": "bridge"
   }
@@ -191,7 +191,7 @@ LXC Plugin calculate_diff()
 StateAction::Create detected
          ↓
 apply_state() executes:
-  1. pct create <vmid> <template> --net0 name=eth0,bridge=vmbr0
+  1. pct create <vmid> <template> --net0 name=eth0,bridge=ovsbr0
   2. pct start <vmid>
   3. Sleep 2s (wait for veth)
   4. Find veth via `ip link show type veth`
@@ -248,7 +248,7 @@ Container live on network!
 
 ### Prerequisites
 - [ ] Proxmox VE installed
-- [ ] OVS bridge `vmbr0` exists
+- [ ] OVS bridge `ovsbr0` exists
 - [ ] LXC template downloaded
 - [ ] Netmaker server accessible
 - [ ] Enrollment token obtained
@@ -272,7 +272,7 @@ cat > /tmp/test-state.json <<'EOF'
       "containers": [{
         "id": "100",
         "veth": "vi100",
-        "bridge": "vmbr0",
+        "bridge": "ovsbr0",
         "properties": {
           "network_type": "netmaker"
         }
@@ -308,7 +308,7 @@ cat > /tmp/bridge-state.json <<'EOF'
       "containers": [{
         "id": "101",
         "veth": "vi101",
-        "bridge": "vmbr0",
+        "bridge": "ovsbr0",
         "properties": {
           "network_type": "bridge"
         }
@@ -322,7 +322,7 @@ EOF
 sudo op-dbus apply /tmp/bridge-state.json
 
 # 3. Verify
-sudo ovs-vsctl list-ports vmbr0 | grep vi101
+sudo ovs-vsctl list-ports ovsbr0 | grep vi101
 ```
 
 ---
@@ -378,7 +378,7 @@ Each footprint includes:
 pveam list local
 
 # Check bridge exists
-ovs-vsctl show | grep vmbr0
+ovs-vsctl show | grep ovsbr0
 
 # Check permissions
 ls -la /etc/pve/lxc/

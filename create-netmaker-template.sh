@@ -1,6 +1,9 @@
 #!/bin/bash
-# Create LXC template with netclient pre-installed for op-dbus containers
-# This template will be used by the LXC plugin for automatic container creation
+# OPTIONAL: Create LXC template with netclient pre-installed
+#
+# NOTE: This is NOT required! Socket networking is now default for ALL containers.
+# Only use this if you want netclient pre-installed in a template.
+# Otherwise, install netclient after container creation as needed.
 
 set -e
 
@@ -27,6 +30,8 @@ BASE_TEMPLATE="debian-13-standard_13.1-2_amd64.tar.zst"
 BASE_TEMPLATE_URL="http://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst"
 OUTPUT_TEMPLATE="debian-13-netmaker_custom.tar.zst"
 STORAGE="local-btrfs"
+MAIN_BRIDGE="ovsbr0"  # Main OVS bridge for container networking
+MESH_BRIDGE="mesh"    # Mesh bridge for netmaker networking
 
 echo "Configuration:"
 echo "  Base template: $BASE_TEMPLATE"
@@ -68,16 +73,19 @@ if pct status $TEMP_CT_ID >/dev/null 2>&1; then
     pct destroy $TEMP_CT_ID
 fi
 
-# Create temporary container
-echo "Creating temporary container $TEMP_CT_ID..."
+# Create temporary container with socket networking (uses host network stack)
+echo "Creating temporary container $TEMP_CT_ID with socket networking..."
 pct create $TEMP_CT_ID $STORAGE:vztmpl/$BASE_TEMPLATE \
     --hostname netmaker-template \
     --memory 512 \
     --swap 512 \
     --rootfs $STORAGE:8 \
-    --net0 name=eth0,bridge=vmbr0,firewall=1,ip=dhcp \
+    --net0 name=eth0,bridge=$MAIN_BRIDGE,firewall=1 \
     --unprivileged 1 \
     --features nesting=1
+
+echo -e "${YELLOW}Note:${NC} Template uses socket networking - containers communicate via host network"
+echo -e "${YELLOW}Note:${NC} No IP configuration needed - containers use Unix sockets and localhost"
 
 echo -e "${GREEN}✓${NC} Temporary container created"
 

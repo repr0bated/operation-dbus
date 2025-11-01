@@ -12,8 +12,8 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v ovs-vsctl >/dev/null 2>&1; then
-    echo "Warning: ovs-vsctl not found, OVS bridges won't be detected"
+if [ ! -S "/var/run/openvswitch/db.sock" ]; then
+    echo "Warning: OVSDB socket not found, OVS bridges won't be detected"
 fi
 
 echo "Detecting current network configuration..."

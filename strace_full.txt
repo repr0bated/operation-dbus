@@ -1,0 +1,221 @@
+1003652 execve("/usr/bin/sudo", ["sudo", "./install.sh"], 0x7ffe3add7db0 /* 67 vars */) = 0
+1003652 brk(NULL)                       = 0x63792c037000
+1003652 fcntl(0, F_GETFD)               = 0
+1003652 fcntl(1, F_GETFD)               = 0
+1003652 fcntl(2, F_GETFD)               = 0
+1003652 mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7a1dd5f5d000
+1003652 access("/etc/ld.so.preload", R_OK) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/usr/libexec/sudo/glibc-hwcaps/x86-64-v3/libaudit.so.1", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+1003652 newfstatat(AT_FDCWD, "/usr/libexec/sudo/glibc-hwcaps/x86-64-v3/", 0x7ffd99102fe0, 0) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/usr/libexec/sudo/glibc-hwcaps/x86-64-v2/libaudit.so.1", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+1003652 newfstatat(AT_FDCWD, "/usr/libexec/sudo/glibc-hwcaps/x86-64-v2/", 0x7ffd99102fe0, 0) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/usr/libexec/sudo/libaudit.so.1", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+1003652 newfstatat(AT_FDCWD, "/usr/libexec/sudo/", {st_mode=S_IFDIR|0755, st_size=278, ...}, 0) = 0
+1003652 openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 5
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=61479, ...}) = 0
+1003652 mmap(NULL, 61479, PROT_READ, MAP_PRIVATE, 5, 0) = 0x7a1dd5f4d000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libaudit.so.1", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=153528, ...}) = 0
+1003652 mmap(NULL, 221392, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5f16000
+1003652 mmap(0x7a1dd5f19000, 49152, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x3000) = 0x7a1dd5f19000
+1003652 mmap(0x7a1dd5f25000, 90112, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0xf000) = 0x7a1dd5f25000
+1003652 mmap(0x7a1dd5f3b000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x24000) = 0x7a1dd5f3b000
+1003652 mmap(0x7a1dd5f3d000, 61648, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x7a1dd5f3d000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/usr/libexec/sudo/libselinux.so.1", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libselinux.so.1", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=202984, ...}) = 0
+1003652 mmap(NULL, 210640, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5ee2000
+1003652 mmap(0x7a1dd5ee9000, 131072, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x7000) = 0x7a1dd5ee9000
+1003652 mmap(0x7a1dd5f09000, 36864, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x27000) = 0x7a1dd5f09000
+1003652 mmap(0x7a1dd5f12000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x30000) = 0x7a1dd5f12000
+1003652 mmap(0x7a1dd5f14000, 5840, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x7a1dd5f14000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/usr/libexec/sudo/libapparmor.so.1", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libapparmor.so.1", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=84728, ...}) = 0
+1003652 mmap(NULL, 86920, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5ecc000
+1003652 mmap(0x7a1dd5ed0000, 36864, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x4000) = 0x7a1dd5ed0000
+1003652 mmap(0x7a1dd5ed9000, 28672, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0xd000) = 0x7a1dd5ed9000
+1003652 mmap(0x7a1dd5ee0000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x13000) = 0x7a1dd5ee0000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/usr/libexec/sudo/libsudo_util.so.0", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=137912, ...}) = 0
+1003652 mmap(NULL, 142456, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5ea9000
+1003652 mmap(0x7a1dd5eaf000, 77824, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x6000) = 0x7a1dd5eaf000
+1003652 mmap(0x7a1dd5ec2000, 32768, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x19000) = 0x7a1dd5ec2000
+1003652 mmap(0x7a1dd5eca000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x20000) = 0x7a1dd5eca000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/usr/libexec/sudo/libc.so.6", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\3\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0p\236\2\0\0\0\0\0"..., 832) = 832
+1003652 pread64(5, "\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0"..., 840, 64) = 840
+1003652 fstat(5, {st_mode=S_IFREG|0755, st_size=2003408, ...}) = 0
+1003652 pread64(5, "\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0"..., 840, 64) = 840
+1003652 mmap(NULL, 2055800, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5cb3000
+1003652 mmap(0x7a1dd5cdb000, 1462272, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x28000) = 0x7a1dd5cdb000
+1003652 mmap(0x7a1dd5e40000, 352256, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x18d000) = 0x7a1dd5e40000
+1003652 mmap(0x7a1dd5e96000, 24576, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x1e2000) = 0x7a1dd5e96000
+1003652 mmap(0x7a1dd5e9c000, 52856, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x7a1dd5e9c000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libcap-ng.so.0", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=30632, ...}) = 0
+1003652 mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7a1dd5cb1000
+1003652 mmap(NULL, 28720, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5ca9000
+1003652 mmap(0x7a1dd5cab000, 12288, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x2000) = 0x7a1dd5cab000
+1003652 mmap(0x7a1dd5cae000, 4096, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x5000) = 0x7a1dd5cae000
+1003652 mmap(0x7a1dd5caf000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x6000) = 0x7a1dd5caf000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libpcre2-8.so.0", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=711216, ...}) = 0
+1003652 mmap(NULL, 713544, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5bfa000
+1003652 mmap(0x7a1dd5bfd000, 503808, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x3000) = 0x7a1dd5bfd000
+1003652 mmap(0x7a1dd5c78000, 192512, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x7e000) = 0x7a1dd5c78000
+1003652 mmap(0x7a1dd5ca7000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0xac000) = 0x7a1dd5ca7000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libcrypto.so.3", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=6505024, ...}) = 0
+1003652 mmap(NULL, 6519848, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5400000
+1003652 mmap(0x7a1dd54f7000, 3674112, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0xf7000) = 0x7a1dd54f7000
+1003652 mmap(0x7a1dd5878000, 1273856, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x478000) = 0x7a1dd5878000
+1003652 mmap(0x7a1dd59af000, 548864, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x5ae000) = 0x7a1dd59af000
+1003652 mmap(0x7a1dd5a35000, 11304, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x7a1dd5a35000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libz.so.1", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=125376, ...}) = 0
+1003652 mmap(NULL, 127376, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5bda000
+1003652 mmap(0x7a1dd5bdd000, 81920, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x3000) = 0x7a1dd5bdd000
+1003652 mmap(0x7a1dd5bf1000, 28672, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x17000) = 0x7a1dd5bf1000
+1003652 mmap(0x7a1dd5bf8000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x1d000) = 0x7a1dd5bf8000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libzstd.so.1", O_RDONLY|O_CLOEXEC) = 5
+1003652 read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=825336, ...}) = 0
+1003652 mmap(NULL, 823352, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x7a1dd5b10000
+1003652 mmap(0x7a1dd5b15000, 716800, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x5000) = 0x7a1dd5b15000
+1003652 mmap(0x7a1dd5bc4000, 81920, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0xb4000) = 0x7a1dd5bc4000
+1003652 mmap(0x7a1dd5bd8000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0xc8000) = 0x7a1dd5bd8000
+1003652 close(5)                        = 0
+1003652 mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7a1dd5b0e000
+1003652 mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7a1dd5b0b000
+1003652 arch_prctl(ARCH_SET_FS, 0x7a1dd5b0b880) = 0
+1003652 set_tid_address(0x7a1dd5b0bb50) = 1003652
+1003652 set_robust_list(0x7a1dd5b0bb60, 24) = 0
+1003652 rseq(0x7a1dd5b0b6a0, 0x20, 0, 0x53053053) = 0
+1003652 mprotect(0x7a1dd5e96000, 16384, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5bd8000, 4096, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5bf8000, 4096, PROT_READ) = 0
+1003652 mprotect(0x7a1dd59af000, 536576, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5ca7000, 4096, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5caf000, 4096, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5eca000, 4096, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5ee0000, 4096, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5f12000, 4096, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5f3b000, 4096, PROT_READ) = 0
+1003652 mprotect(0x637902904000, 8192, PROT_READ) = 0
+1003652 mprotect(0x7a1dd5f99000, 8192, PROT_READ) = 0
+1003652 prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=8192*1024, rlim_max=RLIM64_INFINITY}) = 0
+1003652 munmap(0x7a1dd5f4d000, 61479)   = 0
+1003652 openat(AT_FDCWD, "/proc/sys/kernel/cap_last_cap", O_RDONLY) = 5
+1003652 fstatfs(5, {f_type=PROC_SUPER_MAGIC, f_bsize=4096, f_blocks=0, f_bfree=0, f_bavail=0, f_files=0, f_ffree=0, f_fsid={val=[0x19, 0]}, f_namelen=255, f_frsize=4096, f_flags=ST_VALID|ST_NOSUID|ST_NODEV|ST_NOEXEC|ST_RELATIME}) = 0
+1003652 read(5, "40\n", 7)              = 3
+1003652 close(5)                        = 0
+1003652 prctl(PR_CAPBSET_READ, CAP_CHOWN) = 1
+1003652 prctl(PR_GET_SECUREBITS)        = 0
+1003652 prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) = 0
+1003652 prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, CAP_CHOWN, 0, 0) = 0
+1003652 statfs("/sys/fs/selinux", 0x7ffd99103d80) = -1 ENOENT (No such file or directory)
+1003652 statfs("/selinux", 0x7ffd99103d80) = -1 ENOENT (No such file or directory)
+1003652 getrandom("\x26\x02\x73\x7b\x9c\x01\xbe\xdf", 8, GRND_NONBLOCK) = 8
+1003652 brk(NULL)                       = 0x63792c037000
+1003652 brk(0x63792c058000)             = 0x63792c058000
+1003652 openat(AT_FDCWD, "/proc/filesystems", O_RDONLY|O_CLOEXEC) = 5
+1003652 fstat(5, {st_mode=S_IFREG|0444, st_size=0, ...}) = 0
+1003652 read(5, "nodev\tsysfs\nnodev\ttmpfs\nnodev\tbd"..., 1024) = 414
+1003652 read(5, "", 1024)               = 0
+1003652 close(5)                        = 0
+1003652 access("/etc/selinux/config", F_OK) = -1 ENOENT (No such file or directory)
+1003652 prlimit64(0, RLIMIT_AS, NULL, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}) = 0
+1003652 prlimit64(0, RLIMIT_CORE, NULL, {rlim_cur=0, rlim_max=RLIM64_INFINITY}) = 0
+1003652 prlimit64(0, RLIMIT_CPU, NULL, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}) = 0
+1003652 prlimit64(0, RLIMIT_CPU, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}, NULL) = 0
+1003652 prlimit64(0, RLIMIT_DATA, NULL, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}) = 0
+1003652 prlimit64(0, RLIMIT_FSIZE, NULL, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}) = 0
+1003652 prlimit64(0, RLIMIT_FSIZE, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}, NULL) = 0
+1003652 prlimit64(0, RLIMIT_LOCKS, NULL, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}) = 0
+1003652 prlimit64(0, RLIMIT_MEMLOCK, NULL, {rlim_cur=8192*1024, rlim_max=8192*1024}) = 0
+1003652 prlimit64(0, RLIMIT_NOFILE, NULL, {rlim_cur=512*1024, rlim_max=512*1024}) = 0
+1003652 prlimit64(0, RLIMIT_NPROC, NULL, {rlim_cur=127533, rlim_max=127533}) = 0
+1003652 prlimit64(0, RLIMIT_NPROC, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}, NULL) = -1 EPERM (Operation not permitted)
+1003652 prlimit64(0, RLIMIT_NPROC, {rlim_cur=127533, rlim_max=127533}, NULL) = 0
+1003652 prlimit64(0, RLIMIT_RSS, NULL, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}) = 0
+1003652 prlimit64(0, RLIMIT_RSS, {rlim_cur=RLIM64_INFINITY, rlim_max=RLIM64_INFINITY}, NULL) = 0
+1003652 prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=8192*1024, rlim_max=RLIM64_INFINITY}) = 0
+1003652 fcntl(0, F_GETFL)               = 0x8000 (flags O_RDONLY|O_LARGEFILE)
+1003652 fcntl(1, F_GETFL)               = 0x2 (flags O_RDWR)
+1003652 fcntl(2, F_GETFL)               = 0x2 (flags O_RDWR)
+1003652 openat(AT_FDCWD, "/usr/lib/locale/locale-archive", O_RDONLY|O_CLOEXEC) = 5
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=3063024, ...}) = 0
+1003652 mmap(NULL, 3063024, PROT_READ, MAP_PRIVATE, 5, 0) = 0x7a1dd5000000
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/etc/localtime", O_RDONLY|O_CLOEXEC) = 5
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=3552, ...}) = 0
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=3552, ...}) = 0
+1003652 read(5, "TZif2\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\6\0\0\0\6\0\0\0\0"..., 4096) = 3552
+1003652 lseek(5, -2260, SEEK_CUR)       = 1292
+1003652 read(5, "TZif2\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\6\0\0\0\6\0\0\0\0"..., 4096) = 2260
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/etc/sudo.conf", O_RDONLY|O_NONBLOCK) = 5
+1003652 fcntl(5, F_GETFL)               = 0x8800 (flags O_RDONLY|O_NONBLOCK|O_LARGEFILE)
+1003652 fcntl(5, F_SETFL, O_RDONLY|O_LARGEFILE) = 0
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=4337, ...}) = 0
+1003652 fcntl(5, F_GETFL)               = 0x8000 (flags O_RDONLY|O_LARGEFILE)
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=4337, ...}) = 0
+1003652 read(5, "#\n# Default /etc/sudo.conf file\n"..., 4096) = 4096
+1003652 read(5, "ms.\n# Priority may be crit, err,"..., 4096) = 241
+1003652 read(5, "", 4096)               = 0
+1003652 close(5)                        = 0
+1003652 geteuid()                       = 1000
+1003652 prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) = 0
+1003652 access("/home/jeremy/.local/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/home/jeremy/.local/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/home/jeremy/.cargo/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/usr/local/sbin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/usr/sbin/sudo", X_OK)  = -1 ENOENT (No such file or directory)
+1003652 access("/sbin/sudo", X_OK)      = -1 ENOENT (No such file or directory)
+1003652 access("/home/jeremy/.local/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/home/jeremy/.local/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/home/jeremy/.nvm/versions/node/v22.20.0/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/usr/local/go/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/opt/globalpython/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/usr/local/bin/sudo", X_OK) = -1 ENOENT (No such file or directory)
+1003652 access("/usr/bin/sudo", X_OK)   = 0
+1003652 newfstatat(AT_FDCWD, "/usr/bin/sudo", {st_mode=S_IFREG|S_ISUID|0755, st_size=306456, ...}, 0) = 0
+1003652 openat(AT_FDCWD, "/usr/share/locale/locale.alias", O_RDONLY|O_CLOEXEC) = 5
+1003652 fstat(5, {st_mode=S_IFREG|0644, st_size=2996, ...}) = 0
+1003652 read(5, "# Locale name alias data base.\n#"..., 4096) = 2996
+1003652 read(5, "", 4096)               = 0
+1003652 close(5)                        = 0
+1003652 openat(AT_FDCWD, "/usr/share/locale/en_US.UTF-8/LC_MESSAGES/sudo.mo", O_RDONLY) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/usr/share/locale/en_US.utf8/LC_MESSAGES/sudo.mo", O_RDONLY) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/usr/share/locale/en_US/LC_MESSAGES/sudo.mo", O_RDONLY) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/usr/share/locale/en.UTF-8/LC_MESSAGES/sudo.mo", O_RDONLY) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/usr/share/locale/en.utf8/LC_MESSAGES/sudo.mo", O_RDONLY) = -1 ENOENT (No such file or directory)
+1003652 openat(AT_FDCWD, "/usr/share/locale/en/LC_MESSAGES/sudo.mo", O_RDONLY) = -1 ENOENT (No such file or directory)
+1003652 write(2, "sudo", 4)             = 4
+1003652 write(2, ": ", 2)               = 2
+1003652 write(2, "effective uid is not 0, is /usr/"..., 128) = 128
+1003652 write(2, "eges?", 5)            = 5
+1003652 fstat(2, {st_mode=S_IFSOCK|0777, st_size=0, ...}) = 0
+1003652 write(2, "\n", 1)               = 1
+1003652 exit_group(1)                   = ?
+1003652 +++ exited with 1 +++

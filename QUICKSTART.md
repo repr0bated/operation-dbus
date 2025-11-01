@@ -56,7 +56,7 @@ sudo ./uninstall.sh
   "plugins": {
     "net": {
       "interfaces": [{
-        "name": "vmbr0",
+        "name": "ovsbr0",
         "type": "ovs-bridge",
         "ports": ["ens1"],
         "ipv4": {

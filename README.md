@@ -138,7 +138,7 @@ op-dbus run --state-file /etc/op-dbus/state.json
   "plugins": {
     "net": {
       "interfaces": [{
-        "name": "vmbr0",
+        "name": "ovsbr0",
         "type": "ovs-bridge",
         "ports": ["ens1"],
         "ipv4": {

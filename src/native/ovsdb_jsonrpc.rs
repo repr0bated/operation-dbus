@@ -2,6 +2,7 @@
 //! Talks directly to /var/run/openvswitch/db.sock
 
 use anyhow::{Context, Result};
+use tokio::time;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -36,11 +37,12 @@ impl OvsdbClient {
         let request_str = serde_json::to_string(&request)?;
         stream.write_all(request_str.as_bytes()).await?;
         stream.write_all(b"\n").await?;
-
-        // Read response
+        // Read response with timeout
         let mut reader = BufReader::new(stream);
         let mut response_line = String::new();
-        reader.read_line(&mut response_line).await?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), reader.read_line(&mut response_line))
+            .await
+            .context("OVSDB response timeout")??;
 
         let response: Value = serde_json::from_str(&response_line)?;
 
@@ -104,7 +106,13 @@ impl OvsdbClient {
 
     /// Transact - execute OVSDB operations
     pub async fn transact(&self, operations: Value) -> Result<Value> {
-        self.rpc_call("transact", json!(["Open_vSwitch", operations]))
+        let mut params = vec![json!("Open_vSwitch")];
+        if let Some(ops_array) = operations.as_array() {
+            for op in ops_array {
+                params.push(op.clone());
+            }
+        }
+        self.rpc_call("transact", json!(params))
             .await
     }
 

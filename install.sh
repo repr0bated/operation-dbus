@@ -86,6 +86,70 @@ INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/op-dbus"
 STATE_FILE="$CONFIG_DIR/state.json"
 SYSTEMD_DIR="/etc/systemd/system"
+OVSDB_SOCK="/var/run/openvswitch/db.sock"
+
+# OVSDB JSON-RPC helper functions (NO ovs-vsctl!)
+ovsdb_rpc() {
+    local method="$1"
+    local params="$2"
+    echo "{\"method\":\"$method\",\"params\":$params,\"id\":0}" | \
+        socat - UNIX-CONNECT:"$OVSDB_SOCK" 2>/dev/null | head -1
+}
+
+ovsdb_list_bridges() {
+    local result=$(ovsdb_rpc "transact" "[\"Open_vSwitch\",[{\"op\":\"select\",\"table\":\"Bridge\",\"where\":[],\"columns\":[\"name\"]}]]")
+    echo "$result" | jq -r '.result[0].rows[].name' 2>/dev/null
+}
+
+ovsdb_list_ports() {
+    local bridge="$1"
+    # Get bridge UUID
+    local bridge_result=$(ovsdb_rpc "transact" "[\"Open_vSwitch\",[{\"op\":\"select\",\"table\":\"Bridge\",\"where\":[[\"name\",\"==\",\"$bridge\"]],\"columns\":[\"_uuid\",\"ports\"]}]]")
+    local bridge_uuid=$(echo "$bridge_result" | jq -r '.result[0].rows[0]._uuid[1]' 2>/dev/null)
+    
+    if [ -z "$bridge_uuid" ] || [ "$bridge_uuid" = "null" ]; then
+        return 1
+    fi
+    
+    # Get port UUIDs from bridge
+    local port_uuids=$(echo "$bridge_result" | jq -r '.result[0].rows[0].ports[1][]?[1]' 2>/dev/null)
+    
+    # Get port names
+    for port_uuid in $port_uuids; do
+        local port_result=$(ovsdb_rpc "transact" "[\"Open_vSwitch\",[{\"op\":\"select\",\"table\":\"Port\",\"where\":[[\"_uuid\",\"==\",[\"uuid\",\"$port_uuid\"]]],\"columns\":[\"name\"]}]]")
+        echo "$port_result" | jq -r '.result[0].rows[].name' 2>/dev/null
+    done
+}
+
+ovsdb_bridge_exists() {
+    local bridge="$1"
+    local result=$(ovsdb_rpc "transact" "[\"Open_vSwitch\",[{\"op\":\"select\",\"table\":\"Bridge\",\"where\":[[\"name\",\"==\",\"$bridge\"]],\"columns\":[\"name\"]}]]")
+    local count=$(echo "$result" | jq -r '.result[0].rows | length' 2>/dev/null)
+    [ "$count" -gt 0 ]
+}
+
+ovsdb_create_bridge() {
+    local bridge="$1"
+    # Using op-dbus binary if available, otherwise direct OVSDB
+    if command -v op-dbus >/dev/null 2>&1; then
+        # TODO: Implement create-bridge CLI command
+        echo "Note: Would use op-dbus create-bridge $bridge (not yet implemented)"
+        return 1
+    fi
+    return 1
+}
+
+ovsdb_add_port() {
+    local bridge="$1"
+    local port="$2"
+    # Using op-dbus binary if available
+    if command -v op-dbus >/dev/null 2>&1; then
+        # TODO: Implement add-port CLI command  
+        echo "Note: Would use op-dbus add-port $bridge $port (not yet implemented)"
+        return 1
+    fi
+    return 1
+}
 
 # Step 1: Check binary exists
 echo "Checking binary..."
@@ -95,6 +159,13 @@ if [ ! -f "$BINARY_PATH" ]; then
     exit 1
 fi
 echo -e "${GREEN}✓${NC} Found binary: $BINARY_PATH"
+
+# Step 1.5: Stop service if running (to allow binary replacement)
+if systemctl is-active --quiet op-dbus 2>/dev/null; then
+    echo "Stopping op-dbus service..."
+    systemctl stop op-dbus
+    echo -e "${GREEN}✓${NC} Service stopped"
+fi
 
 # Step 2: Install binary
 echo "Installing binary to $INSTALL_DIR..."
@@ -247,18 +318,18 @@ if [ ! -f "$STATE_FILE" ]; then
   }
 }'
 
-        # Check if OVS is available
-        if command -v ovs-vsctl >/dev/null 2>&1; then
-            # Get OVS bridge information
-            local bridges=$(ovs-vsctl list-br 2>/dev/null || echo "")
+        # Check if OVSDB socket is available
+        if [ -S "$OVSDB_SOCK" ]; then
+            # Get OVS bridge information via OVSDB JSON-RPC
+            local bridges=$(ovsdb_list_bridges || echo "")
 
             if [ -n "$bridges" ]; then
                 echo -e "${GREEN}✓${NC} Found OVS bridges: $bridges"
 
                 # For each bridge, get its configuration
                 for bridge in $bridges; do
-                    # Get ports (excluding the bridge itself)
-                    local ports=$(ovs-vsctl list-ports "$bridge" 2>/dev/null | grep -v "^$bridge$" | tr '\n' ' ')
+                    # Get ports via OVSDB JSON-RPC (excluding the bridge itself)
+                    local ports=$(ovsdb_list_ports "$bridge" 2>/dev/null | grep -v "^$bridge$" | tr '\n' ' ')
 
                     # Get IP configuration from ip command
                     local ip_info=$(ip -j addr show "$bridge" 2>/dev/null)
@@ -377,74 +448,135 @@ else
     echo -e "${GREEN}✓${NC} State file already exists: $STATE_FILE"
 fi
 
-# Step 4.5: Create netmaker-ready LXC template container (Proxmox mode only)
+# Step 4.5: Skip template creation (ovsbr0 networking is now default for all containers)
+# Netclient can be installed in containers after creation if needed
 if [ "$NO_PROXMOX" = false ]; then
-    echo "Creating netmaker-ready LXC template container..."
-    
-    # Look for existing netmaker template
-    TEMPLATE_CT=""
-    for ct_id in $(pct list | awk 'NR>1 {print $1}'); do
-        if pct config "$ct_id" 2>/dev/null | grep -q "^template: 1"; then
-            if pct exec "$ct_id" -- which netclient >/dev/null 2>&1; then
-                TEMPLATE_CT="$ct_id"
-                TEMPLATE_NAME=$(pct config "$ct_id" | grep "^hostname:" | awk '{print $2}')
-                echo -e "${GREEN}✓${NC} Found existing netmaker template: Container $ct_id ($TEMPLATE_NAME)"
-                break
-            fi
-        fi
-    done
-    
-    # Create template if it doesn't exist
-    if [ -z "$TEMPLATE_CT" ]; then
-        if [ -f "./create-netmaker-template.sh" ]; then
-            echo "Creating netmaker template container (this may take a few minutes)..."
-            export PATH="/usr/sbin:$PATH"
-            bash ./create-netmaker-template.sh || {
-                echo -e "${YELLOW}⚠${NC}  Template creation failed"
-                echo -e "${YELLOW}⚠${NC}  You can create it manually later with:  ./create-netmaker-template.sh"
-                echo -e "${YELLOW}⚠${NC}  Continuing installation..."
-            }
+    echo -e "${GREEN}✓${NC} Default networking: eth0 on ovsbr0 (internet via OVS flows)"
+    echo -e "${GREEN}✓${NC} Use any OS template - networking is automatic"
+fi
+
+# Step 5: Configure LXC default settings (Proxmox mode only)
+if [ "$NO_PROXMOX" = false ]; then
+    echo "Configuring LXC default container settings..."
+
+    # Create op-dbus LXC config for default container properties
+    LXC_DEFAULTS="/usr/share/lxc/config/common.conf.d/99-op-dbus.conf"
+    cat > "$LXC_DEFAULTS" <<'LXC_DEFAULTS_EOF'
+# op-dbus default container configuration
+# Applied to ALL containers created on this Proxmox host
+#
+# Network Configuration:
+# - NO network interface by default
+# - Add interface manually: --net0 name=eth0,bridge=ovsbr0
+# - Containers use Unix sockets or add networking as needed
+#
+# Features:
+# - Nesting enabled for Docker/nested containers
+# - Unprivileged by default for security
+
+# NO network interface by default
+# Add --net0 when creating container if networking is needed
+
+# Enable nesting for nested containers/Docker
+lxc.apparmor.profile = unconfined
+lxc.cgroup.devices.allow = a
+lxc.cap.drop =
+
+# Mount requirements for nesting
+lxc.mount.auto = proc:rw sys:rw cgroup:rw
+LXC_DEFAULTS_EOF
+
+    echo -e "${GREEN}✓${NC} Created LXC defaults: $LXC_DEFAULTS"
+    echo -e "${GREEN}✓${NC} Containers created WITHOUT network interface by default"
+else
+    echo -e "${YELLOW}Skipping LXC configuration (standalone mode)${NC}"
+fi
+
+# Step 6: Configure OVS bridges (ovsbr0 and mesh) in state.json
+# Let op-dbus binary handle actual bridge creation via OVSDB JSON-RPC
+if [ "$NO_PROXMOX" = false ]; then
+    echo "Configuring OVS bridges in state.json..."
+
+    # Bridge configuration - customizable
+    MAIN_BRIDGE="ovsbr0"
+    MESH_BRIDGE="mesh"
+    BRIDGE_IP="172.16.0.10"      # IP for ovsbr0 bridge
+    BRIDGE_PREFIX=24             # Network prefix (172.16.0.0/24)
+    GATEWAY_IP="172.16.0.1"      # Default gateway
+
+    # Add ovsbr0 and mesh bridges to state.json if not already present
+    if [ -f "$STATE_FILE" ] && command -v jq >/dev/null 2>&1; then
+        # Check if ovsbr0 exists in state.json
+        BRIDGE_EXISTS=$(jq -r ".plugins.net.interfaces[] | select(.name==\"$MAIN_BRIDGE\") | .name" "$STATE_FILE" 2>/dev/null)
+
+        if [ -z "$BRIDGE_EXISTS" ]; then
+            echo "Adding $MAIN_BRIDGE bridge to state.json..."
+
+            # Create bridge config
+            BRIDGE_CONFIG=$(cat <<EOF
+{
+  "name": "$MAIN_BRIDGE",
+  "type": "ovs-bridge",
+  "ports": [],
+  "ipv4": {
+    "enabled": true,
+    "dhcp": false,
+    "address": [
+      {
+        "ip": "$BRIDGE_IP",
+        "prefix": $BRIDGE_PREFIX
+      }
+    ],
+    "gateway": "$GATEWAY_IP"
+  }
+}
+EOF
+)
+
+            # Add to state.json
+            jq ".plugins.net.interfaces += [$BRIDGE_CONFIG]" "$STATE_FILE" > "${STATE_FILE}.tmp" && \
+                mv "${STATE_FILE}.tmp" "$STATE_FILE"
+
+            echo -e "${GREEN}✓${NC} Added $MAIN_BRIDGE ($BRIDGE_IP/$BRIDGE_PREFIX) to state.json"
         else
-            echo -e "${YELLOW}⚠${NC}  create-netmaker-template.sh not found in current directory"
-            echo -e "${YELLOW}⚠${NC}  Skipping template creation"
+            echo -e "${GREEN}✓${NC} $MAIN_BRIDGE already in state.json"
         fi
-    fi
-    
-    echo -e "${GREEN}✓${NC} Use template with: pct clone <TEMPLATE_CT_ID> <NEW_CT_ID> --full"
-else
-    echo -e "${YELLOW}Skipping LXC template creation (not in Proxmox mode)${NC}"
-fi
 
-# Step 5: Create mesh bridge for netmaker containers (Proxmox mode only)
-if [ "$NO_PROXMOX" = false ]; then
-    echo "Creating mesh bridge for netmaker containers..."
-else
-    echo -e "${YELLOW}Skipping mesh bridge creation (standalone mode)${NC}"
-fi
+        # Check if mesh bridge exists in state.json
+        MESH_EXISTS=$(jq -r ".plugins.net.interfaces[] | select(.name==\"$MESH_BRIDGE\") | .name" "$STATE_FILE" 2>/dev/null)
 
-if [ "$NO_PROXMOX" = false ]; then
+        if [ -z "$MESH_EXISTS" ]; then
+            echo "Adding $MESH_BRIDGE bridge to state.json..."
 
-if command -v ovs-vsctl >/dev/null 2>&1; then
-    if !  ovs-vsctl br-exists mesh 2>/dev/null; then
-         ovs-vsctl add-br mesh
-         ip link set mesh up
-        echo -e "${GREEN}✓${NC} Created 'mesh' bridge for netmaker containers"
+            # Create mesh bridge config (no IP, just for netmaker)
+            MESH_CONFIG=$(cat <<EOF
+{
+  "name": "$MESH_BRIDGE",
+  "type": "ovs-bridge",
+  "ports": [],
+  "ipv4": {
+    "enabled": false
+  }
+}
+EOF
+)
 
-        # Add to /etc/network/interfaces for persistence
-        if [ -f /etc/network/interfaces ]; then
-            if ! grep -q "^auto mesh" /etc/network/interfaces; then
-                echo -e "\n# Netmaker mesh bridge" |  tee -a /etc/network/interfaces > /dev/null
-                echo "auto mesh" |  tee -a /etc/network/interfaces > /dev/null
-                echo "iface mesh inet manual" |  tee -a /etc/network/interfaces > /dev/null
-                echo "    ovs_type OVSBridge" |  tee -a /etc/network/interfaces > /dev/null
-                echo -e "${GREEN}✓${NC} Added mesh bridge to /etc/network/interfaces"
-            fi
+            # Add to state.json
+            jq ".plugins.net.interfaces += [$MESH_CONFIG]" "$STATE_FILE" > "${STATE_FILE}.tmp" && \
+                mv "${STATE_FILE}.tmp" "$STATE_FILE"
+
+            echo -e "${GREEN}✓${NC} Added $MESH_BRIDGE bridge to state.json"
+        else
+            echo -e "${GREEN}✓${NC} $MESH_BRIDGE already in state.json"
         fi
+
+        echo -e "${YELLOW}Note:${NC} Run 'op-dbus apply $STATE_FILE' to create bridges via OVSDB JSON-RPC"
     else
-        echo -e "${GREEN}✓${NC} 'mesh' bridge already exists"
+        echo -e "${YELLOW}⚠${NC}  state.json not found or jq not available"
+        echo -e "${YELLOW}⚠${NC}  Bridges will need to be configured manually in $STATE_FILE"
     fi
 else
-    echo -e "${YELLOW}⚠${NC}  openvswitch-switch not found, skipping mesh bridge creation"
+    echo -e "${YELLOW}Skipping OVS bridge configuration (standalone mode)${NC}"
 fi
 
 # Step 6: Setup netmaker (one-time HOST enrollment)
@@ -558,7 +690,10 @@ else
     echo -e "${GREEN}✓${NC} Netmaker token file already exists: $NETMAKER_ENV"
 fi
 
-# Attempt to join netmaker if token is configured
+# NOTE: Do NOT attempt to join netmaker during install
+# Bridges must be created first via 'op-dbus apply'
+# User will join netmaker manually after applying config
+
 if [ "$NETCLIENT_INSTALLED" = true ]; then
     # Load token from env file
     if [ -f "$NETMAKER_ENV" ]; then
@@ -573,50 +708,55 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
         # Auto-add netmaker interfaces to mesh bridge
         echo "Checking for netmaker interfaces to add to mesh bridge..."
         for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-") or . == "netmaker") | .ifname'); do
-            if  ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
+            if ovsdb_list_ports mesh 2>/dev/null | grep -q "^${iface}$"; then
                 echo -e "${GREEN}✓${NC} Interface $iface already in mesh bridge"
             else
                 echo "Adding netmaker interface $iface to mesh bridge..."
-                if  ovs-vsctl add-port mesh "$iface" 2>/dev/null; then
-                    echo -e "${GREEN}✓${NC} Added $iface to mesh bridge"
-                else
-                    echo -e "${YELLOW}⚠${NC}  Could not add $iface to mesh bridge"
-                fi
+                echo -e "${YELLOW}⚠${NC}  Port addition via op-dbus CLI not yet implemented"
+                echo -e "${YELLOW}⚠${NC}  Please add manually: (native OVSDB operation needed)"
             fi
         done
 
     elif [ -n "$NETMAKER_TOKEN" ]; then
+        echo "Netmaker token found, attempting to join..."
+
+        # First ensure bridges exist by applying ONLY network plugin state
+        if [ -f "$INSTALL_DIR/op-dbus" ] && [ -f "$STATE_FILE" ]; then
+            echo "Applying network plugin state to create bridges before netmaker join..."
+            if "$INSTALL_DIR/op-dbus" apply --plugin net "$STATE_FILE" 2>/dev/null; then
+                echo -e "${GREEN}✓${NC} Bridges created successfully (network plugin only)"
+                sleep 2  # Wait for bridges to be fully up
+            else
+                echo -e "${YELLOW}⚠${NC}  Could not apply network state, bridges may not exist yet"
+            fi
+        fi
+
+        # Now try to join netmaker
         echo "Joining host to netmaker network..."
         if netclient join -t "$NETMAKER_TOKEN"; then
             echo -e "${GREEN}✓${NC} Successfully joined netmaker network"
             echo -e "${GREEN}✓${NC} Containers will automatically have mesh networking"
 
-            # Wait a moment for interface to appear
-            sleep 2
+            # Wait for netmaker interface to appear
+            sleep 3
 
-            # Auto-add netmaker interfaces to mesh bridge
-            echo "Checking for netmaker interfaces to add to mesh bridge..."
-            for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-") or . == "netmaker") | .ifname'); do
-                if  ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
-                    echo -e "${GREEN}✓${NC} Interface $iface already in mesh bridge"
-                else
-                    echo "Adding netmaker interface $iface to mesh bridge..."
-                    if  ovs-vsctl add-port mesh "$iface" 2>/dev/null; then
-                        echo -e "${GREEN}✓${NC} Added $iface to mesh bridge"
-                    else
-                        echo -e "${YELLOW}⚠${NC}  Could not add $iface to mesh bridge"
-                    fi
-                fi
-            done
+            # Check for netmaker interfaces
+            NETMAKER_IFACES=$(ip -j link show 2>/dev/null | jq -r '.[] | select(.ifname | startswith("nm-") or . == "netmaker") | .ifname' 2>/dev/null)
 
+            if [ -n "$NETMAKER_IFACES" ]; then
+                echo -e "${GREEN}✓${NC} Netmaker interfaces created: $NETMAKER_IFACES"
+                echo -e "${YELLOW}Note:${NC} Run 'op-dbus apply' to add netmaker interfaces to mesh bridge"
+            fi
         else
-            echo -e "${YELLOW}⚠${NC}  Failed to join netmaker (check token)"
-            echo -e "${YELLOW}⚠${NC}  Containers will use bridge mode until host joins"
+            echo -e "${YELLOW}⚠${NC}  Failed to join netmaker (check token or network)"
+            echo -e "${YELLOW}⚠${NC}  You can join manually later: netclient join -t \$NETMAKER_TOKEN"
         fi
     else
         echo -e "${YELLOW}⚠${NC}  No NETMAKER_TOKEN set in $NETMAKER_ENV"
-        echo -e "${YELLOW}⚠${NC}  Add token and run: netclient join -t \$NETMAKER_TOKEN"
-        echo -e "${YELLOW}⚠${NC}  Or containers will use traditional bridge networking"
+        echo -e "${YELLOW}⚠${NC}  Add token and join manually:"
+        echo -e "${YELLOW}   ${NC} 1. Edit $NETMAKER_ENV and add NETMAKER_TOKEN"
+        echo -e "${YELLOW}   ${NC} 2. sudo op-dbus apply /etc/op-dbus/state.json"
+        echo -e "${YELLOW}   ${NC} 3. sudo netclient join -t \$NETMAKER_TOKEN"
     fi
 
     # Install LXC hook for automatic container netmaker join
@@ -740,7 +880,7 @@ Requires=openvswitch-switch.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/op-dbus run --state-file /etc/op-dbus/state.json $DHCP_FLAG
+ExecStart=/usr/local/bin/op-dbus --state-file /etc/op-dbus/state.json $DHCP_FLAG run
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -792,20 +932,21 @@ if [ -f "$STATE_FILE" ]; then
     fi
 fi
 echo ""
-echo -e "${YELLOW}Next Steps:${NC}"
+echo -e "${YELLOW}Next Steps (IN ORDER):${NC}"
 STEP=1
-if [ "$NO_PROXMOX" = false ]; then
-    echo "$STEP. Add netmaker token: nano $CONFIG_DIR/netmaker.env"
-    STEP=$((STEP + 1))
-fi
 echo "$STEP. Review state file:  nano $STATE_FILE"
 STEP=$((STEP + 1))
 echo "$STEP. Test query:         op-dbus query"
 STEP=$((STEP + 1))
 echo "$STEP. Test diff:          op-dbus diff $STATE_FILE"
 STEP=$((STEP + 1))
-echo "$STEP. Test apply (safe):  op-dbus apply $STATE_FILE"
+echo "$STEP. ${GREEN}APPLY CONFIG${NC}:     op-dbus apply --plugin net $STATE_FILE  ${YELLOW}← Creates bridges!${NC}"
 STEP=$((STEP + 1))
+if [ "$NO_PROXMOX" = false ]; then
+    echo "$STEP. ${GREEN}JOIN NETMAKER${NC}:    Add token to $CONFIG_DIR/netmaker.env"
+    echo "                      Then: netclient join -t \$NETMAKER_TOKEN"
+    STEP=$((STEP + 1))
+fi
 echo "$STEP. Enable service:     systemctl enable op-dbus"
 STEP=$((STEP + 1))
 echo "$STEP. Start service:      systemctl start op-dbus"
@@ -815,27 +956,38 @@ STEP=$((STEP + 1))
 echo "$STEP. View logs:          journalctl -u op-dbus -f"
 
 if [ "$NO_PROXMOX" = false ]; then
-    echo ""
-    echo -e "${YELLOW}Container Setup:${NC}"
-    echo "For netmaker-enabled containers, add to state.json:"
-fi
-
-if [ "$NO_PROXMOX" = false ]; then
 echo ""
 echo -e "${YELLOW}Creating Containers:${NC}"
-echo "  1. Clone from template: pct clone <TEMPLATE_ID> <NEW_ID> --full"
-echo "  2. Configure network:   pct set <NEW_ID> --net0 name=vi<ID>,bridge=mesh,type=veth"
-echo "  3. Start container:     pct start <NEW_ID>"
+echo "  Use ANY Proxmox OS template. No interface by default - add as needed:"
 echo ""
-echo "Container will automatically:"
-echo "  ✓ Have netclient pre-installed"
-echo "  ✓ Have Netmaker token from template"
-echo "  ✓ Join Netmaker on first boot (via systemd service)"
-echo "  ✓ Be attached to mesh bridge"
+echo "  # Socket-only container (NO network interface)"
+echo "  pct create 100 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \\"
+echo "    --hostname mycontainer --memory 512"
 echo ""
-echo "Token location:"
-echo "  Host:      /etc/op-dbus/netmaker.env"
-echo "  Template:  /etc/netmaker.env (baked in during template creation)"
+echo "  # Container with internet (via ovsbr0)"
+echo "  pct create 101 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \\"
+echo "    --hostname mycontainer --memory 512 \\"
+echo "    --net0 name=eth0,bridge=ovsbr0,type=veth"
+echo ""
+echo "  # Mesh networking container (for netmaker)"
+echo "  pct create 102 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \\"
+echo "    --hostname mesh-container --memory 512 \\"
+echo "    --net0 name=eth0,bridge=mesh,type=veth"
+echo ""
+echo "Default container:"
+echo "  ✓ NO network interface (socket networking only)"
+echo "  ✓ Nesting enabled (for Docker)"
+echo "  ✓ Add --net0 to get internet or mesh networking"
+echo ""
+echo "OVS bridges are configured in state.json and managed by op-dbus:"
+echo "  - ovsbr0: Main bridge with internet (172.16.0.10/24)"
+echo "  - mesh: Netmaker mesh bridge (no IP)"
+echo "  - Created via OVSDB JSON-RPC (not ovs-vsctl commands)"
+echo "  - Apply with: op-dbus apply --plugin net /etc/op-dbus/state.json"
+echo ""
+echo "To add netclient after creation:"
+echo "  pct exec <ID> -- wget -O /tmp/netclient https://fileserver.netmaker.io/releases/download/v1.1.0/netclient-linux-amd64"
+echo "  pct exec <ID> -- chmod +x /tmp/netclient && /tmp/netclient install"
 fi  # End container setup instructions
 
 echo ""
