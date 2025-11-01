@@ -7,10 +7,10 @@ pub mod systemd;
 
 pub mod dnsresolver;
 pub mod pcidecl;
+pub use dnsresolver::DnsResolverPlugin;
 pub use login1::Login1Plugin;
 pub use lxc::LxcPlugin;
 pub use net::NetStatePlugin;
+pub use pcidecl::PciDeclPlugin;
 pub use sessdecl::SessDeclPlugin;
 pub use systemd::SystemdStatePlugin;
-pub use dnsresolver::DnsResolverPlugin;
-pub use pcidecl::PciDeclPlugin;

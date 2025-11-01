@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::process::Command;
 
-use crate::state::plugin::{ApplyResult, Checkpoint, PluginCapabilities, StateAction, StateDiff, StatePlugin};
+use crate::state::plugin::{
+    ApplyResult, Checkpoint, PluginCapabilities, StateAction, StateDiff, StatePlugin,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessDecl {
@@ -24,7 +26,10 @@ pub struct SessDecl {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum EnforcementMode { Enforce, ObserveOnly }
+pub enum EnforcementMode {
+    Enforce,
+    ObserveOnly,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginItem {
@@ -37,9 +42,9 @@ pub struct LoginItem {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Selector {
     pub user: Option<String>,
-    pub tty: Option<String>,   // e.g. tty1 pts/0
-    pub seat: Option<String>,  // e.g. seat0
-    pub kind: Option<String>,  // e.g. "tty", "x11", "wayland" (best-effort)
+    pub tty: Option<String>,  // e.g. tty1 pts/0
+    pub seat: Option<String>, // e.g. seat0
+    pub kind: Option<String>, // e.g. "tty", "x11", "wayland" (best-effort)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,7 +64,9 @@ struct LiveSession {
 pub struct SessDeclPlugin;
 
 impl SessDeclPlugin {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     fn list_sessions_fallback() -> Vec<LiveSession> {
         // Parse: loginctl list-sessions  (no JSON in older distros; parse columns)
@@ -73,7 +80,9 @@ impl SessDeclPlugin {
             .output();
 
         let Ok(o) = out else { return vec![] };
-        if !o.status.success() { return vec![] }
+        if !o.status.success() {
+            return vec![];
+        }
         let s = String::from_utf8_lossy(&o.stdout);
         let mut res = Vec::new();
         for line in s.lines() {
@@ -92,15 +101,30 @@ impl SessDeclPlugin {
     }
 
     fn match_selector(sel: &Selector, sess: &LiveSession) -> bool {
-        if let Some(u) = &sel.user { if &sess.user != u { return false; } }
-        if let Some(t) = &sel.tty  { if &sess.tty  != t { return false; } }
-        if let Some(s) = &sel.seat { if &sess.seat != s { return false; } }
+        if let Some(u) = &sel.user {
+            if &sess.user != u {
+                return false;
+            }
+        }
+        if let Some(t) = &sel.tty {
+            if &sess.tty != t {
+                return false;
+            }
+        }
+        if let Some(s) = &sel.seat {
+            if &sess.seat != s {
+                return false;
+            }
+        }
         // kind not resolved in fallback
         true
     }
 
     fn terminate_session(id: &str) -> Result<()> {
-        let st = Command::new("loginctl").arg("terminate-session").arg(id).status()?;
+        let st = Command::new("loginctl")
+            .arg("terminate-session")
+            .arg(id)
+            .status()?;
         if !st.success() {
             anyhow::bail!("loginctl terminate-session {} failed", id);
         }
@@ -110,56 +134,77 @@ impl SessDeclPlugin {
 
 #[async_trait]
 impl StatePlugin for SessDeclPlugin {
-    fn name(&self) -> &str { "sess" }
-    fn version(&self) -> &str { "1.0.0" }
+    fn name(&self) -> &str {
+        "sess"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
 
     async fn query_current_state(&self) -> Result<Value> {
         // Returns current session inventory in a simple shape
         let sessions = Self::list_sessions_fallback();
-        let vec: Vec<Value> = sessions.into_iter().map(|s| {
-            serde_json::json!({
-                "session_id": s.session_id,
-                "uid": s.uid,
-                "user": s.user,
-                "seat": s.seat,
-                "tty": s.tty,
+        let vec: Vec<Value> = sessions
+            .into_iter()
+            .map(|s| {
+                serde_json::json!({
+                    "session_id": s.session_id,
+                    "uid": s.uid,
+                    "user": s.user,
+                    "seat": s.seat,
+                    "tty": s.tty,
+                })
             })
-        }).collect();
+            .collect();
         Ok(serde_json::json!({"sessions": vec}))
     }
 
     async fn calculate_diff(&self, _current: &Value, desired: &Value) -> Result<StateDiff> {
-        let decl: SessDecl = serde_json::from_value(desired.clone())
-            .context("desired must be SessDecl")?;
+        let decl: SessDecl =
+            serde_json::from_value(desired.clone()).context("desired must be SessDecl")?;
 
         // Snapshot live state for diff
         let live = Self::list_sessions_fallback();
 
         let mut actions = Vec::new();
         for item in &decl.items {
-            let matches: Vec<&LiveSession> = live.iter().filter(|s| Self::match_selector(&item.selector, s)).collect();
+            let matches: Vec<&LiveSession> = live
+                .iter()
+                .filter(|s| Self::match_selector(&item.selector, s))
+                .collect();
             let is_present = !matches.is_empty();
 
             match (item.mode, item.desired.present, is_present) {
                 (EnforcementMode::ObserveOnly, _, _) => {
                     // Observe-only mode: no action taken
-                    actions.push(StateAction::NoOp { resource: item.id.clone() });
+                    actions.push(StateAction::NoOp {
+                        resource: item.id.clone(),
+                    });
                 }
                 (EnforcementMode::Enforce, true, true) => {
                     // Desired session is present: no action needed
-                    actions.push(StateAction::NoOp { resource: item.id.clone() });
+                    actions.push(StateAction::NoOp {
+                        resource: item.id.clone(),
+                    });
                 }
                 (EnforcementMode::Enforce, true, false) => {
                     // Cannot force login; mark as NoOp
-                    actions.push(StateAction::NoOp { resource: item.id.clone() });
+                    actions.push(StateAction::NoOp {
+                        resource: item.id.clone(),
+                    });
                 }
                 (EnforcementMode::Enforce, false, true) => {
                     // Session should be absent but is present: terminate it
-                    actions.push(StateAction::Modify { resource: item.id.clone(), changes: serde_json::to_value(item)? });
+                    actions.push(StateAction::Modify {
+                        resource: item.id.clone(),
+                        changes: serde_json::to_value(item)?,
+                    });
                 }
                 (EnforcementMode::Enforce, false, false) => {
                     // Session already absent: no action needed
-                    actions.push(StateAction::NoOp { resource: item.id.clone() });
+                    actions.push(StateAction::NoOp {
+                        resource: item.id.clone(),
+                    });
                 }
             }
         }
@@ -187,14 +232,18 @@ impl StatePlugin for SessDeclPlugin {
                 StateAction::Modify { resource, changes } => {
                     let item: LoginItem = serde_json::from_value(changes.clone())?;
                     // Find matching sessions and terminate all
-                    let matches: Vec<&LiveSession> = live.iter().filter(|s| Self::match_selector(&item.selector, s)).collect();
+                    let matches: Vec<&LiveSession> = live
+                        .iter()
+                        .filter(|s| Self::match_selector(&item.selector, s))
+                        .collect();
                     if matches.is_empty() {
                         changes_applied.push(format!("{}: already absent", resource));
                         continue;
                     }
                     for s in matches {
                         match Self::terminate_session(&s.session_id) {
-                            Ok(_) => changes_applied.push(format!("{}: terminated session {}", resource, s.session_id)),
+                            Ok(_) => changes_applied
+                                .push(format!("{}: terminated session {}", resource, s.session_id)),
                             Err(e) => errors.push(format!("{}: {}", resource, e)),
                         }
                     }

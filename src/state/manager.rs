@@ -222,7 +222,7 @@ impl StateManager {
                     );
 
                     // Record blockchain footprint (apply)
-                    let data = serde_json::json!({
+                    let _data = serde_json::json!({
                         "plugin": diff.plugin,
                         "actions": diff.actions,
                         "metadata": diff.metadata,
@@ -264,7 +264,7 @@ impl StateManager {
                     });
 
                     // Record failure footprint
-                    let data = serde_json::json!({
+                    let _data = serde_json::json!({
                         "plugin": diff.plugin,
                         "actions": diff.actions,
                         "metadata": diff.metadata,
@@ -282,7 +282,7 @@ impl StateManager {
                     });
 
                     // Record missing plugin footprint
-                    let data = serde_json::json!({
+                    let _data = serde_json::json!({
                         "plugin": diff.plugin,
                         "actions": diff.actions,
                         "metadata": diff.metadata,
@@ -398,31 +398,31 @@ impl StateManager {
                     result.changes_applied
                 );
 
-//                 // Record footprint
-//                 let data = serde_json::json!({
-//                     "plugin": plugin_name,
-//                     "actions": diff.actions,
-//                     "metadata": diff.metadata,
-//                     "result": {
-//                         "success": result.success,
-//                         "changes": result.changes_applied,
-//                         "errors": result.errors,
-//                     }
-//                 });
-//                 self.record_footprint(plugin_name, "apply_single", data);
+                //                 // Record footprint
+                //                 let data = serde_json::json!({
+                //                     "plugin": plugin_name,
+                //                     "actions": diff.actions,
+                //                     "metadata": diff.metadata,
+                //                     "result": {
+                //                         "success": result.success,
+                //                         "changes": result.changes_applied,
+                //                         "errors": result.errors,
+                //                     }
+                //                 });
+                //                 self.record_footprint(plugin_name, "apply_single", data);
 
                 results.push(result);
             }
             Err(e) => {
                 log::error!("Failed to apply state for {}: {}", plugin_name, e);
 
-//                 // Record error footprint
-//                 let data = serde_json::json!({
-//                     "plugin": plugin_name,
-//                     "actions": diff.actions,
-//                     "error": e.to_string(),
-//                 });
-//                 self.record_footprint(plugin_name, "apply_error", data);
+                //                 // Record error footprint
+                //                 let data = serde_json::json!({
+                //                     "plugin": plugin_name,
+                //                     "actions": diff.actions,
+                //                     "error": e.to_string(),
+                //                 });
+                //                 self.record_footprint(plugin_name, "apply_error", data);
 
                 return Err(e);
             }

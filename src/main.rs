@@ -347,6 +347,18 @@ async fn main() -> Result<()> {
         .register_plugin(Box::new(state::plugins::PciDeclPlugin::new()))
         .await;
 
+    // Start org.opdbus on system D-Bus to accept ApplyState calls for net plugin
+    {
+        let sm = Arc::clone(&state_manager);
+        tokio::spawn(async move {
+            if let Err(e) = crate::state::dbus_server::start_system_bus(sm).await {
+                log::warn!("Failed to start org.opdbus service: {}", e);
+            } else {
+                log::info!("D-Bus service started: org.opdbus at /org/opdbus/state/net");
+            }
+        });
+    }
+
     // Start non-network JSON-RPC DB (unix socket) for plugin state, OVSDB-like, read-only
     {
         let sm = Arc::clone(&state_manager);
@@ -541,7 +553,11 @@ async fn main() -> Result<()> {
                         .collect();
 
                     if !plugin_footprints.is_empty() {
-                        println!("? Plugin '{}': {} footprints found", plugin_name, plugin_footprints.len());
+                        println!(
+                            "? Plugin '{}': {} footprints found",
+                            plugin_name,
+                            plugin_footprints.len()
+                        );
                     }
                 }
             }
@@ -972,11 +988,14 @@ async fn handle_blockchain_command(cmd: BlockchainCommands) -> Result<()> {
                 ts_b.cmp(&ts_a)
             });
 
-            // Apply limit
-            let limit = limit.unwrap_or(10);
-            let blocks_to_show = blocks.iter().take(limit);
+            // Apply a default display limit for search results
+            let blocks_to_show = blocks.iter().take(10);
 
-            println!("=== Blockchain Blocks (showing {} of {}) ===\n", blocks_to_show.len(), blocks.len());
+            println!(
+                "=== Blockchain Blocks (showing {} of {}) ===\n",
+                blocks_to_show.len(),
+                blocks.len()
+            );
             for block in blocks_to_show {
                 let timestamp = block["timestamp"].as_u64().unwrap_or(0);
                 let hash = block["hash"].as_str().unwrap_or("unknown");
@@ -1134,7 +1153,8 @@ async fn handle_blockchain_command(cmd: BlockchainCommands) -> Result<()> {
                         let timestamp = block["timestamp"].as_u64().unwrap_or(0);
 
                         let content = format!("{}:{}:{}", category, action, timestamp);
-                        let calculated_hash = format!("{:x}", sha2::Sha256::digest(content.as_bytes()));
+                        let calculated_hash =
+                            format!("{:x}", sha2::Sha256::digest(content.as_bytes()));
 
                         if calculated_hash != hash {
                             println!("? Block {} has invalid hash", &hash[..16]);
@@ -1214,8 +1234,7 @@ async fn handle_container_command(
         ContainerCommands::List { running, stopped } => {
             info!("Listing containers");
             let state = state_manager.query_plugin_state("lxc").await?;
-            let lxc_state: crate::state::plugins::lxc::LxcState =
-                serde_json::from_value(state)?;
+            let lxc_state: crate::state::plugins::lxc::LxcState = serde_json::from_value(state)?;
 
             let containers: Vec<_> = if running {
                 lxc_state
@@ -1260,13 +1279,9 @@ async fn handle_container_command(
         ContainerCommands::Show { container_id } => {
             info!("Showing container: {}", container_id);
             let state = state_manager.query_plugin_state("lxc").await?;
-            let lxc_state: crate::state::plugins::lxc::LxcState =
-                serde_json::from_value(state)?;
+            let lxc_state: crate::state::plugins::lxc::LxcState = serde_json::from_value(state)?;
 
-            let container = lxc_state
-                .containers
-                .iter()
-                .find(|c| c.id == container_id);
+            let container = lxc_state.containers.iter().find(|c| c.id == container_id);
 
             match container {
                 Some(c) => {

@@ -84,7 +84,7 @@ impl StreamingBlockchain {
 
     pub async fn new_with_interval(
         base_path: impl AsRef<Path>,
-        snapshot_interval: SnapshotInterval
+        snapshot_interval: SnapshotInterval,
     ) -> Result<Self> {
         let base_path = base_path.as_ref().to_path_buf();
         let timing_subvol = base_path.join("timing");
@@ -169,7 +169,10 @@ impl StreamingBlockchain {
     }
 
     /// Add multiple footprints in batch (for bulk operations)
-    pub async fn add_footprints_batch(&self, footprints: Vec<PluginFootprint>) -> Result<Vec<String>> {
+    pub async fn add_footprints_batch(
+        &self,
+        footprints: Vec<PluginFootprint>,
+    ) -> Result<Vec<String>> {
         let mut hashes = Vec::new();
 
         for footprint in footprints {

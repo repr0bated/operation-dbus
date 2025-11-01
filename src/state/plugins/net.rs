@@ -380,60 +380,60 @@ impl NetStatePlugin {
             log::warn!("Failed to bring bridge up via netlink: {}", e);
         }
 
-//         // Configure IPv4 if specified via rtnetlink (native netlink)
-//         if let Some(ref ipv4) = config.tunable.ipv4 {
-//             if ipv4.enabled {
-//                 if let Some(ref addresses) = ipv4.address {
-//                     for addr in addresses {
-//                         match crate::native::rtnetlink_helpers::add_ipv4_address(
-//                             &config.name,
-//                             &addr.ip,
-//                             addr.prefix,
-//                         )
-//                         .await
-//                         {
-//                             Ok(_) => {
-//                                 log::info!(
-//                                     "Added IP {}/{} to {} via rtnetlink",
-//                                     addr.ip,
-//                                     addr.prefix,
-//                                     config.name
-//                                 );
-//                             }
-//                             Err(e) => {
-//                                 log::warn!(
-//                                     "Failed to add IP {} (may already exist): {}",
-//                                     addr.ip,
-//                                     e
-//                                 );
-//                             }
-//                         }
-//                     }
-//                 }
-// 
-//                 // Configure gateway if specified via rtnetlink (native netlink)
-//                 if let Some(ref gateway) = ipv4.gateway {
-//                     // Delete existing default route (ignore errors)
-//                     let _ = crate::native::rtnetlink_helpers::del_default_route().await;
-// 
-//                     // Add new default route
-//                     match crate::native::rtnetlink_helpers::add_default_route(&config.name, gateway)
-//                         .await
-//                     {
-//                         Ok(_) => {
-//                             log::info!(
-//                                 "Added default route via {} on {} via rtnetlink",
-//                                 gateway,
-//                                 config.name
-//                             );
-//                         }
-//                         Err(e) => {
-//                             log::warn!("Failed to add default route: {}", e);
-//                         }
-//                     }
-//                 }
-//             }
-//         }
+        //         // Configure IPv4 if specified via rtnetlink (native netlink)
+        //         if let Some(ref ipv4) = config.tunable.ipv4 {
+        //             if ipv4.enabled {
+        //                 if let Some(ref addresses) = ipv4.address {
+        //                     for addr in addresses {
+        //                         match crate::native::rtnetlink_helpers::add_ipv4_address(
+        //                             &config.name,
+        //                             &addr.ip,
+        //                             addr.prefix,
+        //                         )
+        //                         .await
+        //                         {
+        //                             Ok(_) => {
+        //                                 log::info!(
+        //                                     "Added IP {}/{} to {} via rtnetlink",
+        //                                     addr.ip,
+        //                                     addr.prefix,
+        //                                     config.name
+        //                                 );
+        //                             }
+        //                             Err(e) => {
+        //                                 log::warn!(
+        //                                     "Failed to add IP {} (may already exist): {}",
+        //                                     addr.ip,
+        //                                     e
+        //                                 );
+        //                             }
+        //                         }
+        //                     }
+        //                 }
+        //
+        //                 // Configure gateway if specified via rtnetlink (native netlink)
+        //                 if let Some(ref gateway) = ipv4.gateway {
+        //                     // Delete existing default route (ignore errors)
+        //                     let _ = crate::native::rtnetlink_helpers::del_default_route().await;
+        //
+        //                     // Add new default route
+        //                     match crate::native::rtnetlink_helpers::add_default_route(&config.name, gateway)
+        //                         .await
+        //                     {
+        //                         Ok(_) => {
+        //                             log::info!(
+        //                                 "Added default route via {} on {} via rtnetlink",
+        //                                 gateway,
+        //                                 config.name
+        //                             );
+        //                         }
+        //                         Err(e) => {
+        //                             log::warn!("Failed to add default route: {}", e);
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
 
         log::info!("Finished apply_ovs_config for {}", config.name);
         Ok(())
