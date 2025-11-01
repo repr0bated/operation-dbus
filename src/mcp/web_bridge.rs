@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+// Rate limiting will be implemented with a simple in-memory counter
 use tower_http::services::ServeDir;
 use zbus::Connection;
 
@@ -105,6 +106,8 @@ pub async fn run_web_server() -> Result<(), Box<dyn std::error::Error>> {
         .route("/ws/events", get(ws_events_handler))
         // Static files
         .nest_service("/static", ServeDir::new("web"))
+        // TODO: Add rate limiting with tower_governor once API is clarified
+        // Rate limiting: 10 requests per second with burst of 20 planned
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;

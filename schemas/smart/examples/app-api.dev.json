@@ -1,0 +1,113 @@
+{
+  "metadata": {
+    "service_name": "reef-api",
+    "service_tier": "best_effort",
+    "environment": "dev",
+    "region": "lab",
+    "release_version": "v0.1.1",
+    "rollout_strategy": "rolling",
+    "owner": "apps",
+    "cost_center": "AQ-000111",
+    "data_classification": "internal",
+    "runbook_url": "https://ops.example.org/runbooks/reef-api",
+    "alert_route": "slack-reef"
+  },
+  "security": {
+    "privileged": false,
+    "seccomp_profile": "none.json",
+    "apparmor_profile": "lxc-default",
+    "read_only_rootfs": false
+  },
+  "networking": {
+    "net_policy_id": "AQNETLAB",
+    "dns_policy": "default",
+    "mtu_policy": 1500,
+    "ipv6_required": false,
+    "interfaces": [
+      {
+        "name": "eth0",
+        "type": "macvlan",
+        "ipv4": {
+          "address": "192.168.50.20",
+          "cidr": "192.168.50.20/24",
+          "gateway": "192.168.50.1"
+        }
+      }
+    ],
+    "ingress_rules": [
+      {
+        "port": 8080,
+        "proto": "tcp",
+        "cidr": "0.0.0.0/0"
+      }
+    ],
+    "egress_rules": []
+  },
+  "reliability": {
+    "availability_target": 99.0,
+    "p99_latency_budget_ms": 1000,
+    "restart_policy": "always",
+    "replica_set": 1,
+    "startup_grace": "PT15S",
+    "shutdown_grace": "PT10S",
+    "healthcheck": {
+      "cmd": "curl -fsS http://127.0.0.1:8080/health",
+      "interval": "PT30S",
+      "timeout": "PT5S",
+      "retries": 2
+    }
+  },
+  "resources": {
+    "cpu_class": "tiny",
+    "mem_class": "tiny",
+    "hard_limits": {
+      "cpu_millicores": 500,
+      "memory_mib": 512,
+      "pids": 256
+    },
+    "overcommit_policy": "aggressive"
+  },
+  "observability": {
+    "logs": {
+      "retention_days": 7,
+      "max_size_mb": 128,
+      "level": "debug"
+    },
+    "metrics": {
+      "exporter": "custom",
+      "scrape": true,
+      "ports": [
+        9200
+      ]
+    },
+    "traces": {
+      "enabled": false
+    },
+    "audit": {
+      "enabled": true,
+      "retention_days": 30
+    }
+  },
+  "lifecycle": {
+    "deployment_strategy": "rolling",
+    "max_unavailable": 1,
+    "max_surge": 1,
+    "rollback_on_failure": true
+  },
+  "backup_dr": {
+    "backup_class": "none",
+    "rpo_minutes": 0,
+    "rto_minutes": 0,
+    "snapshot_policy": "cron:@weekly",
+    "offsite_copy": false,
+    "restore_runbook_url": "https://ops.example.org/runbooks/restore-reef-api"
+  },
+  "compliance": {
+    "pii": false,
+    "phi": false,
+    "retention_policy": "dev-logs-30d",
+    "legal_hold_supported": false,
+    "evidence_tags": [],
+    "change_control_ticket": "CHG-000111"
+  }
+}
