@@ -110,8 +110,9 @@ pub async fn run_web_server() -> Result<(), Box<dyn std::error::Error>> {
         // Rate limiting: 10 requests per second with burst of 20 planned
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
-    println!("🌐 Web interface available at: http://127.0.0.1:8080");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    println!("🌐 Web interface available at: http://0.0.0.0:8080");
+    println!("   Access from network at: http://<your-ip>:8080");
 
     axum::serve(listener, app).await?;
 
@@ -268,7 +269,10 @@ async fn dashboard_handler() -> Html<&'static str> {
         let ws;
 
         function connect() {
-            ws = new WebSocket('ws://localhost:8080/ws/events');
+            // Use current window location to support remote access
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/events`;
+            ws = new WebSocket(wsUrl);
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);

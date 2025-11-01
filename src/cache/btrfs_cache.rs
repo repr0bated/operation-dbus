@@ -455,15 +455,20 @@ impl BtrfsCache {
     pub async fn stream_to_remote(
         &self,
         remote_host: &str,
-        remote_path: &str
+        remote_path: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Apply NUMA affinity for streaming operations
         self.apply_numa_affinity("cache_streaming").await?;
 
-        let snapshot_path = self.create_snapshot().await
+        let snapshot_path = self
+            .create_snapshot()
+            .await
             .map_err(|e| format!("Failed to create snapshot: {}", e))?;
 
-        info!("Streaming cache snapshot to {}:{}", remote_host, remote_path);
+        info!(
+            "Streaming cache snapshot to {}:{}",
+            remote_host, remote_path
+        );
 
         let cmd = format!(
             "btrfs send {} | ssh {} 'btrfs receive {}'",
@@ -493,18 +498,19 @@ impl BtrfsCache {
         &self,
         remote_host: &str,
         remote_snapshot: &str,
-        local_path: &str
+        local_path: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Apply NUMA affinity for receiving operations
         self.apply_numa_affinity("cache_receiving").await?;
 
-        info!("Receiving cache snapshot from {}:{}", remote_host, remote_snapshot);
+        info!(
+            "Receiving cache snapshot from {}:{}",
+            remote_host, remote_snapshot
+        );
 
         let cmd = format!(
             "ssh {} 'btrfs send {}' | btrfs receive {}",
-            remote_host,
-            remote_snapshot,
-            local_path
+            remote_host, remote_snapshot, local_path
         );
 
         let output = tokio::process::Command::new("bash")
@@ -536,7 +542,7 @@ impl BtrfsCache {
     /// Helper method to apply NUMA affinity (CPU + memory)
     async fn apply_numa_affinity(
         &self,
-        operation: &str
+        operation: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Apply CPU affinity first
         self.apply_cpu_affinity(operation).await?;
@@ -553,7 +559,10 @@ impl BtrfsCache {
                 debug!("Memory preferred on node {} for {}", node, operation);
             }
             MemoryPolicy::Interleave(nodes) if !nodes.is_empty() => {
-                debug!("Memory interleaved across nodes {:?} for {}", nodes, operation);
+                debug!(
+                    "Memory interleaved across nodes {:?} for {}",
+                    nodes, operation
+                );
             }
             _ => {
                 debug!("Memory policy not applied for {}", operation);
@@ -566,13 +575,15 @@ impl BtrfsCache {
     /// Apply CPU affinity using taskset
     async fn apply_cpu_affinity(
         &self,
-        operation: &str
+        operation: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.cpu_affinity.is_empty() {
             return Ok(());
         }
 
-        let cpu_list = self.cpu_affinity.iter()
+        let cpu_list = self
+            .cpu_affinity
+            .iter()
             .map(|cpu| cpu.to_string())
             .collect::<Vec<_>>()
             .join(",");
@@ -586,7 +597,10 @@ impl BtrfsCache {
             .map_err(|e| format!("taskset command failed: {}", e))?;
 
         if output.status.success() {
-            debug!("Applied CPU affinity to cores: {} for {}", cpu_list, operation);
+            debug!(
+                "Applied CPU affinity to cores: {} for {}",
+                cpu_list, operation
+            );
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -631,7 +645,6 @@ pub struct NumaInfo {
     pub placement_strategy: CachePlacementStrategy,
     pub memory_policy: MemoryPolicy,
 }
-
 
 #[cfg(test)]
 mod tests {

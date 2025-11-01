@@ -8,7 +8,9 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::state::plugin::{ApplyResult, Checkpoint, PluginCapabilities, StateAction, StateDiff, StatePlugin, DiffMetadata};
+use crate::state::plugin::{
+    ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PciDecl {
@@ -18,13 +20,16 @@ pub struct PciDecl {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Mode { Enforce, ObserveOnly }
+pub enum Mode {
+    Enforce,
+    ObserveOnly,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PciItem {
-    pub id: String,              // stable id in your inventory
+    pub id: String, // stable id in your inventory
     pub mode: Mode,
-    pub address: String,         // 0000:00:1f.6
+    pub address: String, // 0000:00:1f.6
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expect_vendor: Option<String>, // "8086"
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,9 +51,13 @@ pub struct PciLive {
 pub struct PciDeclPlugin;
 
 impl PciDeclPlugin {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
-    fn sys_path(addr: &str) -> String { format!("/sys/bus/pci/devices/{}", addr) }
+    fn sys_path(addr: &str) -> String {
+        format!("/sys/bus/pci/devices/{}", addr)
+    }
 
     fn read_to_string(path: &str) -> Option<String> {
         fs::read_to_string(path).ok().map(|s| s.trim().to_string())
@@ -59,7 +68,10 @@ impl PciDeclPlugin {
         let present = Path::new(&root).exists();
         let vendor = Self::read_to_string(&format!("{}/vendor", root));
         let device = Self::read_to_string(&format!("{}/device", root));
-        let drv_link = Path::new(&format!("{}/driver", root)).read_link().ok().and_then(|p| p.file_name().map(|s| s.to_string_lossy().to_string()));
+        let drv_link = Path::new(&format!("{}/driver", root))
+            .read_link()
+            .ok()
+            .and_then(|p| p.file_name().map(|s| s.to_string_lossy().to_string()));
         let drv_override = Self::read_to_string(&format!("{}/driver_override", root));
         PciLive {
             address: addr.to_string(),
@@ -72,24 +84,38 @@ impl PciDeclPlugin {
     }
 
     fn lspci_present(addr: &str) -> bool {
-        if let Ok(out) = Command::new("sh").arg("-c").arg(format!("lspci -s {} >/dev/null 2>&1; echo $?", addr)).output() {
+        if let Ok(out) = Command::new("sh")
+            .arg("-c")
+            .arg(format!("lspci -s {} >/dev/null 2>&1; echo $?", addr))
+            .output()
+        {
             return out.stdout.get(0).map(|b| *b == b'0').unwrap_or(false);
         }
         false
     }
 
     fn compliant(l: &PciLive, i: &PciItem) -> bool {
-        if !l.present { return false; }
+        if !l.present {
+            return false;
+        }
         if let Some(v) = &i.expect_vendor {
-            if l.vendor.as_deref() != Some(&format!("0x{}", v).to_lowercase()) &&
-               l.vendor.as_deref() != Some(v) { return false; }
+            if l.vendor.as_deref() != Some(&format!("0x{}", v).to_lowercase())
+                && l.vendor.as_deref() != Some(v)
+            {
+                return false;
+            }
         }
         if let Some(d) = &i.expect_device {
-            if l.device.as_deref() != Some(&format!("0x{}", d).to_lowercase()) &&
-               l.device.as_deref() != Some(d) { return false; }
+            if l.device.as_deref() != Some(&format!("0x{}", d).to_lowercase())
+                && l.device.as_deref() != Some(d)
+            {
+                return false;
+            }
         }
         if let Some(ovr) = &i.driver_override {
-            if l.driver_override.as_deref() != Some(ovr.as_str()) { return false; }
+            if l.driver_override.as_deref() != Some(ovr.as_str()) {
+                return false;
+            }
         }
         true
     }
@@ -103,8 +129,12 @@ impl PciDeclPlugin {
 
 #[async_trait]
 impl StatePlugin for PciDeclPlugin {
-    fn name(&self) -> &str { "pcidecl" }
-    fn version(&self) -> &str { "1.0.0" }
+    fn name(&self) -> &str {
+        "pcidecl"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
 
     async fn query_current_state(&self) -> Result<Value> {
         // Not listing all PCI devices; caller provides address. Return empty.
@@ -113,22 +143,32 @@ impl StatePlugin for PciDeclPlugin {
     }
 
     async fn calculate_diff(&self, _current: &Value, desired: &Value) -> Result<StateDiff> {
-        let want: PciDecl = serde_json::from_value(desired.clone()).context("desired must be PciDecl")?;
+        let want: PciDecl =
+            serde_json::from_value(desired.clone()).context("desired must be PciDecl")?;
         let mut actions = Vec::new();
         for item in &want.items {
             let live = Self::live_for(&item.address);
             let present = live.present || Self::lspci_present(&item.address);
             if let Mode::ObserveOnly = item.mode {
-                actions.push(StateAction::NoOp { resource: item.id.clone() });
+                actions.push(StateAction::NoOp {
+                    resource: item.id.clone(),
+                });
             } else {
                 if !present {
-                    actions.push(StateAction::NoOp { resource: item.id.clone() });
+                    actions.push(StateAction::NoOp {
+                        resource: item.id.clone(),
+                    });
                     continue;
                 }
                 if Self::compliant(&live, item) {
-                    actions.push(StateAction::NoOp { resource: item.id.clone() });
+                    actions.push(StateAction::NoOp {
+                        resource: item.id.clone(),
+                    });
                 } else {
-                    actions.push(StateAction::Modify { resource: item.id.clone(), changes: serde_json::to_value(item)? });
+                    actions.push(StateAction::Modify {
+                        resource: item.id.clone(),
+                        changes: serde_json::to_value(item)?,
+                    });
                 }
             }
         }
@@ -138,7 +178,10 @@ impl StatePlugin for PciDeclPlugin {
             metadata: DiffMetadata {
                 timestamp: chrono::Utc::now().timestamp(),
                 current_hash: format!("{:x}", md5::compute("pcidecl-current")),
-                desired_hash: format!("{:x}", md5::compute(serde_json::to_string(&desired).unwrap_or_default())),
+                desired_hash: format!(
+                    "{:x}",
+                    md5::compute(serde_json::to_string(&desired).unwrap_or_default())
+                ),
             },
         })
     }
@@ -148,12 +191,17 @@ impl StatePlugin for PciDeclPlugin {
         let mut errors = Vec::new();
         for action in &diff.actions {
             match action {
-                StateAction::Modify { resource, changes } |
-                StateAction::Create { resource, config: changes } => {
-                    let item: PciItem = serde_json::from_value(changes.clone()).context("invalid PciItem")?;
+                StateAction::Modify { resource, changes }
+                | StateAction::Create {
+                    resource,
+                    config: changes,
+                } => {
+                    let item: PciItem =
+                        serde_json::from_value(changes.clone()).context("invalid PciItem")?;
                     if let Some(val) = &item.driver_override {
                         match Self::set_driver_override(&item.address, val) {
-                            Ok(_) => changes_applied.push(format!("{}: driver_override -> {}", resource, val)),
+                            Ok(_) => changes_applied
+                                .push(format!("{}: driver_override -> {}", resource, val)),
                             Err(e) => errors.push(format!("{}: {}", resource, e)),
                         }
                     } else {
@@ -168,14 +216,24 @@ impl StatePlugin for PciDeclPlugin {
                 }
             }
         }
-        Ok(ApplyResult { success: errors.is_empty(), changes_applied, errors, checkpoint: None })
+        Ok(ApplyResult {
+            success: errors.is_empty(),
+            changes_applied,
+            errors,
+            checkpoint: None,
+        })
     }
 
     async fn verify_state(&self, desired: &Value) -> Result<bool> {
-        let want: PciDecl = serde_json::from_value(desired.clone()).unwrap_or(PciDecl{version:1,items:vec![]});
+        let want: PciDecl = serde_json::from_value(desired.clone()).unwrap_or(PciDecl {
+            version: 1,
+            items: vec![],
+        });
         for item in &want.items {
             let live = Self::live_for(&item.address);
-            if !Self::compliant(&live, item) { return Ok(false); }
+            if !Self::compliant(&live, item) {
+                return Ok(false);
+            }
         }
         Ok(true)
     }
@@ -190,7 +248,9 @@ impl StatePlugin for PciDeclPlugin {
         })
     }
 
-    async fn rollback(&self, _checkpoint: &Checkpoint) -> Result<()> { Ok(()) }
+    async fn rollback(&self, _checkpoint: &Checkpoint) -> Result<()> {
+        Ok(())
+    }
 
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities {

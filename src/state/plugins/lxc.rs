@@ -196,15 +196,15 @@ impl LxcPlugin {
                         .args(["link", "show", "type", "veth"])
                         .output()
                         .await?;
-                    
+
                     if host_side.status.success() {
                         let host_stdout = String::from_utf8_lossy(&host_side.stdout);
                         // Find veth that matches this container's namespace
                         for host_line in host_stdout.lines() {
-                            if host_line.contains("@"){
+                            if host_line.contains("@") {
                                 // Extract interface name
                                 if let Some(col_pos) = host_line.find(':') {
-                                    let name_part = &host_line[col_pos+1..];
+                                    let name_part = &host_line[col_pos + 1..];
                                     if let Some(name_end) = name_part.find('@') {
                                         let veth_name = name_part[..name_end].trim();
                                         if !veth_name.is_empty() {
@@ -231,7 +231,7 @@ impl LxcPlugin {
             for line in stdout.lines() {
                 if line.contains("@if") {
                     if let Some(col_pos) = line.find(':') {
-                        let name_part = &line[col_pos+1..];
+                        let name_part = &line[col_pos + 1..];
                         if let Some(name_end) = name_part.find('@') {
                             let veth_name = name_part[..name_end].trim();
                             if !veth_name.is_empty() && veth_name.starts_with("veth") {
@@ -338,16 +338,24 @@ impl LxcPlugin {
                         // Write token to container's rootfs /root/.bashrc
                         let bashrc_path =
                             format!("/var/lib/lxc/{}/rootfs/root/.bashrc", container.id);
-                        
+
                         // Append export statement to bashrc
                         let export_line = format!("\nexport NETMAKER_TOKEN={}\n", token_clean);
-                        
+
                         // Read existing bashrc if it exists
-                        let existing_content = tokio::fs::read_to_string(&bashrc_path).await.unwrap_or_default();
-                        
+                        let existing_content = tokio::fs::read_to_string(&bashrc_path)
+                            .await
+                            .unwrap_or_default();
+
                         // Append export if not already present
                         if !existing_content.contains("NETMAKER_TOKEN") {
-                            if tokio::fs::write(&bashrc_path, format!("{}{}", existing_content, export_line)).await.is_ok() {
+                            if tokio::fs::write(
+                                &bashrc_path,
+                                format!("{}{}", existing_content, export_line),
+                            )
+                            .await
+                            .is_ok()
+                            {
                                 log::info!("Injected netmaker token into {} .bashrc", container.id);
                             }
                         }

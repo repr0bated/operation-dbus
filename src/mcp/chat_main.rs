@@ -65,9 +65,10 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http());
 
     // Start the server
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    // Bind to 0.0.0.0 to accept connections from any network interface
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     info!("MCP Chat Server listening on http://{}", addr);
-    info!("Open http://{}/chat.html in your browser", addr);
+    info!("Server accessible at http://<your-ip>:8080/chat.html");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
