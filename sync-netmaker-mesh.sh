@@ -9,10 +9,31 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+OVSDB_SOCK="/var/run/openvswitch/db.sock"
+
+# OVSDB helper (no ovs-vsctl!)
+ovsdb_bridge_exists() {
+    local bridge="$1"
+    local result=$(echo "{\"method\":\"transact\",\"params\":[\"Open_vSwitch\",[{\"op\":\"select\",\"table\":\"Bridge\",\"where\":[[\"name\",\"==\",\"$bridge\"]],\"columns\":[\"name\"]}]],\"id\":0}" | socat - UNIX-CONNECT:"$OVSDB_SOCK" 2>/dev/null)
+    local count=$(echo "$result" | jq -r '.result[0].rows | length' 2>/dev/null)
+    [ "$count" -gt 0 ]
+}
+
+ovsdb_list_ports() {
+    local bridge="$1"
+    local bridge_result=$(echo "{\"method\":\"transact\",\"params\":[\"Open_vSwitch\",[{\"op\":\"select\",\"table\":\"Bridge\",\"where\":[[\"name\",\"==\",\"$bridge\"]],\"columns\":[\"ports\"]}]],\"id\":0}" | socat - UNIX-CONNECT:"$OVSDB_SOCK" 2>/dev/null)
+    local port_uuids=$(echo "$bridge_result" | jq -r '.result[0].rows[0].ports[1][]?[1]' 2>/dev/null)
+    
+    for port_uuid in $port_uuids; do
+        local port_result=$(echo "{\"method\":\"transact\",\"params\":[\"Open_vSwitch\",[{\"op\":\"select\",\"table\":\"Port\",\"where\":[[\"_uuid\",\"==\",[\"uuid\",\"$port_uuid\"]]],\"columns\":[\"name\"]}]],\"id\":0}" | socat - UNIX-CONNECT:"$OVSDB_SOCK" 2>/dev/null)
+        echo "$port_result" | jq -r '.result[0].rows[].name' 2>/dev/null
+    done
+}
+
 echo "=== Netmaker Mesh Bridge Sync ==="
 
 # Check if mesh bridge exists
-if ! sudo ovs-vsctl br-exists mesh 2>/dev/null; then
+if ! ovsdb_bridge_exists mesh; then
     echo -e "${RED}✗${NC} mesh bridge not found"
     echo "Run install.sh first to create the mesh bridge"
     exit 1
@@ -56,15 +77,12 @@ for iface in $(ip -j link show | jq -r '.[] | select(.ifname | startswith("nm-")
     FOUND_INTERFACES=true
 
     # Check if already added
-    if sudo ovs-vsctl list-ports mesh 2>/dev/null | grep -q "^${iface}$"; then
+    if ovsdb_list_ports mesh 2>/dev/null | grep -q "^${iface}$"; then
         echo -e "${GREEN}✓${NC} $iface already in mesh bridge"
     else
         echo "Adding $iface to mesh bridge..."
-        if sudo ovs-vsctl add-port mesh "$iface"; then
-            echo -e "${GREEN}✓${NC} Added $iface to mesh bridge"
-        else
-            echo -e "${RED}✗${NC} Failed to add $iface"
-        fi
+        echo -e "${YELLOW}⚠${NC}  Port addition via native OVSDB not yet implemented in this script"
+        echo -e "${YELLOW}⚠${NC}  Use op-dbus CLI once implemented"
     fi
 done
 
@@ -77,7 +95,7 @@ fi
 echo ""
 echo "=== Current mesh bridge configuration ==="
 echo "Ports on mesh bridge:"
-sudo ovs-vsctl list-ports mesh | sed 's/^/  - /'
+ovsdb_list_ports mesh | sed 's/^/  - /'
 
 echo ""
 echo -e "${GREEN}✓${NC} Sync complete"

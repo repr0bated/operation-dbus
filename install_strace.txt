@@ -1,0 +1,113 @@
+execve("./install.sh", ["./install.sh"], 0x7ffd9172d200 /* 67 vars */) = 0
+brk(NULL)                               = 0x61402d5be000
+mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x756efad79000
+access("/etc/ld.so.preload", R_OK)      = -1 ENOENT (No such file or directory)
+openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 5
+fstat(5, {st_mode=S_IFREG|0644, st_size=61479, ...}) = 0
+mmap(NULL, 61479, PROT_READ, MAP_PRIVATE, 5, 0) = 0x756efad69000
+close(5)                                = 0
+openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libtinfo.so.6", O_RDONLY|O_CLOEXEC) = 5
+read(5, "\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\0\0\0\0\0\0\0\0"..., 832) = 832
+fstat(5, {st_mode=S_IFREG|0644, st_size=220464, ...}) = 0
+mmap(NULL, 219456, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x756efad33000
+mmap(0x756efad42000, 81920, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0xf000) = 0x756efad42000
+mmap(0x756efad56000, 57344, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x23000) = 0x756efad56000
+mmap(0x756efad64000, 20480, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x31000) = 0x756efad64000
+close(5)                                = 0
+openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 5
+read(5, "\177ELF\2\1\1\3\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0p\236\2\0\0\0\0\0"..., 832) = 832
+pread64(5, "\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0"..., 840, 64) = 840
+fstat(5, {st_mode=S_IFREG|0755, st_size=2003408, ...}) = 0
+pread64(5, "\6\0\0\0\4\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0@\0\0\0\0\0\0\0"..., 840, 64) = 840
+mmap(NULL, 2055800, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 5, 0) = 0x756efab3d000
+mmap(0x756efab65000, 1462272, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x28000) = 0x756efab65000
+mmap(0x756efacca000, 352256, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x18d000) = 0x756efacca000
+mmap(0x756efad20000, 24576, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 5, 0x1e2000) = 0x756efad20000
+mmap(0x756efad26000, 52856, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x756efad26000
+close(5)                                = 0
+mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x756efab3a000
+arch_prctl(ARCH_SET_FS, 0x756efab3a740) = 0
+set_tid_address(0x756efab3aa10)         = 1002749
+set_robust_list(0x756efab3aa20, 24)     = 0
+rseq(0x756efab3a680, 0x20, 0, 0x53053053) = 0
+mprotect(0x756efad20000, 16384, PROT_READ) = 0
+mprotect(0x756efad64000, 16384, PROT_READ) = 0
+mprotect(0x6140127d8000, 16384, PROT_READ) = 0
+mprotect(0x756efadb5000, 8192, PROT_READ) = 0
+prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=8192*1024, rlim_max=RLIM64_INFINITY}) = 0
+munmap(0x756efad69000, 61479)           = 0
+openat(AT_FDCWD, "/dev/tty", O_RDWR|O_NONBLOCK) = 5
+close(5)                                = 0
+getrandom("\x59\x57\x8e\x57\xc2\x18\x23\x31", 8, GRND_NONBLOCK) = 8
+brk(NULL)                               = 0x61402d5be000
+brk(0x61402d5df000)                     = 0x61402d5df000
+openat(AT_FDCWD, "/usr/lib/locale/locale-archive", O_RDONLY|O_CLOEXEC) = 5
+fstat(5, {st_mode=S_IFREG|0644, st_size=3063024, ...}) = 0
+mmap(NULL, 3063024, PROT_READ, MAP_PRIVATE, 5, 0) = 0x756efa800000
+close(5)                                = 0
+openat(AT_FDCWD, "/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache", O_RDONLY|O_CLOEXEC) = 5
+fstat(5, {st_mode=S_IFREG|0644, st_size=27028, ...}) = 0
+mmap(NULL, 27028, PROT_READ, MAP_SHARED, 5, 0) = 0x756efad72000
+close(5)                                = 0
+futex(0x756efad2572c, FUTEX_WAKE_PRIVATE, 2147483647) = 0
+getuid()                                = 1000
+getgid()                                = 1000
+geteuid()                               = 1000
+getegid()                               = 1000
+rt_sigprocmask(SIG_BLOCK, NULL, [], 8)  = 0
+rt_sigaction(SIGCHLD, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER|SA_RESTART, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+rt_sigaction(SIGCHLD, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER|SA_RESTART, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER|SA_RESTART, sa_restorer=0x756efab7cdf0}, 8) = 0
+rt_sigaction(SIGINT, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+rt_sigaction(SIGINT, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, 8) = 0
+rt_sigaction(SIGQUIT, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+rt_sigaction(SIGQUIT, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, 8) = 0
+rt_sigaction(SIGTSTP, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+rt_sigaction(SIGTSTP, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, 8) = 0
+rt_sigaction(SIGTTIN, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+rt_sigaction(SIGTTIN, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, 8) = 0
+rt_sigaction(SIGTTOU, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+rt_sigaction(SIGTTOU, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, 8) = 0
+rt_sigprocmask(SIG_BLOCK, NULL, [], 8)  = 0
+rt_sigaction(SIGQUIT, {sa_handler=SIG_IGN, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x756efab7cdf0}, 8) = 0
+uname({sysname="Linux", nodename="oo1424oo", ...}) = 0
+newfstatat(AT_FDCWD, "/git/operation-dbus", {st_mode=S_IFDIR|0775, st_size=3412, ...}, 0) = 0
+newfstatat(AT_FDCWD, ".", {st_mode=S_IFDIR|0775, st_size=3412, ...}, 0) = 0
+newfstatat(AT_FDCWD, "/git", {st_mode=S_IFDIR|0777, st_size=156, ...}, 0) = 0
+newfstatat(AT_FDCWD, "/git/operation-dbus", {st_mode=S_IFDIR|0775, st_size=3412, ...}, 0) = 0
+newfstatat(AT_FDCWD, "/home/jeremy", {st_mode=S_IFDIR|0700, st_size=1806, ...}, 0) = 0
+getpid()                                = 1002749
+getppid()                               = 1002746
+getpid()                                = 1002749
+getppid()                               = 1002746
+getpid()                                = 1002749
+getppid()                               = 1002746
+getpgrp()                               = 1000952
+ioctl(2, TIOCGPGRP, 0x7fff778498b4)     = -1 ENOTTY (Inappropriate ioctl for device)
+rt_sigaction(SIGCHLD, {sa_handler=0x614012708f50, sa_mask=[], sa_flags=SA_RESTORER|SA_RESTART, sa_restorer=0x756efab7cdf0}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER|SA_RESTART, sa_restorer=0x756efab7cdf0}, 8) = 0
+ioctl(2, TIOCGPGRP, 0x7fff77849894)     = -1 ENOTTY (Inappropriate ioctl for device)
+prlimit64(0, RLIMIT_NPROC, NULL, {rlim_cur=127533, rlim_max=127533}) = 0
+rt_sigprocmask(SIG_BLOCK, NULL, [], 8)  = 0
+openat(AT_FDCWD, "./install.sh", O_RDONLY) = 5
+newfstatat(AT_FDCWD, "./install.sh", {st_mode=S_IFREG|0775, st_size=34360, ...}, 0) = 0
+ioctl(5, TCGETS, 0x7fff77849970)        = -1 ENOTTY (Inappropriate ioctl for device)
+lseek(5, 0, SEEK_CUR)                   = 0
+read(5, "#!/bin/bash\n# op-dbus installati"..., 80) = 80
+lseek(5, 0, SEEK_SET)                   = 0
+prlimit64(0, RLIMIT_NOFILE, NULL, {rlim_cur=512*1024, rlim_max=512*1024}) = 0
+fcntl(255, F_GETFD)                     = -1 EBADF (Bad file descriptor)
+dup2(5, 255)                            = 255
+close(5)                                = 0
+fcntl(255, F_SETFD, FD_CLOEXEC)         = 0
+fcntl(255, F_GETFL)                     = 0x8000 (flags O_RDONLY|O_LARGEFILE)
+fstat(255, {st_mode=S_IFREG|0775, st_size=34360, ...}) = 0
+lseek(255, 0, SEEK_CUR)                 = 0
+read(255, "#!/bin/bash\n# op-dbus installati"..., 8192) = 8192
+fstat(1, {st_mode=S_IFSOCK|0777, st_size=0, ...}) = 0
+write(1, "\33[0;32m=== op-dbus Installation "..., 40) = 40
+write(1, "Deployment Mode: Full (D-Bus + B"..., 57) = 57
+write(1, "\n", 1)                       = 1
+write(1, "\33[0;31mError: Please run as root"..., 53) = 53
+rt_sigprocmask(SIG_BLOCK, [CHLD], [], 8) = 0
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+exit_group(1)                           = ?
++++ exited with 1 +++

@@ -42,7 +42,7 @@ When you create container 100:
           "config": {
             "id": "100",
             "veth": "vi100",
-            "bridge": "vmbr0",
+            "bridge": "ovsbr0",
             "properties": {
               "network_type": "netmaker"
             }
@@ -155,14 +155,14 @@ Used for ML analysis and anomaly detection:
 
 **Bridge Ports:**
 ```bash
-$ sudo ovs-vsctl list-ports vmbr0
+$ sudo ovs-vsctl list-ports ovsbr0
 ens1           # Physical uplink
 fwln99999o0    # Firewall link (Proxmox)
 ```
 
 **Flow Rules:**
 ```bash
-$ sudo ovs-ofctl dump-flows vmbr0
+$ sudo ovs-ofctl dump-flows ovsbr0
 cookie=0x0, duration=50609s, table=0, n_packets=3586645,
   n_bytes=1643976035, idle_age=0, priority=0 actions=NORMAL
 ```
@@ -186,7 +186,7 @@ This is **perfect for containers** because:
 When container 100 is created:
 
 ```bash
-$ sudo ovs-vsctl list-ports vmbr0
+$ sudo ovs-vsctl list-ports ovsbr0
 ens1           # Physical uplink
 fwln99999o0    # Firewall link
 vi100          # Container 100 (NEW)
@@ -214,7 +214,7 @@ actions=NORMAL  # Still learning switch
 Container 100
     └── eth0 (inside container)
          └── Connected to vi100 (host side veth)
-              └── Attached to vmbr0 OVS bridge
+              └── Attached to ovsbr0 OVS bridge
                    └── Connected to ens1 (physical uplink)
 ```
 
@@ -223,7 +223,7 @@ Container 100
 #### Step 1: Container Created
 ```bash
 pct create 100 template \
-  --net0 name=eth0,bridge=vmbr0,firewall=1
+  --net0 name=eth0,bridge=ovsbr0,firewall=1
 ```
 
 **What pct does:**
@@ -245,7 +245,7 @@ link_set_name("veth119abc", "vi100")
 
 **Netmaker Mode:**
 ```rust
-// Do nothing - veth already created by pct with bridge=vmbr0
+// Do nothing - veth already created by pct with bridge=ovsbr0
 // Container inherits host's netmaker/wireguard
 log::info!("Container {} on netmaker mesh (inherited from host)");
 ```
@@ -253,7 +253,7 @@ log::info!("Container {} on netmaker mesh (inherited from host)");
 **Bridge Mode:**
 ```rust
 // Explicitly add to OVS (redundant if pct already did it)
-client.add_port("vmbr0", "vi100").await
+client.add_port("ovsbr0", "vi100").await
 ```
 
 ### Interface Details
@@ -287,7 +287,7 @@ $ ip link show vi100
    ```
    Container eth0
        ↓
-   Host vi100 on vmbr0
+   Host vi100 on ovsbr0
        ↓
    Host's wireguard mesh interface (nm-*)
        ↓
@@ -303,7 +303,7 @@ $ ip link show vi100
    ```
    Container eth0
        ↓
-   Host vi100 on vmbr0
+   Host vi100 on ovsbr0
        ↓
    Bridge to ens1 (uplink)
        ↓
@@ -325,7 +325,7 @@ $ ip link show vi100
     {
       "name": "eth0",
       "veth": "vi100",
-      "bridge": "vmbr0",
+      "bridge": "ovsbr0",
       "network_type": "netmaker"
     },
     {
@@ -383,7 +383,7 @@ Container
 ```bash
 # On Host
 $ ip route
-default via 192.168.1.1 dev vmbr0
+default via 192.168.1.1 dev ovsbr0
 100.64.0.0/10 dev nm-mynetwork  # Netmaker mesh routes
 
 # Container packets to mesh IP
@@ -419,7 +419,7 @@ LxcPlugin.apply_state()
   4. link_set_name(vethXXX, vi100) → Renames
   5. network_type check:
      - netmaker: Log "inherited from host"
-     - bridge: add_port(vi100, vmbr0)
+     - bridge: add_port(vi100, ovsbr0)
          ↓
 StateManager.record_footprint()
   → FootprintGenerator.create_footprint()
@@ -446,7 +446,7 @@ Container eth0 (02:00:00:00:01:64)
          ↓
 Host vi100 (fe:00:00:00:01:64)
          ↓
-OVS bridge vmbr0
+OVS bridge ovsbr0
   → MAC learning: 02:00:00:00:01:64 on port vi100
   → actions=NORMAL (L2 forwarding)
          ↓

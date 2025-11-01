@@ -25,7 +25,7 @@ sudo nano /etc/op-dbus/state.json
 ```
 
 **IMPORTANT**: Update these values:
-- Bridge name (vmbr0)
+- Bridge name (ovsbr0)
 - Physical interface (ens1)
 - IP address (80.209.240.244/25)
 - Gateway (80.209.240.129)
@@ -79,7 +79,7 @@ sudo reboot
 systemctl status op-dbus
 systemctl status openvswitch-switch
 ovs-vsctl show
-ip addr show vmbr0
+ip addr show ovsbr0
 ping 8.8.8.8
 ```
 
@@ -121,10 +121,10 @@ sudo systemctl disable op-dbus
 sudo ./uninstall.sh
 
 # Manual network config
-sudo ovs-vsctl add-br vmbr0
-sudo ovs-vsctl add-port vmbr0 ens1
-sudo ip addr add 80.209.240.244/25 dev vmbr0
-sudo ip link set vmbr0 up
+sudo ovs-vsctl add-br ovsbr0
+sudo ovs-vsctl add-port ovsbr0 ens1
+sudo ip addr add 80.209.240.244/25 dev ovsbr0
+sudo ip link set ovsbr0 up
 sudo ip route add default via 80.209.240.129
 ```
 
@@ -159,8 +159,8 @@ op-dbus diff /etc/op-dbus/state.json
 ✅ Service enabled: `systemctl is-enabled op-dbus` → enabled
 ✅ Service running: `systemctl is-active op-dbus` → active
 ✅ Network working: `ping 8.8.8.8` → success
-✅ Bridge exists: `ovs-vsctl show` → shows vmbr0
-✅ IP configured: `ip addr show vmbr0` → has correct IP
+✅ Bridge exists: `ovs-vsctl show` → shows ovsbr0
+✅ IP configured: `ip addr show ovsbr0` → has correct IP
 ✅ Route exists: `ip route` → default via gateway
 ✅ Survives reboot: After reboot, all above still true
 

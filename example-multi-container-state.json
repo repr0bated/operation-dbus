@@ -18,7 +18,7 @@
         {
           "id": "101",
           "veth": "vi101",
-          "bridge": "vmbr0",
+          "bridge": "ovsbr0",
           "properties": {
             "network_type": "bridge",
             "template": "local-btrfs:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst",
@@ -44,7 +44,7 @@
     "net": {
       "interfaces": [
         {
-          "name": "vmbr0",
+          "name": "ovsbr0",
           "type": "ovs-bridge",
           "ports": ["eno1"],
           "ipv4": {

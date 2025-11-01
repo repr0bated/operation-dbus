@@ -1,0 +1,2 @@
+[2m2025-11-01T04:34:39.879018Z[0m [32m INFO[0m Applying state for plugin: net
+[2m2025-11-01T04:34:39.879033Z[0m [32m INFO[0m Loading desired state from: /etc/op-dbus/state.json

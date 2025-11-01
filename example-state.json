@@ -4,7 +4,7 @@
     "net": {
       "interfaces": [
         {
-          "name": "vmbr0",
+          "name": "ovsbr0",
           "type": "ovs-bridge",
           "ports": ["ens1"],
           "ipv4": {
@@ -12,11 +12,11 @@
             "dhcp": false,
             "address": [
               {
-                "ip": "80.209.240.244",
-                "prefix": 25
+                "ip": "172.16.0.10",
+                "prefix": 24
               }
             ],
-            "gateway": "80.209.240.129"
+            "gateway": "172.16.0.1"
           }
         }
       ]
