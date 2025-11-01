@@ -492,7 +492,41 @@ else
     echo -e "${YELLOW}Skipping LXC configuration (standalone mode)${NC}"
 fi
 
-# Step 6: Configure OVS bridges (ovsbr0 and mesh) in state.json
+# Step 6: Check OpenVSwitch availability
+if [ "$NO_PROXMOX" = false ]; then
+    echo "Checking OpenVSwitch availability..."
+
+    OVS_AVAILABLE=false
+    if [ -S "$OVSDB_SOCK" ]; then
+        # Try to query OVSDB to ensure it's working
+        if ovsdb_rpc "list_dbs" "[]" >/dev/null 2>&1; then
+            echo -e "${GREEN}✓${NC} OpenVSwitch is running and accessible"
+            OVS_AVAILABLE=true
+        else
+            echo -e "${YELLOW}⚠${NC}  OVSDB socket exists but is not responding"
+        fi
+    else
+        echo -e "${RED}✗${NC} OpenVSwitch is NOT running or installed"
+        echo ""
+        echo -e "${YELLOW}OpenVSwitch is required for bridge management.${NC}"
+        echo ""
+        echo "To install OpenVSwitch on Debian/Ubuntu:"
+        echo "  apt update && apt install -y openvswitch-switch"
+        echo ""
+        echo "To install on other systems:"
+        echo "  RHEL/Rocky:  yum install openvswitch"
+        echo "  Arch:        pacman -S openvswitch"
+        echo ""
+        echo "After installing, start the service:"
+        echo "  systemctl start openvswitch-switch"
+        echo "  systemctl enable openvswitch-switch"
+        echo ""
+        echo -e "${YELLOW}Installation will continue, but bridges must be created manually.${NC}"
+        echo ""
+    fi
+fi
+
+# Step 7: Configure OVS bridges (ovsbr0 and mesh) in state.json
 # Let op-dbus binary handle actual bridge creation via OVSDB JSON-RPC
 if [ "$NO_PROXMOX" = false ]; then
     echo "Configuring OVS bridges in state.json..."
@@ -721,14 +755,28 @@ if [ "$NETCLIENT_INSTALLED" = true ]; then
         echo "Netmaker token found, attempting to join..."
 
         # First ensure bridges exist by applying ONLY network plugin state
-        if [ -f "$INSTALL_DIR/op-dbus" ] && [ -f "$STATE_FILE" ]; then
+        if [ "$OVS_AVAILABLE" = true ] && [ -f "$INSTALL_DIR/op-dbus" ] && [ -f "$STATE_FILE" ]; then
             echo "Applying network plugin state to create bridges before netmaker join..."
-            if "$INSTALL_DIR/op-dbus" apply --plugin net "$STATE_FILE" 2>/dev/null; then
+            echo -e "${YELLOW}Running: op-dbus apply --plugin net $STATE_FILE${NC}"
+
+            if "$INSTALL_DIR/op-dbus" apply --plugin net "$STATE_FILE"; then
                 echo -e "${GREEN}✓${NC} Bridges created successfully (network plugin only)"
                 sleep 2  # Wait for bridges to be fully up
             else
-                echo -e "${YELLOW}⚠${NC}  Could not apply network state, bridges may not exist yet"
+                echo -e "${RED}✗${NC} Failed to apply network state"
+                echo -e "${YELLOW}This usually means:${NC}"
+                echo "  1. OpenVSwitch is not running"
+                echo "  2. Permission issues with OVSDB socket"
+                echo "  3. Invalid configuration in state.json"
+                echo ""
+                echo "Run manually after fixing: op-dbus apply --plugin net $STATE_FILE"
+                echo ""
             fi
+        elif [ "$OVS_AVAILABLE" = false ]; then
+            echo -e "${YELLOW}⚠${NC}  Skipping bridge creation - OpenVSwitch not available"
+            echo -e "${YELLOW}⚠${NC}  Install OpenVSwitch and run: op-dbus apply --plugin net $STATE_FILE"
+        else
+            echo -e "${YELLOW}⚠${NC}  Could not apply network state (binary or state file missing)"
         fi
 
         # Now try to join netmaker
@@ -923,6 +971,13 @@ fi
 echo "Service:       $SYSTEMD_DIR/op-dbus.service"
 echo ""
 echo -e "${YELLOW}System Status:${NC}"
+if [ "$NO_PROXMOX" = false ]; then
+    if [ "$OVS_AVAILABLE" = true ]; then
+        echo -e "OpenVSwitch:    ${GREEN}Available${NC} (/var/run/openvswitch/db.sock)"
+    else
+        echo -e "OpenVSwitch:    ${RED}NOT Available${NC} - Must be installed for bridge creation"
+    fi
+fi
 if [ -f "$STATE_FILE" ]; then
     INTERFACE_COUNT=$(jq '.plugins.net.interfaces | length' "$STATE_FILE" 2>/dev/null || echo "0")
     if [ "$INTERFACE_COUNT" -gt 0 ]; then
@@ -934,6 +989,12 @@ fi
 echo ""
 echo -e "${YELLOW}Next Steps (IN ORDER):${NC}"
 STEP=1
+if [ "$NO_PROXMOX" = false ] && [ "$OVS_AVAILABLE" = false ]; then
+    echo -e "$STEP. ${RED}INSTALL OVS${NC}:       apt install -y openvswitch-switch  ${YELLOW}← Required!${NC}"
+    echo "                      systemctl start openvswitch-switch"
+    echo "                      systemctl enable openvswitch-switch"
+    STEP=$((STEP + 1))
+fi
 echo "$STEP. Review state file:  nano $STATE_FILE"
 STEP=$((STEP + 1))
 echo "$STEP. Test query:         op-dbus query"
