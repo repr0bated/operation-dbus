@@ -130,7 +130,7 @@ impl OvsdbClient {
                 "table": "Bridge",
                 "row": {
                     "name": bridge_name,
-                    "ports": ["named-uuid", port_uuid]
+                    "ports": ["set", [["named-uuid", port_uuid]]]
                 },
                 "uuid-name": bridge_uuid
             },
@@ -139,7 +139,7 @@ impl OvsdbClient {
                 "table": "Port",
                 "row": {
                     "name": bridge_name,
-                    "interfaces": ["named-uuid", iface_uuid]
+                    "interfaces": ["set", [["named-uuid", iface_uuid]]]
                 },
                 "uuid-name": port_uuid
             },
@@ -157,7 +157,7 @@ impl OvsdbClient {
                 "table": "Open_vSwitch",
                 "where": [],
                 "mutations": [
-                    ["bridges", "insert", ["named-uuid", bridge_uuid]]
+                    ["bridges", "insert", ["set", [["named-uuid", bridge_uuid]]]]
                 ]
             }
         ]);
@@ -180,7 +180,7 @@ impl OvsdbClient {
                 "table": "Port",
                 "row": {
                     "name": port_name,
-                    "interfaces": ["named-uuid", iface_uuid]
+                    "interfaces": ["set", [["named-uuid", iface_uuid]]]
                 },
                 "uuid-name": port_uuid
             },
@@ -197,7 +197,7 @@ impl OvsdbClient {
                 "table": "Bridge",
                 "where": [["_uuid", "==", ["uuid", &bridge_uuid]]],
                 "mutations": [
-                    ["ports", "insert", ["named-uuid", port_uuid]]
+                    ["ports", "insert", ["set", [["named-uuid", port_uuid]]]]
                 ]
             }
         ]);
