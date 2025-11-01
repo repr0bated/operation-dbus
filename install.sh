@@ -64,8 +64,161 @@ done
 BINARY_PATH="${BINARY_PATH:-target/release/op-dbus}"
 
 echo -e "${GREEN}=== op-dbus Installation ===${NC}"
+echo ""
+
+# Interactive configuration (if no flags provided and running interactively)
+ENABLE_BLOCKCHAIN=true
+ENABLE_VECTORS=true
+ENABLE_CHAT=true
+NUM_BRIDGES=2
+
+if [ "$NO_PROXMOX" = false ] && [ "$AGENT_ONLY" = false ] && [ -t 0 ]; then
+    echo -e "${YELLOW}Installation Configuration${NC}"
+    echo ""
+    echo "This wizard will help you configure op-dbus installation."
+    echo ""
+
+    # Question 1: Installation level
+    echo -e "${YELLOW}1. Installation Level${NC}"
+    echo "   1) Full        - Proxmox/LXC + Blockchain + All features (recommended)"
+    echo "   2) Standalone  - Blockchain + Features (no container management)"
+    echo "   3) Agent       - Minimal D-Bus agent only"
+    echo ""
+    read -p "Select installation level [1-3, default=1]: " -r INSTALL_LEVEL
+    INSTALL_LEVEL="${INSTALL_LEVEL:-1}"
+
+    case "$INSTALL_LEVEL" in
+        2)
+            NO_PROXMOX=true
+            echo -e "${GREEN}✓${NC} Standalone mode selected (no LXC/Proxmox)"
+            ;;
+        3)
+            AGENT_ONLY=true
+            NO_PROXMOX=true
+            ENABLE_BLOCKCHAIN=false
+            ENABLE_VECTORS=false
+            ENABLE_CHAT=false
+            echo -e "${GREEN}✓${NC} Agent-only mode selected (minimal install)"
+            ;;
+        *)
+            echo -e "${GREEN}✓${NC} Full installation selected"
+            ;;
+    esac
+    echo ""
+
+    # Question 2: Number of OVS bridges (only if not agent-only)
+    if [ "$AGENT_ONLY" = false ]; then
+        echo -e "${YELLOW}2. OpenVSwitch Bridges${NC}"
+        echo "   1) Single bridge  - ovsbr0 only (simple networking)"
+        echo "   2) Two bridges    - ovsbr0 + mesh (recommended for Netmaker)"
+        echo ""
+        read -p "Select number of bridges [1-2, default=2]: " -r BRIDGE_CHOICE
+        BRIDGE_CHOICE="${BRIDGE_CHOICE:-2}"
+
+        if [ "$BRIDGE_CHOICE" = "1" ]; then
+            NUM_BRIDGES=1
+            echo -e "${GREEN}✓${NC} Single bridge mode (ovsbr0 only)"
+        else
+            NUM_BRIDGES=2
+            echo -e "${GREEN}✓${NC} Two bridges (ovsbr0 + mesh for Netmaker)"
+        fi
+        echo ""
+    fi
+
+    # Question 3: Blockchain (only if not agent-only)
+    if [ "$AGENT_ONLY" = false ]; then
+        echo -e "${YELLOW}3. Blockchain Features${NC}"
+        echo "   Enable blockchain storage and synchronization?"
+        echo ""
+        read -p "Enable blockchain? [Y/n, default=Y]: " -r BLOCKCHAIN_CHOICE
+        BLOCKCHAIN_CHOICE="${BLOCKCHAIN_CHOICE:-Y}"
+
+        if [[ "$BLOCKCHAIN_CHOICE" =~ ^[Nn] ]]; then
+            ENABLE_BLOCKCHAIN=false
+            echo -e "${YELLOW}⚠${NC}  Blockchain disabled"
+        else
+            ENABLE_BLOCKCHAIN=true
+            echo -e "${GREEN}✓${NC} Blockchain enabled"
+        fi
+        echo ""
+    fi
+
+    # Question 4: Vector embeddings (only if blockchain enabled)
+    if [ "$ENABLE_BLOCKCHAIN" = true ]; then
+        echo -e "${YELLOW}4. Vector Embeddings${NC}"
+        echo "   Enable vector storage for semantic search and AI features?"
+        echo ""
+        read -p "Enable vectors? [Y/n, default=Y]: " -r VECTORS_CHOICE
+        VECTORS_CHOICE="${VECTORS_CHOICE:-Y}"
+
+        if [[ "$VECTORS_CHOICE" =~ ^[Nn] ]]; then
+            ENABLE_VECTORS=false
+            echo -e "${YELLOW}⚠${NC}  Vector embeddings disabled"
+        else
+            ENABLE_VECTORS=true
+            echo -e "${GREEN}✓${NC} Vector embeddings enabled"
+        fi
+        echo ""
+    else
+        ENABLE_VECTORS=false
+    fi
+
+    # Question 5: Chat features (only if blockchain enabled)
+    if [ "$ENABLE_BLOCKCHAIN" = true ]; then
+        echo -e "${YELLOW}5. Chat Features${NC}"
+        echo "   Enable chat/messaging functionality?"
+        echo ""
+        read -p "Enable chat? [Y/n, default=Y]: " -r CHAT_CHOICE
+        CHAT_CHOICE="${CHAT_CHOICE:-Y}"
+
+        if [[ "$CHAT_CHOICE" =~ ^[Nn] ]]; then
+            ENABLE_CHAT=false
+            echo -e "${YELLOW}⚠${NC}  Chat features disabled"
+        else
+            ENABLE_CHAT=true
+            echo -e "${GREEN}✓${NC} Chat features enabled"
+        fi
+        echo ""
+    else
+        ENABLE_CHAT=false
+    fi
+
+    # Show configuration summary
+    echo -e "${GREEN}=== Configuration Summary ===${NC}"
+    echo ""
+    if [ "$AGENT_ONLY" = true ]; then
+        echo "Mode:          Agent Only"
+    elif [ "$NO_PROXMOX" = true ]; then
+        echo "Mode:          Standalone"
+    else
+        echo "Mode:          Full (Proxmox/LXC)"
+    fi
+
+    if [ "$AGENT_ONLY" = false ]; then
+        if [ "$NUM_BRIDGES" = "1" ]; then
+            echo "Bridges:       ovsbr0 only"
+        else
+            echo "Bridges:       ovsbr0 + mesh"
+        fi
+        echo "Blockchain:    $([ "$ENABLE_BLOCKCHAIN" = true ] && echo "Enabled" || echo "Disabled")"
+        echo "Vectors:       $([ "$ENABLE_VECTORS" = true ] && echo "Enabled" || echo "Disabled")"
+        echo "Chat:          $([ "$ENABLE_CHAT" = true ] && echo "Enabled" || echo "Disabled")"
+    fi
+    echo ""
+
+    read -p "Continue with this configuration? [Y/n]: " -r CONFIRM
+    CONFIRM="${CONFIRM:-Y}"
+
+    if [[ ! "$CONFIRM" =~ ^[Yy] ]]; then
+        echo "Installation cancelled."
+        exit 0
+    fi
+    echo ""
+fi
 
 # Show deployment mode
+echo -e "${GREEN}=== Starting Installation ===${NC}"
+echo ""
 if [ "$AGENT_ONLY" = true ]; then
     echo -e "${YELLOW}Deployment Mode: Agent Only${NC} (D-Bus plugins only)"
 elif [ "$NO_PROXMOX" = true ]; then
@@ -179,15 +332,19 @@ mkdir -p "$CONFIG_DIR"
 echo -e "${GREEN}✓${NC} Created: $CONFIG_DIR"
 
 # Step 3.5: Setup BTRFS subvolumes for blockchain storage (if on BTRFS)
-# Skip if agent-only mode
-if [ "$AGENT_ONLY" = false ]; then
+# Skip if agent-only mode or blockchain disabled
+if [ "$AGENT_ONLY" = false ] && [ "$ENABLE_BLOCKCHAIN" = true ]; then
     BLOCKCHAIN_DIR="/var/lib/op-dbus/blockchain"
     echo "Setting up blockchain storage..."
 else
-    echo -e "${YELLOW}Skipping blockchain setup (agent-only mode)${NC}"
+    if [ "$AGENT_ONLY" = true ]; then
+        echo -e "${YELLOW}Skipping blockchain setup (agent-only mode)${NC}"
+    else
+        echo -e "${YELLOW}Skipping blockchain setup (disabled by configuration)${NC}"
+    fi
 fi
 
-if [ "$AGENT_ONLY" = false ]; then
+if [ "$AGENT_ONLY" = false ] && [ "$ENABLE_BLOCKCHAIN" = true ]; then
 
 # Check if we're on BTRFS
 if df -T /var/lib 2>/dev/null | grep -q btrfs; then
@@ -239,8 +396,13 @@ if df -T /var/lib 2>/dev/null | grep -q btrfs; then
     fi
 
     # Create cache directory structure
-     mkdir -p "$CACHE_DIR"/{embeddings/vectors,blocks/{by-number,by-hash},queries,diffs}
-    echo -e "${GREEN}✓${NC} Created cache directory structure"
+    if [ "$ENABLE_VECTORS" = true ]; then
+         mkdir -p "$CACHE_DIR"/{embeddings/vectors,blocks/{by-number,by-hash},queries,diffs}
+        echo -e "${GREEN}✓${NC} Created cache directory structure (with vector embeddings)"
+    else
+         mkdir -p "$CACHE_DIR"/{blocks/{by-number,by-hash},queries,diffs}
+        echo -e "${GREEN}✓${NC} Created cache directory structure (vectors disabled)"
+    fi
 
     # Create snapshot directory
      mkdir -p "/var/lib/op-dbus/@cache-snapshots"
@@ -576,14 +738,15 @@ EOF
             echo -e "${GREEN}✓${NC} $MAIN_BRIDGE already in state.json"
         fi
 
-        # Check if mesh bridge exists in state.json
-        MESH_EXISTS=$(jq -r ".plugins.net.interfaces[] | select(.name==\"$MESH_BRIDGE\") | .name" "$STATE_FILE" 2>/dev/null)
+        # Check if mesh bridge exists in state.json (only if 2 bridges requested)
+        if [ "$NUM_BRIDGES" = "2" ]; then
+            MESH_EXISTS=$(jq -r ".plugins.net.interfaces[] | select(.name==\"$MESH_BRIDGE\") | .name" "$STATE_FILE" 2>/dev/null)
 
-        if [ -z "$MESH_EXISTS" ]; then
-            echo "Adding $MESH_BRIDGE bridge to state.json..."
+            if [ -z "$MESH_EXISTS" ]; then
+                echo "Adding $MESH_BRIDGE bridge to state.json..."
 
-            # Create mesh bridge config (no IP, just for netmaker)
-            MESH_CONFIG=$(cat <<EOF
+                # Create mesh bridge config (no IP, just for netmaker)
+                MESH_CONFIG=$(cat <<EOF
 {
   "name": "$MESH_BRIDGE",
   "type": "ovs-bridge",
@@ -600,8 +763,11 @@ EOF
                 mv "${STATE_FILE}.tmp" "$STATE_FILE"
 
             echo -e "${GREEN}✓${NC} Added $MESH_BRIDGE bridge to state.json"
+            else
+                echo -e "${GREEN}✓${NC} $MESH_BRIDGE already in state.json"
+            fi
         else
-            echo -e "${GREEN}✓${NC} $MESH_BRIDGE already in state.json"
+            echo -e "${YELLOW}⚠${NC}  Mesh bridge skipped (single bridge mode selected)"
         fi
 
         echo -e "${GREEN}✓${NC} Bridge configuration added to $STATE_FILE"
@@ -1007,7 +1173,11 @@ if [ "$NO_PROXMOX" = false ]; then
     if [ "$OVS_AVAILABLE" = true ]; then
         echo -e "OpenVSwitch:    ${GREEN}Available${NC} (/var/run/openvswitch/db.sock)"
         if [ "$BRIDGES_CREATED" = true ]; then
-            echo -e "OVS Bridges:    ${GREEN}Created${NC} (ovsbr0, mesh)"
+            if [ "$NUM_BRIDGES" = "2" ]; then
+                echo -e "OVS Bridges:    ${GREEN}Created${NC} (ovsbr0, mesh)"
+            else
+                echo -e "OVS Bridges:    ${GREEN}Created${NC} (ovsbr0 only)"
+            fi
         else
             echo -e "OVS Bridges:    ${YELLOW}NOT Created${NC} - Check errors above"
         fi
@@ -1015,6 +1185,15 @@ if [ "$NO_PROXMOX" = false ]; then
         echo -e "OpenVSwitch:    ${RED}NOT Available${NC} - Must be installed for bridge creation"
         echo -e "OVS Bridges:    ${RED}NOT Created${NC} - Requires OpenVSwitch"
     fi
+fi
+
+# Show enabled features
+if [ "$AGENT_ONLY" = false ]; then
+    echo ""
+    echo -e "${YELLOW}Enabled Features:${NC}"
+    echo -e "Blockchain:     $([ "$ENABLE_BLOCKCHAIN" = true ] && echo -e "${GREEN}Enabled${NC}" || echo -e "${YELLOW}Disabled${NC}")"
+    echo -e "Vectors:        $([ "$ENABLE_VECTORS" = true ] && echo -e "${GREEN}Enabled${NC}" || echo -e "${YELLOW}Disabled${NC}")"
+    echo -e "Chat:           $([ "$ENABLE_CHAT" = true ] && echo -e "${GREEN}Enabled${NC}" || echo -e "${YELLOW}Disabled${NC}")"
 fi
 if [ -f "$STATE_FILE" ]; then
     INTERFACE_COUNT=$(jq '.plugins.net.interfaces | length' "$STATE_FILE" 2>/dev/null || echo "0")
