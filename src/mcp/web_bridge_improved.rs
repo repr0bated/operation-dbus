@@ -291,10 +291,11 @@ async fn api_list_agents(State(state): State<AppState>) -> impl IntoResponse {
             Ok(agent_ids) => {
                 let mut agents = vec![];
                 for id in agent_ids {
-                    if let Ok(status_json) = orchestrator.get_agent_status(id.clone()).await {
+                    let id_for_call = id.clone();
+                    if let Ok(status_json) = orchestrator.get_agent_status(id_for_call).await {
                         if let Ok(status) = serde_json::from_str::<Value>(&status_json) {
                             agents.push(AgentInfo {
-                                id: id.clone(),
+                                id: id,
                                 agent_type: status["type"]
                                     .as_str()
                                     .unwrap_or("unknown")
@@ -521,10 +522,11 @@ async fn monitor_agents_task(state: AppState) {
                 let mut agents = vec![];
 
                 for id in agent_ids {
-                    if let Ok(status_json) = orchestrator.get_agent_status(id.clone()).await {
+                    let id_for_call = id.clone();
+                    if let Ok(status_json) = orchestrator.get_agent_status(id_for_call).await {
                         if let Ok(status) = serde_json::from_str::<Value>(&status_json) {
                             agents.push(AgentInfo {
-                                id: id.clone(),
+                                id: id,
                                 agent_type: status["type"]
                                     .as_str()
                                     .unwrap_or("unknown")

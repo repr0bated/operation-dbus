@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "dbus-orchestrator": {
-      "command": "/git/wayfire-mcp-server/target/debug/dbus-mcp",
+      "command": "/git/operation-dbus/target/release/dbus-mcp",
       "args": [],
       "env": {
         "RUST_LOG": "info"

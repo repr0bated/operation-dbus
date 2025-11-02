@@ -79,6 +79,112 @@ for BRIDGE in "${BRIDGE_ARRAY[@]}"; do
     done
 done
 
+# Create systemd service file
+echo ""
+echo "=========================="
+echo "📦 Creating systemd service"
+echo "=========================="
+
+SYSTEMD_DIR="/etc/systemd/system"
+
+# Check if op-dbus binary exists
+if [ ! -f "/usr/local/bin/op-dbus" ]; then
+    echo "⚠️  op-dbus binary not found at /usr/local/bin/op-dbus"
+    echo "⚠️  Service file will be created but service won't work until binary is installed"
+fi
+
+# Check if service file already exists
+if [ -f "$SYSTEMD_DIR/op-dbus.service" ]; then
+    echo "ℹ️  Service file already exists, updating..."
+else
+    echo "🆕 Creating new service file..."
+fi
+
+# Create op-dbus.service file
+cat > "$SYSTEMD_DIR/op-dbus.service" <<'SERVICE_EOF'
+[Unit]
+Description=op-dbus - Declarative system state management
+Documentation=https://github.com/ghostbridge/op-dbus
+After=network-online.target openvswitch-switch.service
+Wants=network-online.target
+Requires=openvswitch-switch.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/op-dbus run --state-file /etc/op-dbus/state.json
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=false
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/etc/network/interfaces /run /var/run /etc/dnsmasq.d
+
+# Network capabilities
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF
+
+echo "✅ Created: $SYSTEMD_DIR/op-dbus.service"
+
+# Reload systemd
+echo "🔄 Reloading systemd..."
+systemctl daemon-reload
+echo "✅ Systemd reloaded"
+
+# Enable services for boot
+echo ""
+echo "=========================="
+echo "🔧 Enabling services for boot"
+echo "=========================="
+
+# Enable openvswitch-switch.service (idempotent - safe to run multiple times)
+if systemctl is-enabled openvswitch-switch.service >/dev/null 2>&1; then
+    echo "ℹ️  openvswitch-switch.service already enabled"
+else
+    if systemctl enable openvswitch-switch.service 2>/dev/null; then
+        echo "✅ Enabled: openvswitch-switch.service"
+    else
+        echo "❌ Failed to enable openvswitch-switch.service"
+    fi
+fi
+
+# Enable op-dbus.service (idempotent - safe to run multiple times)
+if systemctl is-enabled op-dbus.service >/dev/null 2>&1; then
+    echo "ℹ️  op-dbus.service already enabled"
+else
+    if systemctl enable op-dbus.service 2>/dev/null; then
+        echo "✅ Enabled: op-dbus.service"
+    else
+        echo "⚠️  Failed to enable op-dbus.service (binary may be missing)"
+    fi
+fi
+
+# Verify services are enabled
+echo ""
+echo "=========================="
+echo "🔍 Service Status"
+echo "=========================="
+
+if systemctl is-enabled openvswitch-switch.service >/dev/null 2>&1; then
+    echo "✅ openvswitch-switch.service: $(systemctl is-enabled openvswitch-switch.service)"
+else
+    echo "❌ openvswitch-switch.service: not enabled"
+fi
+
+if systemctl is-enabled op-dbus.service >/dev/null 2>&1; then
+    echo "✅ op-dbus.service: $(systemctl is-enabled op-dbus.service)"
+else
+    echo "❌ op-dbus.service: not enabled"
+fi
+
 # Final status
 echo ""
 echo "=========================="
@@ -114,3 +220,11 @@ echo ""
 echo "=========================="
 echo "✅ INSTALLATION COMPLETE"
 echo "=========================="
+echo ""
+echo "ℹ️  This script is idempotent - safe to run multiple times"
+echo "ℹ️  Services will start automatically at boot"
+echo ""
+echo "To verify services after reboot:"
+echo "  systemctl status openvswitch-switch"
+echo "  systemctl status op-dbus"
+echo "  ovs-vsctl show"

@@ -1,6 +1,8 @@
 //! Refactored MCP server using tool registry for loose coupling
 
-use crate::mcp::tool_registry::{
+#[path = "../mcp/tool_registry.rs"]
+mod tool_registry;
+use tool_registry::{
     AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,
     ToolResult,
 };
