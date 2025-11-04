@@ -4,7 +4,7 @@
     "openflow": {
       "bridges": [
         {
-          "name": "ovsbr0",
+          "name": "mesh",
           "flows": [
             {
               "table": 0,
@@ -36,7 +36,7 @@
               "actions": [
                 {
                   "type": "output",
-                  "port": "enp1s0"
+                  "port": "LOCAL"
                 }
               ],
               "cookie": 101,
