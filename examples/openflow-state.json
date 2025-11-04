@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "plugins": {
+    "openflow": {
+      "bridges": [
+        {
+          "name": "ovsbr0",
+          "flows": [
+            {
+              "table": 0,
+              "priority": 200,
+              "match_fields": {
+                "in_port": "internal_100"
+              },
+              "actions": [
+                {
+                  "type": "load_register",
+                  "register": 0,
+                  "value": 100
+                },
+                {
+                  "type": "resubmit",
+                  "table": 1
+                }
+              ],
+              "cookie": 100,
+              "idle_timeout": 0,
+              "hard_timeout": 0
+            },
+            {
+              "table": 1,
+              "priority": 100,
+              "match_fields": {
+                "reg0": "100"
+              },
+              "actions": [
+                {
+                  "type": "output",
+                  "port": "enp1s0"
+                }
+              ],
+              "cookie": 101,
+              "idle_timeout": 0,
+              "hard_timeout": 0
+            },
+            {
+              "table": 0,
+              "priority": 0,
+              "match_fields": {},
+              "actions": [
+                {
+                  "type": "drop"
+                }
+              ],
+              "idle_timeout": 0,
+              "hard_timeout": 0
+            }
+          ],
+          "socket_ports": [
+            {
+              "name": "internal_100",
+              "container_id": "100",
+              "ofport": null
+            }
+          ]
+        }
+      ],
+      "controller_endpoint": "tcp:127.0.0.1:6653"
+    }
+  }
+}
