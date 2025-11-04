@@ -368,6 +368,94 @@ impl LxcPlugin {
         Ok(())
     }
 
+    /// Cleanup OVS port for deleted container
+    async fn cleanup_ovs_port_for_container(ct_id: &str) -> Result<String> {
+        let client = crate::native::OvsdbClient::new();
+
+        // Find port names matching this container (vi{VMID} or internal_{VMID})
+        let potential_ports = vec![
+            format!("vi{}", ct_id),           // Proxmox veth pattern
+            format!("internal_{}", ct_id),     // Socket networking pattern
+            format!("veth{}pl", ct_id),        // Alternative veth pattern
+        ];
+
+        // Try each potential port name
+        for port_name in &potential_ports {
+            // Check all bridges for this port
+            if let Ok(bridges) = client.list_bridges().await {
+                for bridge in bridges {
+                    if let Ok(ports) = client.list_bridge_ports(&bridge).await {
+                        if ports.contains(port_name) {
+                            log::info!("Found port {} on bridge {}, removing", port_name, bridge);
+
+                            // Delete the port using OVSDB
+                            let operations = serde_json::json!([{
+                                "op": "select",
+                                "table": "Port",
+                                "where": [["name", "==", port_name]],
+                                "columns": ["_uuid"]
+                            }]);
+
+                            if let Ok(result) = client.transact(operations).await {
+                                if let Some(rows) = result[0]["rows"].as_array() {
+                                    if let Some(first_row) = rows.first() {
+                                        if let Some(uuid_array) = first_row["_uuid"].as_array() {
+                                            if uuid_array.len() == 2 && uuid_array[0] == "uuid" {
+                                                let port_uuid = uuid_array[1].as_str().unwrap();
+
+                                                // Get bridge UUID
+                                                let bridge_ops = serde_json::json!([{
+                                                    "op": "select",
+                                                    "table": "Bridge",
+                                                    "where": [["name", "==", &bridge]],
+                                                    "columns": ["_uuid"]
+                                                }]);
+
+                                                if let Ok(bridge_result) = client.transact(bridge_ops).await {
+                                                    if let Some(bridge_rows) = bridge_result[0]["rows"].as_array() {
+                                                        if let Some(bridge_row) = bridge_rows.first() {
+                                                            if let Some(bridge_uuid_array) = bridge_row["_uuid"].as_array() {
+                                                                if bridge_uuid_array.len() == 2 && bridge_uuid_array[0] == "uuid" {
+                                                                    let bridge_uuid = bridge_uuid_array[1].as_str().unwrap();
+
+                                                                    // Remove port from bridge and delete it
+                                                                    let delete_ops = serde_json::json!([
+                                                                        {
+                                                                            "op": "mutate",
+                                                                            "table": "Bridge",
+                                                                            "where": [["_uuid", "==", ["uuid", bridge_uuid]]],
+                                                                            "mutations": [
+                                                                                ["ports", "delete", ["uuid", port_uuid]]
+                                                                            ]
+                                                                        },
+                                                                        {
+                                                                            "op": "delete",
+                                                                            "table": "Port",
+                                                                            "where": [["_uuid", "==", ["uuid", port_uuid]]]
+                                                                        }
+                                                                    ]);
+
+                                                                    client.transact(delete_ops).await?;
+                                                                    return Ok(port_name.clone());
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!("No OVS port found for container {}", ct_id))
+    }
+
     /// Start LXC container
     async fn start_container(ct_id: &str) -> Result<()> {
         let output = tokio::process::Command::new("pct")
@@ -599,8 +687,22 @@ impl StatePlugin for LxcPlugin {
                     changes_applied.push(format!("Skipped modify for {}", resource));
                 }
                 StateAction::Delete { resource } => {
-                    // Delete container
-                    log::info!("Deleting container {}", resource);
+                    // Delete container and cleanup OVS ports
+                    log::info!("Deleting container {} and cleaning up OVS ports", resource);
+
+                    // First, try to find and cleanup the OVS port for this container
+                    let cleanup_result = Self::cleanup_ovs_port_for_container(resource).await;
+                    match cleanup_result {
+                        Ok(port_name) => {
+                            log::info!("Cleaned up OVS port {} for container {}", port_name, resource);
+                            changes_applied.push(format!("Removed OVS port {} for container {}", port_name, resource));
+                        }
+                        Err(e) => {
+                            log::warn!("Could not cleanup OVS port for container {}: {}", resource, e);
+                        }
+                    }
+
+                    // Then delete the container
                     let output = tokio::process::Command::new("pct")
                         .args(["destroy", resource])
                         .output()
