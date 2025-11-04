@@ -15,22 +15,12 @@ use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
 use zbus::Connection;
 
-#[zbus::proxy(
-    interface = "org.dbusmcp.Orchestrator",
-    default_service = "org.dbusmcp.Orchestrator",
-    default_path = "/org/dbusmcp/Orchestrator"
-)]
-trait Orchestrator {
-    async fn spawn_agent(&self, agent_type: String) -> zbus::Result<String>;
-    async fn send_task(&self, agent_id: String, task_json: String) -> zbus::Result<String>;
-    async fn get_agent_status(&self, agent_id: String) -> zbus::Result<String>;
-    async fn list_agents(&self) -> zbus::Result<Vec<String>>;
-}
+// Orchestrator proxy will be created manually
 
 #[derive(Clone)]
 struct AppState {
     mcp_status: Arc<RwLock<McpStatus>>,
-    orchestrator: Option<OrchestratorProxy<'static>>,
+    orchestrator: Option<zbus::Proxy<'static>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,7 +49,12 @@ struct ApiResponse<T> {
 pub async fn run_web_server() -> Result<(), Box<dyn std::error::Error>> {
     // Try to connect to orchestrator
     let orchestrator = match Connection::session().await {
-        Ok(conn) => match OrchestratorProxy::new(&conn).await {
+        Ok(conn) => match zbus::Proxy::new(
+            &conn,
+            "org.dbusmcp.Orchestrator",
+            "/org/dbusmcp/Orchestrator",
+            "org.dbusmcp.Orchestrator",
+        ).await {
             Ok(proxy) => {
                 eprintln!("Web server connected to orchestrator");
                 Some(proxy)
@@ -420,7 +415,7 @@ async fn api_status(State(state): State<AppState>) -> Json<ApiResponse<McpStatus
 async fn api_list_agents(State(state): State<AppState>) -> Json<ApiResponse<Vec<AgentInfo>>> {
     match &state.orchestrator {
         Some(orch) => {
-            match orch.list_agents().await {
+            match orch.call::<(), Vec<String>>("ListAgents", &()).await {
                 Ok(agent_ids) => {
                     // Convert agent IDs to AgentInfo structures
                     let agents: Vec<AgentInfo> = agent_ids
@@ -468,7 +463,7 @@ async fn api_spawn_agent(
     Json(req): Json<SpawnAgentRequest>,
 ) -> Json<ApiResponse<AgentInfo>> {
     match &state.orchestrator {
-        Some(orch) => match orch.spawn_agent(req.agent_type.clone()).await {
+        Some(orch) => match orch.call::<(String,), String>("SpawnAgent", &(req.agent_type.clone(),)).await {
             Ok(agent_id) => {
                 let agent = AgentInfo {
                     id: agent_id.clone(),

@@ -29,24 +29,12 @@ use tower_http::{
 use tracing::{error, info, warn};
 use zbus::Connection;
 
-// Re-use the Orchestrator trait
-#[zbus::proxy(
-    interface = "org.dbusmcp.Orchestrator",
-    default_service = "org.dbusmcp.Orchestrator",
-    default_path = "/org/dbusmcp/Orchestrator"
-)]
-trait Orchestrator {
-    async fn spawn_agent(&self, agent_type: String, config: String) -> zbus::Result<String>;
-    async fn send_task(&self, agent_id: String, task_json: String) -> zbus::Result<String>;
-    async fn get_agent_status(&self, agent_id: String) -> zbus::Result<String>;
-    async fn list_agents(&self) -> zbus::Result<Vec<String>>;
-    async fn kill_agent(&self, agent_id: String) -> zbus::Result<bool>;
-}
+// Orchestrator proxy will be created manually
 
 #[derive(Clone)]
 struct AppState {
     status: Arc<RwLock<McpStatus>>,
-    orchestrator: Option<OrchestratorProxy<'static>>,
+    orchestrator: Option<zbus::Proxy<'static>>,
     tools: Arc<RwLock<Vec<ToolInfo>>>,
     services: Arc<RwLock<Vec<ServiceInfo>>>,
     broadcast: broadcast::Sender<WsMessage>,
@@ -139,7 +127,12 @@ pub async fn run_improved_web_server() -> Result<(), Box<dyn std::error::Error>>
 
     // Try to connect to orchestrator
     let orchestrator = match Connection::session().await {
-        Ok(conn) => match OrchestratorProxy::new(&conn).await {
+        Ok(conn) => match zbus::Proxy::new(
+            &conn,
+            "org.dbusmcp.Orchestrator",
+            "/org/dbusmcp/Orchestrator",
+            "org.dbusmcp.Orchestrator",
+        ).await {
             Ok(proxy) => {
                 info!("Web server connected to orchestrator");
                 Some(proxy)
@@ -287,12 +280,11 @@ async fn api_execute_tool(
 
 async fn api_list_agents(State(state): State<AppState>) -> impl IntoResponse {
     if let Some(orchestrator) = &state.orchestrator {
-        match orchestrator.list_agents().await {
+        match orchestrator.call::<(), Vec<String>>("ListAgents", &()).await {
             Ok(agent_ids) => {
                 let mut agents = vec![];
                 for id in agent_ids {
-                    let id_for_call = id.clone();
-                    if let Ok(status_json) = orchestrator.get_agent_status(id_for_call).await {
+                    if let Ok(status_json) = orchestrator.call::<(String,), String>("GetAgentStatus", &(id.clone(),)).await {
                         if let Ok(status) = serde_json::from_str::<Value>(&status_json) {
                             agents.push(AgentInfo {
                                 id: id,
@@ -324,7 +316,7 @@ async fn api_spawn_agent(
     let config = payload["config"].to_string();
 
     if let Some(orchestrator) = &state.orchestrator {
-        match orchestrator.spawn_agent(agent_type.clone(), config).await {
+        match orchestrator.call::<(String, String), String>("SpawnAgent", &(agent_type.clone(), config)).await {
             Ok(agent_id) => {
                 // Broadcast activity
                 let _ = state.broadcast.send(WsMessage {
@@ -350,7 +342,7 @@ async fn api_kill_agent(
     Path(agent_id): Path<String>,
 ) -> impl IntoResponse {
     if let Some(orchestrator) = &state.orchestrator {
-        match orchestrator.kill_agent(agent_id.clone()).await {
+        match orchestrator.call::<(String,), bool>("KillAgent", &(agent_id.clone(),)).await {
             Ok(success) => {
                 if success {
                     // Broadcast activity
@@ -380,7 +372,7 @@ async fn api_send_task(
 ) -> impl IntoResponse {
     if let Some(orchestrator) = &state.orchestrator {
         match orchestrator
-            .send_task(agent_id.clone(), task.to_string())
+            .call::<(String, String), String>("SendTask", &(agent_id.clone(), task.to_string()))
             .await
         {
             Ok(result) => Json(ApiResponse::success(json!({ "result": result }))),
@@ -518,12 +510,11 @@ async fn monitor_agents_task(state: AppState) {
         interval.tick().await;
 
         if let Some(orchestrator) = &state.orchestrator {
-            if let Ok(agent_ids) = orchestrator.list_agents().await {
+            if let Ok(agent_ids) = orchestrator.call::<(), Vec<String>>("ListAgents", &()).await {
                 let mut agents = vec![];
 
                 for id in agent_ids {
-                    let id_for_call = id.clone();
-                    if let Ok(status_json) = orchestrator.get_agent_status(id_for_call).await {
+                    if let Ok(status_json) = orchestrator.call::<(String,), String>("GetAgentStatus", &(id.clone(),)).await {
                         if let Ok(status) = serde_json::from_str::<Value>(&status_json) {
                             agents.push(AgentInfo {
                                 id: id,

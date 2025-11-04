@@ -84,7 +84,7 @@ ml = ["ort", "tokenizers", "ndarray", "hf-hub", "indicatif"]
 # Enable web UI server
 web = ["axum", "tower", "tower-http", "mime_guess"]
 # Enable MCP (Model Context Protocol) features
-mcp = ["uuid", "toml", "axum", "tower", "tower-http"]
+mcp = ["uuid", "toml"]
 # Minimal build that disables network DBus/system clients requiring OpenSSL
 minimal = []
 

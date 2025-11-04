@@ -42,20 +42,10 @@ struct McpError {
 /// Refactored MCP server with tool registry
 struct McpServer {
     registry: Arc<ToolRegistry>,
-    orchestrator: Option<OrchestratorProxy<'static>>,
+    orchestrator: Option<zbus::Proxy<'static>>,
 }
 
-#[zbus::proxy(
-    interface = "org.dbusmcp.Orchestrator",
-    default_service = "org.dbusmcp.Orchestrator",
-    default_path = "/org/dbusmcp/Orchestrator"
-)]
-trait Orchestrator {
-    async fn spawn_agent(&self, agent_type: String, config: String) -> zbus::Result<String>;
-    async fn send_task(&self, agent_id: String, task_json: String) -> zbus::Result<String>;
-    async fn get_agent_status(&self, agent_id: String) -> zbus::Result<String>;
-    async fn list_agents(&self) -> zbus::Result<Vec<String>>;
-}
+// Orchestrator proxy will be created manually
 
 impl McpServer {
     async fn new() -> Result<Self> {
@@ -73,7 +63,12 @@ impl McpServer {
 
         // Try to connect to orchestrator
         let orchestrator = match Connection::session().await {
-            Ok(conn) => match OrchestratorProxy::new(&conn).await {
+            Ok(conn) => match zbus::Proxy::new(
+                &conn,
+                "org.dbusmcp.Orchestrator",
+                "/org/dbusmcp/Orchestrator",
+                "org.dbusmcp.Orchestrator",
+            ).await {
                 Ok(proxy) => {
                     eprintln!("Connected to orchestrator");
                     Some(proxy)

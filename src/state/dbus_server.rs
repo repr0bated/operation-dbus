@@ -1,49 +1,56 @@
-use std::sync::Arc;
-use once_cell::sync::OnceCell;
-use zbus::{dbus_interface, Connection, ConnectionBuilder};
+//! D-Bus server for system bus integration
 
 use crate::state::StateManager;
+use anyhow::Result;
+use std::sync::Arc;
+use zbus::{ConnectionBuilder, dbus_interface};
 
-pub struct NetStateDbus {
-    sm: Arc<StateManager>,
+/// D-Bus interface for the state manager
+pub struct StateManagerDBus {
+    state_manager: Arc<StateManager>,
 }
 
-impl NetStateDbus {
-    pub fn new(sm: Arc<StateManager>) -> Self {
-        Self { sm }
+#[dbus_interface(name = "org.opdbus.StateManager")]
+impl StateManagerDBus {
+    /// Apply state from JSON string
+    async fn apply_state(&self, state_json: String) -> zbus::fdo::Result<String> {
+        match serde_json::from_str(&state_json) {
+            Ok(desired_state) => {
+                match self.state_manager.apply_state(desired_state).await {
+                    Ok(report) => Ok(format!("Applied successfully: {}", report.success)),
+                    Err(e) => Err(zbus::fdo::Error::Failed(format!("Apply failed: {}", e))),
+                }
+            }
+            Err(e) => Err(zbus::fdo::Error::InvalidArgs(format!("Invalid JSON: {}", e))),
+        }
+    }
+
+    /// Query current state
+    async fn query_state(&self) -> zbus::fdo::Result<String> {
+        match self.state_manager.query_current_state().await {
+            Ok(state) => match serde_json::to_string(&state) {
+                Ok(json) => Ok(json),
+                Err(e) => Err(zbus::fdo::Error::Failed(format!("Serialization failed: {}", e))),
+            },
+            Err(e) => Err(zbus::fdo::Error::Failed(format!("Query failed: {}", e))),
+        }
     }
 }
 
-#[dbus_interface(name = "org.opdbus.StatePlugin")]
-impl NetStateDbus {
-    /// Apply desired state from a JSON file path (string)
-    async fn ApplyState(&self, path: &str) -> String {
-        let p = std::path::Path::new(path);
-        // Minimal: load desired and apply only the net plugin
-        let res = async {
-            let desired = self.sm.load_desired_state(p).await?;
-            self.sm.apply_state_single_plugin(desired, "net").await?;
-            anyhow::Ok(())
-        }
-        .await;
-        match res {
-            Ok(_) => "ok".to_string(),
-            Err(e) => format!("error: {}", e),
-        }
-    }
-}
+/// Start the system bus D-Bus service
+pub async fn start_system_bus(state_manager: Arc<StateManager>) -> Result<()> {
+    let dbus_interface = StateManagerDBus {
+        state_manager,
+    };
 
-static DBUS_CONN: OnceCell<Connection> = OnceCell::new();
-
-/// Start the org.opdbus service on the system bus, exposing /org/opdbus/state/net
-pub async fn start_system_bus(sm: Arc<StateManager>) -> anyhow::Result<()> {
-    let iface = NetStateDbus::new(sm);
-    let conn = ConnectionBuilder::system()?
+    let _connection = ConnectionBuilder::system()?
         .name("org.opdbus")?
-        .serve_at("/org/opdbus/state/net", iface)?
+        .serve_at("/org/opdbus/state", dbus_interface)?
         .build()
         .await?;
-    // Hold the connection for the life of the process so the name stays activatable
-    let _ = DBUS_CONN.set(conn);
+
+    // Keep the connection alive
+    std::future::pending::<()>().await;
+
     Ok(())
 }
