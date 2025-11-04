@@ -2,47 +2,50 @@
   "version": 1,
   "plugins": {
     "openflow": {
+      "controller_endpoint": "tcp:127.0.0.1:6653",
+      "auto_discover_containers": true,
+      "flow_policies": [
+        {
+          "name": "container_ingress",
+          "selector": "container:*",
+          "template": {
+            "table": 0,
+            "priority": 200,
+            "actions": [
+              {
+                "type": "load_register",
+                "register": 0,
+                "value": "{container_id}"
+              },
+              {
+                "type": "resubmit",
+                "table": 1
+              }
+            ]
+          }
+        },
+        {
+          "name": "container_egress",
+          "selector": "container:*",
+          "template": {
+            "table": 1,
+            "priority": 100,
+            "actions": [
+              {
+                "type": "output",
+                "port": "LOCAL"
+              }
+            ],
+            "additional_matches": {
+              "reg0": "{container_id}"
+            }
+          }
+        }
+      ],
       "bridges": [
         {
           "name": "mesh",
           "flows": [
-            {
-              "table": 0,
-              "priority": 200,
-              "match_fields": {
-                "in_port": "internal_100"
-              },
-              "actions": [
-                {
-                  "type": "load_register",
-                  "register": 0,
-                  "value": 100
-                },
-                {
-                  "type": "resubmit",
-                  "table": 1
-                }
-              ],
-              "cookie": 100,
-              "idle_timeout": 0,
-              "hard_timeout": 0
-            },
-            {
-              "table": 1,
-              "priority": 100,
-              "match_fields": {
-                "reg0": "100"
-              },
-              "actions": [
-                {
-                  "type": "output",
-                  "port": "LOCAL"
-                }
-              ],
-              "cookie": 101,
-              "idle_timeout": 0,
-              "hard_timeout": 0
-            },
             {
               "table": 0,
               "priority": 0,
@@ -55,17 +58,9 @@
               "idle_timeout": 0,
               "hard_timeout": 0
             }
-          ],
-          "socket_ports": [
-            {
-              "name": "internal_100",
-              "container_id": "100",
-              "ofport": null
-            }
           ]
         }
-      ],
-      "controller_endpoint": "tcp:127.0.0.1:6653"
+      ]
     }
   }
 }
