@@ -2,6 +2,9 @@
 
 #[path = "../mcp/tool_registry.rs"]
 mod tool_registry;
+#[path = "../mcp/introspection_tools.rs"]
+mod introspection_tools;
+
 use tool_registry::{
     AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,
     ToolResult,
@@ -92,6 +95,10 @@ impl McpServer {
 
     /// Register default tools dynamically
     async fn register_default_tools(registry: &ToolRegistry) -> Result<()> {
+        // Register introspection tools (real implementations)
+        introspection_tools::register_introspection_tools(registry).await?;
+
+        // Keep a few basic tools for development
         // Systemd status tool
         let systemd_status = DynamicToolBuilder::new("systemd_status")
             .description("Get the status of a systemd service")
@@ -106,14 +113,23 @@ impl McpServer {
                 "required": ["service"]
             }))
             .handler(|params| {
-                let service = params["service"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing service parameter"))?;
+                Box::pin(async move {
+                    let service = params["service"]
+                        .as_str()
+                        .ok_or_else(|| anyhow::anyhow!("Missing service parameter"))?;
 
-                // In real implementation, would query systemd
-                Ok(ToolResult {
-                    content: vec![ToolContent::text(format!("Status of {}: running", service))],
-                    metadata: None,
+                    // Query systemd via systemctl
+                    let output = tokio::process::Command::new("systemctl")
+                        .arg("status")
+                        .arg(service)
+                        .output()
+                        .await?;
+
+                    let status = String::from_utf8_lossy(&output.stdout);
+                    Ok(ToolResult {
+                        content: vec![ToolContent::text(status.to_string())],
+                        metadata: None,
+                    })
                 })
             })
             .build();
@@ -134,103 +150,22 @@ impl McpServer {
                 "required": ["path"]
             }))
             .handler(|params| {
-                let path = params["path"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing path parameter"))?;
+                Box::pin(async move {
+                    let path = params["path"]
+                        .as_str()
+                        .ok_or_else(|| anyhow::anyhow!("Missing path parameter"))?;
 
-                // In real implementation, would read file with validation
-                Ok(ToolResult {
-                    content: vec![ToolContent::text(format!("Contents of {}", path))],
-                    metadata: None,
+                    // Read file with tokio
+                    let contents = tokio::fs::read_to_string(path).await?;
+                    Ok(ToolResult {
+                        content: vec![ToolContent::text(contents)],
+                        metadata: None,
+                    })
                 })
             })
             .build();
 
         registry.register_tool(Box::new(file_read)).await?;
-
-        // Network interfaces tool
-        let network_interfaces = DynamicToolBuilder::new("network_interfaces")
-            .description("List network interfaces")
-            .schema(json!({
-                "type": "object",
-                "properties": {}
-            }))
-            .handler(|_params| {
-                Ok(ToolResult {
-                    content: vec![ToolContent::json(json!({
-                        "interfaces": [
-                            {"name": "eth0", "ip": "192.168.1.100"},
-                            {"name": "lo", "ip": "127.0.0.1"}
-                        ]
-                    }))],
-                    metadata: None,
-                })
-            })
-            .build();
-
-        registry.register_tool(Box::new(network_interfaces)).await?;
-
-        // Process list tool
-        let process_list = DynamicToolBuilder::new("process_list")
-            .description("List running processes")
-            .schema(json!({
-                "type": "object",
-                "properties": {
-                    "filter": {
-                        "type": "string",
-                        "description": "Optional filter"
-                    }
-                }
-            }))
-            .handler(|params| {
-                let filter = params["filter"].as_str();
-
-                Ok(ToolResult {
-                    content: vec![ToolContent::text(format!(
-                        "Processes{}",
-                        filter
-                            .map(|f| format!(" filtered by '{}'", f))
-                            .unwrap_or_default()
-                    ))],
-                    metadata: None,
-                })
-            })
-            .build();
-
-        registry.register_tool(Box::new(process_list)).await?;
-
-        // Command execution tool
-        let exec_command = DynamicToolBuilder::new("exec_command")
-            .description("Execute a whitelisted command")
-            .schema(json!({
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "Command to execute"
-                    },
-                    "args": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Command arguments"
-                    }
-                },
-                "required": ["command"]
-            }))
-            .handler(|params| {
-                let command = params["command"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing command"))?;
-
-                // In real implementation, would validate and execute
-                Ok(ToolResult {
-                    content: vec![ToolContent::text(format!("Executed: {}", command))],
-                    metadata: None,
-                })
-            })
-            .build();
-
-        registry.register_tool(Box::new(exec_command)).await?;
 
         Ok(())
     }
