@@ -36,6 +36,7 @@ pub struct StateManager {
     plugins: Arc<RwLock<HashMap<String, Box<dyn StatePlugin>>>>,
     blockchain_sender:
         Option<tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>>,
+    blockchain: Option<Arc<crate::blockchain::streaming_blockchain::StreamingBlockchain>>,
 }
 
 impl Default for StateManager {
@@ -50,6 +51,7 @@ impl StateManager {
         Self {
             plugins: Arc::new(RwLock::new(HashMap::new())),
             blockchain_sender: None,
+            blockchain: None,
         }
     }
 
@@ -59,6 +61,14 @@ impl StateManager {
         sender: tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>,
     ) {
         self.blockchain_sender = Some(sender);
+    }
+
+    /// Set blockchain reference for current state updates
+    pub fn set_blockchain(
+        &mut self,
+        blockchain: Arc<crate::blockchain::streaming_blockchain::StreamingBlockchain>,
+    ) {
+        self.blockchain = Some(blockchain);
     }
 
     /// Record a hashed footprint for a plugin operation (best-effort)
@@ -302,6 +312,33 @@ impl StateManager {
         //     self.rollback_all(&checkpoints).await?;
         //     return Err(anyhow!("State verification failed"));
         // }
+
+        // Phase 5: Update current state in blockchain (for disaster recovery)
+        log::info!("Phase 5: Updating current state snapshot for DR");
+        if let Some(blockchain) = &self.blockchain {
+            match self.query_current_state().await {
+                Ok(current_state) => {
+                    // Convert CurrentState to serde_json::Value
+                    match serde_json::to_value(&current_state) {
+                        Ok(state_json) => {
+                            if let Err(e) = blockchain.update_current_state(&state_json).await {
+                                log::warn!("Failed to update blockchain current state: {}", e);
+                                // Non-fatal: continue even if state update fails
+                            } else {
+                                log::info!("Current state snapshot updated for disaster recovery");
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to serialize current state: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to query current state for blockchain update: {}", e);
+                    // Non-fatal: apply succeeded, just couldn't update DR state
+                }
+            }
+        }
 
         log::info!("State apply completed successfully");
         Ok(ApplyReport {
