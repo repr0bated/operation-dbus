@@ -16,15 +16,7 @@ use std::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::snapshot_manager::{SnapshotConfig, SnapshotManager};
-
-/// NUMA node information and CPU mapping
-#[derive(Debug, Clone)]
-pub struct NumaNode {
-    pub node_id: u32,
-    pub cpu_list: Vec<u32>,
-    pub memory_mb: u64,
-    pub distance_to_nodes: HashMap<u32, u32>,
-}
+use super::numa::{NumaNode, NumaStats, NumaTopology};
 
 /// NUMA-aware cache placement strategy
 #[derive(Debug, Clone)]
@@ -56,10 +48,11 @@ pub struct BtrfsCache {
     cache_dir: PathBuf,
     index: Mutex<rusqlite::Connection>,
     snapshot_manager: SnapshotManager,
-    numa_nodes: Vec<NumaNode>,
+    numa_topology: Option<NumaTopology>,
     placement_strategy: CachePlacementStrategy,
     memory_policy: MemoryPolicy,
     cpu_affinity: Vec<u32>, // CPU cores for affinity binding
+    numa_stats: Mutex<HashMap<u32, NumaStats>>, // Per-node statistics
     current_node_index: std::sync::atomic::AtomicUsize,
 }
 
@@ -123,42 +116,72 @@ impl BtrfsCache {
 
         let snapshot_manager = SnapshotManager::new(cache_dir.clone(), snapshot_config);
 
-        // Detect NUMA topology
-        // Simple NUMA detection
-        let numa_nodes = if Path::new("/sys/devices/system/node").exists() {
-            vec![NumaNode {
-                node_id: 0,
-                cpu_list: (0..(num_cpus::get().min(8) as u32)).collect(),
-                memory_mb: 8192,
-                distance_to_nodes: HashMap::new(),
-            }]
-        } else {
-            Vec::new()
+        // Detect NUMA topology with comprehensive /sys parsing
+        let numa_topology = match NumaTopology::detect() {
+            Ok(topology) => {
+                if topology.is_numa_system() {
+                    info!(
+                        "✓ NUMA topology detected: {} nodes, current node: {:?}",
+                        topology.node_count(),
+                        topology.current_node()
+                    );
+                } else {
+                    info!("Single-node system detected (no NUMA)");
+                }
+                Some(topology)
+            }
+            Err(e) => {
+                warn!("Failed to detect NUMA topology: {}", e);
+                warn!("Continuing without NUMA optimizations");
+                None
+            }
         };
-        let placement_strategy = if numa_nodes.is_empty() {
-            CachePlacementStrategy::Disabled
-        } else {
-            CachePlacementStrategy::LocalNode
-        };
-        let memory_policy = MemoryPolicy::Default;
 
-        // Detect CPU affinity - bind cache operations to same CPUs as Btrfs operations
-        let cpu_affinity = if !numa_nodes.is_empty() {
-            // Use CPUs from first NUMA node to keep cache and Btrfs on same cores
-            numa_nodes[0].cpu_list.clone()
+        // Determine placement strategy and CPU affinity
+        let (placement_strategy, cpu_affinity) = if let Some(ref topo) = numa_topology {
+            if topo.is_numa_system() {
+                // Multi-node system: use local node strategy
+                let optimal_node = topo.optimal_node();
+                let cpus = topo.cpus_for_node(optimal_node);
+
+                info!(
+                    "NUMA optimization enabled: using node {} with CPUs {:?}",
+                    optimal_node,
+                    if cpus.len() <= 8 {
+                        format!("{:?}", cpus)
+                    } else {
+                        format!("[{} CPUs]", cpus.len())
+                    }
+                );
+
+                (CachePlacementStrategy::LocalNode, cpus)
+            } else {
+                // Single-node system: use first few CPUs for L3 cache locality
+                let cpus: Vec<u32> = (0..(num_cpus::get().min(4) as u32)).collect();
+                info!(
+                    "Single-node system: using CPUs {:?} for L3 cache locality",
+                    cpus
+                );
+                (CachePlacementStrategy::Disabled, cpus)
+            }
         } else {
-            // No NUMA, use first few CPUs
-            (0..(num_cpus::get().min(4) as u32)).collect()
+            // NUMA detection failed: conservative fallback
+            let cpus: Vec<u32> = (0..(num_cpus::get().min(4) as u32)).collect();
+            warn!("Using fallback CPU affinity: {:?}", cpus);
+            (CachePlacementStrategy::Disabled, cpus)
         };
+
+        let memory_policy = MemoryPolicy::Default;
 
         Ok(Self {
             cache_dir,
             index: Mutex::new(index),
             snapshot_manager,
-            numa_nodes,
+            numa_topology,
             placement_strategy,
             memory_policy,
             cpu_affinity,
+            numa_stats: Mutex::new(HashMap::new()),
             current_node_index: std::sync::atomic::AtomicUsize::new(0),
         })
     }
@@ -209,6 +232,9 @@ impl BtrfsCache {
     }
 
     fn load_embedding(&self, text_hash: &str) -> Result<Option<Vec<f32>>> {
+        // Track operation start time for NUMA statistics
+        let start = std::time::Instant::now();
+
         let index = self.index.lock().unwrap();
 
         // Lookup in SQLite index
@@ -226,16 +252,39 @@ impl BtrfsCache {
             let path = self.cache_dir.join("embeddings/vectors").join(&file);
 
             // Read from BTRFS (page cache will cache this!)
+            // CPU affinity ensures this stays in L3 cache
             let data = std::fs::read(&path)
                 .context(format!("Failed to read cached embedding: {:?}", path))?;
 
             let vector: Vec<f32> =
                 bincode::deserialize(&data).context("Failed to deserialize cached embedding")?;
 
+            // Record NUMA statistics
+            let elapsed_ns = start.elapsed().as_nanos() as u64;
+            self.record_cache_access(elapsed_ns);
+
             return Ok(Some(vector));
         }
 
         Ok(None)
+    }
+
+    /// Record cache access for NUMA statistics
+    fn record_cache_access(&self, latency_ns: u64) {
+        if let Some(ref topology) = self.numa_topology {
+            if let Some(current_node) = topology.current_node() {
+                let mut stats = self.numa_stats.lock().unwrap();
+                let node_stats = stats.entry(current_node).or_insert_with(NumaStats::new);
+
+                // Consider local if latency < 100ns (typical page cache hit)
+                // Remote NUMA access is typically 100-300ns
+                if latency_ns < 100 {
+                    node_stats.record_local_access(latency_ns);
+                } else {
+                    node_stats.record_remote_access(latency_ns);
+                }
+            }
+        }
     }
 
     fn save_embedding(&self, text: &str, text_hash: &str, vector: &[f32]) -> Result<()> {
@@ -532,11 +581,30 @@ impl BtrfsCache {
     /// Get NUMA configuration info
     pub fn numa_info(&self) -> NumaInfo {
         NumaInfo {
-            node_count: self.numa_nodes.len(),
+            node_count: self
+                .numa_topology
+                .as_ref()
+                .map(|t| t.node_count())
+                .unwrap_or(1),
             cpu_affinity: self.cpu_affinity.clone(),
             placement_strategy: self.placement_strategy.clone(),
             memory_policy: self.memory_policy.clone(),
         }
+    }
+
+    /// Get detailed NUMA topology
+    pub fn numa_topology(&self) -> Option<&NumaTopology> {
+        self.numa_topology.as_ref()
+    }
+
+    /// Get NUMA statistics
+    pub fn numa_stats(&self) -> HashMap<u32, NumaStats> {
+        self.numa_stats.lock().unwrap().clone()
+    }
+
+    /// Clear NUMA statistics
+    pub fn clear_numa_stats(&self) {
+        self.numa_stats.lock().unwrap().clear();
     }
 
     /// Helper method to apply NUMA affinity (CPU + memory)
