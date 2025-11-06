@@ -391,6 +391,21 @@ async fn main() -> Result<()> {
         info!("⊗ Skipping plugin: pcidecl - {}", pci_plugin.unavailable_reason());
     }
 
+    // Auto-discover and register D-Bus services as plugins
+    info!("Auto-discovering D-Bus services...");
+    match state::auto_plugin::PluginDiscovery::create_plugins().await {
+        Ok(auto_plugins) => {
+            let count = auto_plugins.len();
+            for plugin in auto_plugins {
+                state_manager.register_plugin(plugin).await;
+            }
+            info!("✓ Registered {} auto-generated plugins", count);
+        }
+        Err(e) => {
+            info!("⊗ Auto-discovery failed: {} (continuing with manual plugins)", e);
+        }
+    }
+
     // Start org.opdbus on system D-Bus to accept ApplyState calls for net plugin
     {
         let sm = Arc::clone(&state_manager);

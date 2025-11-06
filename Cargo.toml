@@ -18,8 +18,10 @@ serde_json = "1"
 # D-Bus
 zbus = { version = "4", features = ["tokio"] }
 
+# UUID for checksums and auto-plugins
+uuid = { version = "1.6", features = ["v4"] }
+
 # MCP dependencies
-uuid = { version = "1.6", features = ["v4"], optional = true }
 toml = { version = "0.8", optional = true }
 
 # Netlink (native kernel networking)
@@ -84,7 +86,7 @@ ml = ["ort", "tokenizers", "ndarray", "hf-hub", "indicatif"]
 # Enable web UI server
 web = ["axum", "tower", "tower-http", "mime_guess"]
 # Enable MCP (Model Context Protocol) features
-mcp = ["uuid", "toml"]
+mcp = ["toml"]
 # Minimal build that disables network DBus/system clients requiring OpenSSL
 minimal = []
 
