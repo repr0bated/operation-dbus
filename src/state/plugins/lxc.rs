@@ -277,7 +277,17 @@ impl LxcPlugin {
         // Extract properties with sensible defaults
         let props = container.properties.as_ref();
 
-        // Template (OS image)
+        // Check if using BTRFS golden image (fast path) or tar.zst template (slow path)
+        let golden_image = props
+            .and_then(|p| p.get("golden_image"))
+            .and_then(|v| v.as_str());
+
+        if let Some(golden_image_name) = golden_image {
+            // BTRFS snapshot path - instant container creation
+            return Self::create_container_from_btrfs_snapshot(container, golden_image_name, &bridge).await;
+        }
+
+        // Traditional tar.zst template path (fallback)
         let template = props
             .and_then(|p| p.get("template"))
             .and_then(|v| v.as_str())
@@ -459,6 +469,264 @@ impl LxcPlugin {
                         }
                         break;
                     }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Create LXC container from BTRFS golden image snapshot (instant provisioning)
+    async fn create_container_from_btrfs_snapshot(
+        container: &ContainerInfo,
+        golden_image_name: &str,
+        bridge: &str,
+    ) -> Result<()> {
+        log::info!(
+            "Creating container {} from BTRFS golden image: {}",
+            container.id,
+            golden_image_name
+        );
+
+        let props = container.properties.as_ref();
+
+        // Paths
+        let storage_path = "/var/lib/vz";
+        let golden_image_path = format!("{}/template/subvol/{}", storage_path, golden_image_name);
+        let container_rootfs = format!("{}/images/{}/rootfs", storage_path, container.id);
+        let container_dir = format!("{}/images/{}", storage_path, container.id);
+
+        // Verify golden image exists
+        if !tokio::fs::metadata(&golden_image_path).await.is_ok() {
+            return Err(anyhow::anyhow!(
+                "Golden image not found: {}. Create it with: sudo ./create-btrfs-golden-image.sh {}",
+                golden_image_path,
+                golden_image_name
+            ));
+        }
+
+        // Check if it's a BTRFS subvolume
+        let check_output = tokio::process::Command::new("btrfs")
+            .args(["subvolume", "show", &golden_image_path])
+            .output()
+            .await?;
+
+        if !check_output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Golden image is not a BTRFS subvolume: {}",
+                golden_image_path
+            ));
+        }
+
+        log::info!("✓ Golden image verified: {}", golden_image_path);
+
+        // Create container directory
+        tokio::fs::create_dir_all(&container_dir).await?;
+
+        // Create BTRFS snapshot (instant copy-on-write)
+        log::info!("Creating BTRFS snapshot...");
+        let snapshot_output = tokio::process::Command::new("btrfs")
+            .args([
+                "subvolume",
+                "snapshot",
+                &golden_image_path,
+                &container_rootfs,
+            ])
+            .output()
+            .await?;
+
+        if !snapshot_output.status.success() {
+            let stderr = String::from_utf8_lossy(&snapshot_output.stderr);
+            return Err(anyhow::anyhow!("BTRFS snapshot failed: {}", stderr));
+        }
+
+        log::info!("✓ BTRFS snapshot created in <1ms: {}", container_rootfs);
+
+        // Extract properties
+        let hostname = props
+            .and_then(|p| p.get("hostname"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(&format!("ct{}", container.id));
+
+        let memory = props
+            .and_then(|p| p.get("memory"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(512);
+
+        let swap = props
+            .and_then(|p| p.get("swap"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(512);
+
+        let cores = props
+            .and_then(|p| p.get("cores"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(2);
+
+        let unprivileged = props
+            .and_then(|p| p.get("unprivileged"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let features = props
+            .and_then(|p| p.get("features"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("nesting=1");
+
+        let firewall = props
+            .and_then(|p| p.get("firewall"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        // Create Proxmox container configuration
+        let config_path = format!("/etc/pve/lxc/{}.conf", container.id);
+        let config_content = format!(
+            r#"arch: amd64
+cores: {}
+hostname: {}
+memory: {}
+swap: {}
+net0: name=eth0,bridge={},firewall={}
+ostype: debian
+rootfs: local-btrfs:images/{}/rootfs
+unprivileged: {}
+features: {}
+"#,
+            cores,
+            hostname,
+            memory,
+            swap,
+            bridge,
+            if firewall { "1" } else { "0" },
+            container.id,
+            if unprivileged { "1" } else { "0" },
+            features
+        );
+
+        // Add optional properties
+        let mut config = config_content;
+
+        if let Some(onboot) = props.and_then(|p| p.get("onboot")).and_then(|v| v.as_bool()) {
+            config.push_str(&format!("onboot: {}\n", if onboot { "1" } else { "0" }));
+        }
+
+        if let Some(protection) = props.and_then(|p| p.get("protection")).and_then(|v| v.as_bool()) {
+            config.push_str(&format!("protection: {}\n", if protection { "1" } else { "0" }));
+        }
+
+        if let Some(nameserver) = props.and_then(|p| p.get("nameserver")).and_then(|v| v.as_str()) {
+            config.push_str(&format!("nameserver: {}\n", nameserver));
+        }
+
+        if let Some(searchdomain) = props.and_then(|p| p.get("searchdomain")).and_then(|v| v.as_str()) {
+            config.push_str(&format!("searchdomain: {}\n", searchdomain));
+        }
+
+        // Write Proxmox config
+        tokio::fs::write(&config_path, config).await?;
+
+        log::info!("✓ Proxmox configuration written: {}", config_path);
+
+        // Inject firstboot script if specified
+        if let Some(firstboot_script) = props.and_then(|p| p.get("firstboot_script")).and_then(|v| v.as_str()) {
+            Self::inject_firstboot_script(container, firstboot_script).await?;
+        }
+
+        // Inject Netmaker token for netmaker network type
+        let network_type = props
+            .and_then(|p| p.get("network_type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("bridge");
+
+        if network_type == "netmaker" {
+            Self::inject_netmaker_token(container).await?;
+        }
+
+        log::info!(
+            "✓ Container {} created from golden image '{}' (BTRFS snapshot)",
+            container.id,
+            golden_image_name
+        );
+
+        Ok(())
+    }
+
+    /// Inject firstboot script into container rootfs
+    async fn inject_firstboot_script(container: &ContainerInfo, script_content: &str) -> Result<()> {
+        let rootfs = format!("/var/lib/vz/images/{}/rootfs", container.id);
+        let script_path = format!("{}/usr/local/bin/lxc-firstboot.sh", rootfs);
+        let service_path = format!("{}/etc/systemd/system/lxc-firstboot.service", rootfs);
+
+        // Create script directory if needed
+        tokio::fs::create_dir_all(format!("{}/usr/local/bin", rootfs)).await?;
+
+        // Write firstboot script
+        tokio::fs::write(&script_path, script_content).await?;
+
+        // Make executable
+        tokio::process::Command::new("chmod")
+            .args(["+x", &script_path])
+            .output()
+            .await?;
+
+        // Create systemd service
+        let service_content = format!(
+            r#"[Unit]
+Description=LXC First Boot Initialization
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/lxc-firstboot-complete
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/lxc-firstboot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+"#
+        );
+
+        tokio::fs::create_dir_all(format!("{}/etc/systemd/system", rootfs)).await?;
+        tokio::fs::write(&service_path, service_content).await?;
+
+        // Enable service (create symlink)
+        let symlink_dir = format!("{}/etc/systemd/system/multi-user.target.wants", rootfs);
+        tokio::fs::create_dir_all(&symlink_dir).await?;
+
+        let symlink_path = format!("{}/lxc-firstboot.service", symlink_dir);
+        tokio::fs::symlink("../lxc-firstboot.service", &symlink_path).await.ok(); // Ignore if exists
+
+        log::info!("✓ Firstboot script injected into container {}", container.id);
+
+        Ok(())
+    }
+
+    /// Inject Netmaker enrollment token into container
+    async fn inject_netmaker_token(container: &ContainerInfo) -> Result<()> {
+        // Read token from host
+        if let Ok(token_content) = tokio::fs::read_to_string("/etc/op-dbus/netmaker.env").await {
+            for line in token_content.lines() {
+                if let Some(token_value) = line.strip_prefix("NETMAKER_TOKEN=") {
+                    let token_clean = token_value.trim_matches('"').trim();
+
+                    let rootfs = format!("/var/lib/vz/images/{}/rootfs", container.id);
+                    let token_path = format!("{}/etc/netmaker/enrollment-token", rootfs);
+
+                    // Create netmaker directory
+                    tokio::fs::create_dir_all(format!("{}/etc/netmaker", rootfs)).await?;
+
+                    // Write token
+                    tokio::fs::write(&token_path, token_clean).await?;
+
+                    // Set permissions
+                    tokio::process::Command::new("chmod")
+                        .args(["600", &token_path])
+                        .output()
+                        .await?;
+
+                    log::info!("✓ Netmaker token injected into container {}", container.id);
+                    break;
                 }
             }
         }
