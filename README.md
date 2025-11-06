@@ -20,6 +20,15 @@ See **[ENTERPRISE-DEPLOYMENT.md](ENTERPRISE-DEPLOYMENT.md)** for detailed enterp
   - Zero-configuration bridge to any D-Bus service
   - See **[MCP-INTEGRATION.md](MCP-INTEGRATION.md)** for details
 
+- **NixOS Integration** - Declarative system configuration and replication
+  - **System Introspection Tool** (`nix-introspect`) - Scan any Linux system and generate NixOS configs
+  - **Complete NixOS Modules** - Full flake-based packaging with nixosModules
+  - **Replicate Any System** - Introspect running systems and recreate them declaratively
+  - **MCP Plugin Packaging** - All MCP agents packaged as systemd services
+  - See **[NIXOS_WORKFLOW.md](NIXOS_WORKFLOW.md)** for complete workflow guide
+  - Quick reference: **[NIXOS_QUICKREF.md](NIXOS_QUICKREF.md)**
+  - Module docs: **[nix/README.md](nix/README.md)**
+
 ## Quick Start
 
 ### Installation

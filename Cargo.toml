@@ -158,4 +158,10 @@ name = "mcp-chat"
 path = "src/mcp/chat_main.rs"
 required-features = ["mcp"]
 
+# NixOS Introspection Tool
+[[bin]]
+name = "nix-introspect"
+path = "src/nix_introspect.rs"
+required-features = ["mcp"]
+
 
