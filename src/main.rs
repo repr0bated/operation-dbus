@@ -189,6 +189,34 @@ enum BlockchainCommands {
 
     /// Search blockchain for changes
     Search { query: String },
+
+    /// List state snapshots (for disaster recovery)
+    Snapshots,
+
+    /// Rollback to a specific state snapshot
+    Rollback {
+        /// Snapshot name (e.g., state-20250106-143022)
+        snapshot_name: String,
+
+        /// Apply the rollback immediately (otherwise just show the state file)
+        #[arg(long)]
+        apply: bool,
+    },
+
+    /// Show retention policy
+    RetentionPolicy,
+
+    /// Update retention policy
+    SetRetention {
+        #[arg(long)]
+        hourly: Option<usize>,
+        #[arg(long)]
+        daily: Option<usize>,
+        #[arg(long)]
+        weekly: Option<usize>,
+        #[arg(long)]
+        quarterly: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -323,7 +351,47 @@ async fn main() -> Result<()> {
     init_logging()?;
     let args = Cli::parse();
 
+    // Initialize StreamingBlockchain for audit trail and state snapshots
+    let blockchain_path = std::env::var("OPDBUS_BLOCKCHAIN_PATH")
+        .unwrap_or_else(|_| "/var/lib/op-dbus/blockchain".to_string());
+    info!("Initializing streaming blockchain at: {}", blockchain_path);
+
+    let blockchain = match blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path).await {
+        Ok(bc) => {
+            info!("✓ Streaming blockchain initialized");
+            info!("  - Snapshot interval: {:?}", bc.snapshot_interval());
+            let policy = bc.retention_policy();
+            info!("  - Retention policy: {}h/{}d/{}w/{}q",
+                policy.hourly, policy.daily, policy.weekly, policy.quarterly);
+            Some(Arc::new(bc))
+        }
+        Err(e) => {
+            info!("⚠ Failed to initialize blockchain: {} (continuing without blockchain)", e);
+            info!("  Note: Blockchain requires BTRFS filesystem");
+            None
+        }
+    };
+
+    // Set up footprint channel for plugin operations
+    let (footprint_tx, footprint_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    // Create state manager and configure blockchain integration
     let mut sm = state::StateManager::new();
+
+    if let Some(bc) = &blockchain {
+        sm.set_blockchain(Arc::clone(bc));
+        sm.set_blockchain_sender(footprint_tx);
+        info!("✓ State manager configured with blockchain");
+
+        // Spawn background task to receive footprints
+        let bc_clone = Arc::clone(bc);
+        tokio::spawn(async move {
+            if let Err(e) = bc_clone.start_footprint_receiver(footprint_rx).await {
+                log::error!("Footprint receiver task failed: {}", e);
+            }
+        });
+    }
+
     let state_manager = Arc::new(sm);
 
     info!("Discovering available plugins...");
@@ -1279,6 +1347,130 @@ async fn handle_blockchain_command(cmd: BlockchainCommands) -> Result<()> {
                 println!("  Action:   {}", action);
                 println!();
             }
+
+            Ok(())
+        }
+        BlockchainCommands::Snapshots => {
+            info!("Listing state snapshots");
+
+            let blockchain = blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path).await?;
+            let snapshots = blockchain.list_state_snapshots().await?;
+
+            if snapshots.is_empty() {
+                println!("No state snapshots found.");
+                println!("\nSnapshots are created automatically when you apply state changes.");
+                return Ok(());
+            }
+
+            println!("=== State Snapshots (for Disaster Recovery) ===\n");
+            println!("Total: {}\n", snapshots.len());
+
+            for (name, timestamp) in snapshots {
+                println!("  {} - {}", name, timestamp);
+            }
+
+            println!("\nTo rollback to a snapshot: op-dbus blockchain rollback <snapshot-name>");
+            println!("To apply immediately: op-dbus blockchain rollback <snapshot-name> --apply");
+
+            Ok(())
+        }
+        BlockchainCommands::Rollback { snapshot_name, apply } => {
+            info!("Rolling back to snapshot: {}", snapshot_name);
+
+            let blockchain = blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path).await?;
+            let state_file = blockchain.rollback_to_snapshot(&snapshot_name).await?;
+
+            println!("=== Rollback to Snapshot: {} ===\n", snapshot_name);
+
+            // Read and display the state from the snapshot
+            let state_content = fs::read_to_string(&state_file).await?;
+            let state: serde_json::Value = serde_json::from_str(&state_content)?;
+
+            println!("State file location: {}\n", state_file.display());
+            println!("State contents:");
+            println!("{}\n", serde_json::to_string_pretty(&state)?);
+
+            if apply {
+                println!("Applying snapshot state...");
+                println!("! This will revert your system to the state from the snapshot.");
+                println!("! This feature is not yet fully implemented.");
+                println!("\nFor now, you can manually apply the state with:");
+                println!("  op-dbus apply {}", state_file.display());
+            } else {
+                println!("To apply this state, run:");
+                println!("  op-dbus blockchain rollback {} --apply", snapshot_name);
+                println!("Or manually:");
+                println!("  op-dbus apply {}", state_file.display());
+            }
+
+            Ok(())
+        }
+        BlockchainCommands::RetentionPolicy => {
+            info!("Showing retention policy");
+
+            let blockchain = blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path).await?;
+            let policy = blockchain.retention_policy();
+
+            println!("=== Snapshot Retention Policy ===\n");
+            println!("Hourly:    {} snapshots (from last 24 hours)", policy.hourly);
+            println!("Daily:     {} snapshots (from last 30 days)", policy.daily);
+            println!("Weekly:    {} snapshots (from last 12 weeks)", policy.weekly);
+            println!("Quarterly: {} snapshots (long-term)", policy.quarterly);
+            println!("\nOld snapshots are automatically pruned based on this policy.");
+            println!("\nTo change retention policy:");
+            println!("  Environment variables:");
+            println!("    OPDBUS_RETAIN_HOURLY=5");
+            println!("    OPDBUS_RETAIN_DAILY=7");
+            println!("    OPDBUS_RETAIN_WEEKLY=5");
+            println!("    OPDBUS_RETAIN_QUARTERLY=4");
+            println!("\n  Or use the set-retention command:");
+            println!("    op-dbus blockchain set-retention --hourly 10 --daily 14");
+
+            Ok(())
+        }
+        BlockchainCommands::SetRetention {
+            hourly,
+            daily,
+            weekly,
+            quarterly,
+        } => {
+            info!("Updating retention policy");
+
+            let mut blockchain = blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path).await?;
+            let mut policy = blockchain.retention_policy();
+
+            let mut changed = false;
+
+            if let Some(h) = hourly {
+                policy.set_hourly(h);
+                changed = true;
+            }
+            if let Some(d) = daily {
+                policy.set_daily(d);
+                changed = true;
+            }
+            if let Some(w) = weekly {
+                policy.set_weekly(w);
+                changed = true;
+            }
+            if let Some(q) = quarterly {
+                policy.set_quarterly(q);
+                changed = true;
+            }
+
+            if !changed {
+                println!("No changes specified. Use --hourly, --daily, --weekly, or --quarterly");
+                return Ok(());
+            }
+
+            blockchain.set_retention_policy(policy);
+
+            println!("=== Updated Retention Policy ===\n");
+            println!("Hourly:    {} snapshots", policy.hourly);
+            println!("Daily:     {} snapshots", policy.daily);
+            println!("Weekly:    {} snapshots", policy.weekly);
+            println!("Quarterly: {} snapshots", policy.quarterly);
+            println!("\nNote: This change is runtime only. Set environment variables for persistence.");
 
             Ok(())
         }
