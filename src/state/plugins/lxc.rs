@@ -490,9 +490,15 @@ impl LxcPlugin {
 
         let props = container.properties.as_ref();
 
-        // Paths
-        let storage_path = "/var/lib/vz";
-        let golden_image_path = format!("{}/template/subvol/{}", storage_path, golden_image_name);
+        // Storage backend (configurable per container)
+        let storage = props
+            .and_then(|p| p.get("storage"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("local-btrfs");
+
+        // Proxmox storage paths (adjust based on storage.cfg configuration)
+        let storage_path = format!("/var/lib/pve/{}", storage);
+        let golden_image_path = format!("{}/templates/subvol/{}", storage_path, golden_image_name);
         let container_rootfs = format!("{}/images/{}/rootfs", storage_path, container.id);
         let container_dir = format!("{}/images/{}", storage_path, container.id);
 
@@ -629,7 +635,7 @@ features: {}
 
         // Inject firstboot script if specified
         if let Some(firstboot_script) = props.and_then(|p| p.get("firstboot_script")).and_then(|v| v.as_str()) {
-            Self::inject_firstboot_script(container, firstboot_script).await?;
+            Self::inject_firstboot_script(container, storage, firstboot_script).await?;
         }
 
         // Inject Netmaker token for netmaker network type
@@ -639,7 +645,7 @@ features: {}
             .unwrap_or("bridge");
 
         if network_type == "netmaker" {
-            Self::inject_netmaker_token(container).await?;
+            Self::inject_netmaker_token(container, storage).await?;
         }
 
         log::info!(
@@ -652,8 +658,8 @@ features: {}
     }
 
     /// Inject firstboot script into container rootfs
-    async fn inject_firstboot_script(container: &ContainerInfo, script_content: &str) -> Result<()> {
-        let rootfs = format!("/var/lib/vz/images/{}/rootfs", container.id);
+    async fn inject_firstboot_script(container: &ContainerInfo, storage: &str, script_content: &str) -> Result<()> {
+        let rootfs = format!("/var/lib/pve/{}/images/{}/rootfs", storage, container.id);
         let script_path = format!("{}/usr/local/bin/lxc-firstboot.sh", rootfs);
         let service_path = format!("{}/etc/systemd/system/lxc-firstboot.service", rootfs);
 
@@ -703,14 +709,14 @@ WantedBy=multi-user.target
     }
 
     /// Inject Netmaker enrollment token into container
-    async fn inject_netmaker_token(container: &ContainerInfo) -> Result<()> {
+    async fn inject_netmaker_token(container: &ContainerInfo, storage: &str) -> Result<()> {
         // Read token from host
         if let Ok(token_content) = tokio::fs::read_to_string("/etc/op-dbus/netmaker.env").await {
             for line in token_content.lines() {
                 if let Some(token_value) = line.strip_prefix("NETMAKER_TOKEN=") {
                     let token_clean = token_value.trim_matches('"').trim();
 
-                    let rootfs = format!("/var/lib/vz/images/{}/rootfs", container.id);
+                    let rootfs = format!("/var/lib/pve/{}/images/{}/rootfs", storage, container.id);
                     let token_path = format!("{}/etc/netmaker/enrollment-token", rootfs);
 
                     // Create netmaker directory

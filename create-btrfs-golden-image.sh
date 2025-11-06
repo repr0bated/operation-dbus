@@ -18,8 +18,8 @@ TEMP_CT_ID="${2:-9998}"
 BASE_TEMPLATE="${3:-local-btrfs:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst}"
 
 STORAGE="local-btrfs"
-STORAGE_PATH="/var/lib/vz"
-GOLDEN_IMAGE_DIR="$STORAGE_PATH/template/subvol"
+STORAGE_PATH="/var/lib/pve/$STORAGE"
+GOLDEN_IMAGE_DIR="$STORAGE_PATH/templates/subvol"
 GOLDEN_IMAGE_PATH="$GOLDEN_IMAGE_DIR/$GOLDEN_IMAGE_NAME"
 
 echo -e "${BLUE}=== BTRFS Golden Image Creator ===${NC}"
