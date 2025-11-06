@@ -1034,7 +1034,122 @@ async fn generate_nixos_config(
     ./hardware-configuration.nix
   ];
 
-  # op-dbus state management
+"#,
+    );
+
+    // Add hardware-specific section if there are known issues
+    if !report.system_config.hardware.known_issues.is_empty() {
+        config.push_str(&format!(
+            r#"  # Hardware: {} {}
+  # BIOS Version: {}
+  # Known Issues:
+"#,
+            report.system_config.hardware.vendor,
+            report.system_config.hardware.model,
+            report.system_config.hardware.bios_version,
+        ));
+        for issue in &report.system_config.hardware.known_issues {
+            config.push_str(&format!("  #   - {}\n", issue));
+        }
+        config.push_str("\n");
+    }
+
+    // Add kernel parameters
+    config.push_str("  # Kernel configuration (captured from introspection)\n");
+    config.push_str("  boot.kernelParams = [\n");
+
+    // Filter out parameters that NixOS handles separately
+    let kernel_params: Vec<_> = report.system_config.kernel_cmdline
+        .iter()
+        .filter(|p| {
+            // Skip parameters that NixOS configures through other options
+            !p.starts_with("BOOT_IMAGE=") &&
+            !p.starts_with("root=") &&
+            !p.starts_with("initrd=")
+        })
+        .collect();
+
+    for param in kernel_params {
+        config.push_str(&format!("    \"{}\"\n", param));
+    }
+    config.push_str("  ];\n\n");
+
+    // Add kernel modules
+    if !report.system_config.loaded_modules.is_empty() {
+        config.push_str("  # Kernel modules (critical modules from introspection)\n");
+        config.push_str("  boot.kernelModules = [\n");
+
+        // Only include important modules (not auto-loaded ones)
+        let important_modules: Vec<_> = report.system_config.loaded_modules
+            .iter()
+            .filter(|m| {
+                // Include virtualization, special hardware, workarounds
+                m.contains("kvm") ||
+                m.contains("vfio") ||
+                m.contains("i2c_hid") ||
+                m.contains("hid_multitouch") ||
+                m.contains("tun") ||
+                m.contains("vhost")
+            })
+            .collect();
+
+        for module in important_modules {
+            config.push_str(&format!("    \"{}\"\n", module));
+        }
+        config.push_str("  ];\n\n");
+    }
+
+    // Add virtualization configuration if detected
+    if let Some(virt) = &report.system_config.virtualization {
+        config.push_str(&format!(
+            r#"  # Virtualization: {} ({} VMs detected)
+  virtualisation.libvirtd.enable = true;
+  virtualisation.libvirtd.qemu.verbatimConfig = '''
+    # CPU passthrough: {}
+    # Nested virtualization: {}
+  ''';
+
+"#,
+            virt.hypervisor,
+            virt.vm_count,
+            if virt.cpu_passthrough { "enabled" } else { "disabled" },
+            if virt.nested_virt { "enabled" } else { "disabled" },
+        ));
+    }
+
+    // Add CPU mitigation summary as comment
+    let active_mitigations = report.system_config.cpu_mitigations
+        .iter()
+        .filter(|m| m.mitigation_active)
+        .count();
+    let total_vulns = report.system_config.cpu_mitigations.len();
+
+    config.push_str(&format!(
+        r#"  # CPU Vulnerability Mitigations: {} of {} active
+  # Note: These are controlled by boot.kernelParams above
+  # For QEMU/KVM hosts: Consider performance vs security tradeoff
+  #   - mitigations=off → Fast but vulnerable (use for trusted workloads)
+  #   - mitigations=auto → Secure but slower (default, recommended)
+  # Current detected mitigations:
+"#,
+        active_mitigations,
+        total_vulns,
+    ));
+
+    for mitigation in &report.system_config.cpu_mitigations {
+        let status_icon = if mitigation.mitigation_active { "✓" } else { "⚠" };
+        config.push_str(&format!(
+            "  #   {} {}: {}\n",
+            status_icon,
+            mitigation.vulnerability.replace('_', " "),
+            mitigation.status.chars().take(60).collect::<String>()
+        ));
+    }
+    config.push_str("\n");
+
+    // Add op-dbus service configuration
+    config.push_str(
+        r#"  # op-dbus state management
   services.op-dbus = {
     enable = true;
 
@@ -1054,6 +1169,12 @@ async fn generate_nixos_config(
     config.push_str(
         r#"      };
     };
+
+    # Blockchain audit trail
+    blockchain.enable = true;
+
+    # NUMA optimization (if multi-socket)
+    numa.enable = true;
   };
 
   # System packages (detected)
