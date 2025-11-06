@@ -89,6 +89,12 @@ async fn register_default_tools(registry: &ToolRegistry) -> Result<()> {
     // Process tool
     registry.register_tool(Box::new(ProcessTool)).await?;
 
+    // Blockchain snapshot management
+    registry.register_tool(Box::new(BlockchainSnapshotTool)).await?;
+
+    // Blockchain retention policy
+    registry.register_tool(Box::new(BlockchainRetentionTool)).await?;
+
     let tools = registry.list_tools().await;
     info!("Registered {} default tools", tools.len());
     Ok(())
@@ -280,5 +286,245 @@ impl Tool for ProcessTool {
             content: vec![tool_registry::ToolContent::text(output)],
             metadata: None,
         })
+    }
+}
+
+struct BlockchainSnapshotTool;
+
+#[async_trait::async_trait]
+impl Tool for BlockchainSnapshotTool {
+    fn name(&self) -> &str {
+        "blockchain_snapshot"
+    }
+
+    fn description(&self) -> &str {
+        "Manage blockchain state snapshots for disaster recovery (list, show, rollback)"
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "show", "rollback"],
+                    "description": "Operation to perform"
+                },
+                "snapshot_name": {
+                    "type": "string",
+                    "description": "Snapshot name (required for show/rollback)"
+                }
+            },
+            "required": ["action"]
+        })
+    }
+
+    async fn execute(&self, params: serde_json::Value) -> Result<tool_registry::ToolResult> {
+        let action = params["action"].as_str().unwrap_or("list");
+        let blockchain_path = std::env::var("OPDBUS_BLOCKCHAIN_PATH")
+            .unwrap_or_else(|_| "/var/lib/op-dbus/blockchain".to_string());
+
+        match action {
+            "list" => {
+                // List all snapshots
+                let blockchain = crate::blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to initialize blockchain: {}", e))?;
+
+                let snapshots = blockchain.list_state_snapshots().await?;
+
+                if snapshots.is_empty() {
+                    return Ok(tool_registry::ToolResult {
+                        content: vec![tool_registry::ToolContent::text(
+                            "No snapshots found. Snapshots are created automatically when you apply state changes."
+                        )],
+                        metadata: None,
+                    });
+                }
+
+                let mut output = format!("Found {} state snapshots:\n\n", snapshots.len());
+                for (name, timestamp) in snapshots {
+                    output.push_str(&format!("• {} ({})\n", name, timestamp));
+                }
+                output.push_str("\nUse action='show' with snapshot_name to view details.");
+
+                Ok(tool_registry::ToolResult {
+                    content: vec![tool_registry::ToolContent::text(output)],
+                    metadata: Some(serde_json::json!({
+                        "snapshot_count": snapshots.len()
+                    })),
+                })
+            }
+            "show" => {
+                let snapshot_name = params["snapshot_name"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("snapshot_name required for show action"))?;
+
+                let blockchain = crate::blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path).await?;
+                let state_file = blockchain.rollback_to_snapshot(snapshot_name).await?;
+
+                let state_content = tokio::fs::read_to_string(&state_file).await?;
+                let state: serde_json::Value = serde_json::from_str(&state_content)?;
+
+                Ok(tool_registry::ToolResult {
+                    content: vec![
+                        tool_registry::ToolContent::text(format!("Snapshot: {}", snapshot_name)),
+                        tool_registry::ToolContent::json(state),
+                    ],
+                    metadata: Some(serde_json::json!({
+                        "snapshot_name": snapshot_name,
+                        "state_file": state_file.display().to_string()
+                    })),
+                })
+            }
+            "rollback" => {
+                Ok(tool_registry::ToolResult {
+                    content: vec![tool_registry::ToolContent::text(
+                        "Rollback functionality coming soon. For now, use 'show' to view snapshot contents."
+                    )],
+                    metadata: None,
+                })
+            }
+            _ => Ok(tool_registry::ToolResult {
+                content: vec![tool_registry::ToolContent::error(format!("Unknown action: {}", action))],
+                metadata: None,
+            }),
+        }
+    }
+}
+
+struct BlockchainRetentionTool;
+
+#[async_trait::async_trait]
+impl Tool for BlockchainRetentionTool {
+    fn name(&self) -> &str {
+        "blockchain_retention"
+    }
+
+    fn description(&self) -> &str {
+        "View and update blockchain snapshot retention policy (hourly, daily, weekly, quarterly)"
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["show", "update"],
+                    "description": "Show current policy or update it"
+                },
+                "hourly": {
+                    "type": "number",
+                    "description": "Number of hourly snapshots to keep"
+                },
+                "daily": {
+                    "type": "number",
+                    "description": "Number of daily snapshots to keep"
+                },
+                "weekly": {
+                    "type": "number",
+                    "description": "Number of weekly snapshots to keep"
+                },
+                "quarterly": {
+                    "type": "number",
+                    "description": "Number of quarterly snapshots to keep"
+                }
+            },
+            "required": ["action"]
+        })
+    }
+
+    async fn execute(&self, params: serde_json::Value) -> Result<tool_registry::ToolResult> {
+        let action = params["action"].as_str().unwrap_or("show");
+        let blockchain_path = std::env::var("OPDBUS_BLOCKCHAIN_PATH")
+            .unwrap_or_else(|_| "/var/lib/op-dbus/blockchain".to_string());
+
+        let mut blockchain = crate::blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to initialize blockchain: {}", e))?;
+
+        match action {
+            "show" => {
+                let policy = blockchain.retention_policy();
+
+                let output = format!(
+                    "Snapshot Retention Policy:\n\n\
+                     • Hourly:    {} snapshots (last 24 hours)\n\
+                     • Daily:     {} snapshots (last 30 days)\n\
+                     • Weekly:    {} snapshots (last 12 weeks)\n\
+                     • Quarterly: {} snapshots (long-term)\n\n\
+                     Old snapshots are automatically pruned based on this policy.",
+                    policy.hourly, policy.daily, policy.weekly, policy.quarterly
+                );
+
+                Ok(tool_registry::ToolResult {
+                    content: vec![tool_registry::ToolContent::text(output)],
+                    metadata: Some(serde_json::json!({
+                        "hourly": policy.hourly,
+                        "daily": policy.daily,
+                        "weekly": policy.weekly,
+                        "quarterly": policy.quarterly
+                    })),
+                })
+            }
+            "update" => {
+                let mut policy = blockchain.retention_policy();
+                let mut changed = false;
+
+                if let Some(hourly) = params["hourly"].as_u64() {
+                    policy.set_hourly(hourly as usize);
+                    changed = true;
+                }
+                if let Some(daily) = params["daily"].as_u64() {
+                    policy.set_daily(daily as usize);
+                    changed = true;
+                }
+                if let Some(weekly) = params["weekly"].as_u64() {
+                    policy.set_weekly(weekly as usize);
+                    changed = true;
+                }
+                if let Some(quarterly) = params["quarterly"].as_u64() {
+                    policy.set_quarterly(quarterly as usize);
+                    changed = true;
+                }
+
+                if !changed {
+                    return Ok(tool_registry::ToolResult {
+                        content: vec![tool_registry::ToolContent::error(
+                            "No changes specified. Provide hourly, daily, weekly, or quarterly parameters."
+                        )],
+                        metadata: None,
+                    });
+                }
+
+                blockchain.set_retention_policy(policy);
+
+                let output = format!(
+                    "Updated Retention Policy:\n\n\
+                     • Hourly:    {} snapshots\n\
+                     • Daily:     {} snapshots\n\
+                     • Weekly:    {} snapshots\n\
+                     • Quarterly: {} snapshots\n\n\
+                     Note: This is a runtime change. Set environment variables for persistence.",
+                    policy.hourly, policy.daily, policy.weekly, policy.quarterly
+                );
+
+                Ok(tool_registry::ToolResult {
+                    content: vec![tool_registry::ToolContent::text(output)],
+                    metadata: Some(serde_json::json!({
+                        "hourly": policy.hourly,
+                        "daily": policy.daily,
+                        "weekly": policy.weekly,
+                        "quarterly": policy.quarterly,
+                        "updated": true
+                    })),
+                })
+            }
+            _ => Ok(tool_registry::ToolResult {
+                content: vec![tool_registry::ToolContent::error(format!("Unknown action: {}", action))],
+                metadata: None,
+            }),
+        }
     }
 }
