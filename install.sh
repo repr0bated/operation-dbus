@@ -108,10 +108,13 @@ Documentation=https://github.com/ghostbridge/op-dbus
 After=network-online.target openvswitch-switch.service
 Wants=network-online.target
 Requires=openvswitch-switch.service
+PartOf=openvswitch-switch.service
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/op-dbus run --state-file /etc/op-dbus/state.json
+ExecStartPost=/bin/sleep 2
+ExecStartPost=/usr/local/bin/op-dbus restore-flows
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal

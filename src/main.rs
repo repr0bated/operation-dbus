@@ -68,6 +68,16 @@ enum Commands {
         plugin: Option<String>,
     },
 
+    /// Restore OpenFlow flows after OVS restart
+    RestoreFlows {
+        #[arg(short, long)]
+        state_file: Option<PathBuf>,
+        #[arg(short, long)]
+        bridge: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Verify current state matches last footprint
     Verify {
         #[arg(long)]
@@ -319,6 +329,130 @@ async fn apply_state_from_file_single_plugin(
         info!("Successfully applied state for plugin: {}", plugin_name);
     }
     Ok(())
+}
+
+async fn handle_restore_flows_command(
+    state_manager: &state::StateManager,
+    state_file: Option<PathBuf>,
+    bridge: Option<String>,
+    dry_run: bool,
+) -> Result<()> {
+    use crate::state::StatePlugin;
+
+    let state_path = state_file.unwrap_or_else(|| PathBuf::from("/etc/op-dbus/state.json"));
+
+    if !state_path.exists() {
+        return Err(anyhow::anyhow!(
+            "State file not found: {}. Run 'op-dbus init --introspect' to create one.",
+            state_path.display()
+        ));
+    }
+
+    info!("🔄 Restoring OpenFlow flows from: {}", state_path.display());
+
+    // Load desired state
+    let desired_state = state_manager.load_desired_state(&state_path).await?;
+
+    // Check if openflow plugin state exists
+    let openflow_state = desired_state.plugins.get("openflow").ok_or_else(|| {
+        anyhow::anyhow!("No 'openflow' plugin configuration found in state file")
+    })?;
+
+    // Get the openflow plugin
+    let plugins = state_manager.plugins.read().await;
+    let openflow_plugin = plugins.get("openflow").ok_or_else(|| {
+        anyhow::anyhow!("OpenFlow plugin not registered. Make sure OVS is installed and running.")
+    })?;
+
+    // Query current state
+    info!("📊 Querying current OpenFlow state...");
+    let current_state = openflow_plugin.query_current_state().await?;
+
+    // Calculate diff
+    info!("🔍 Calculating differences...");
+    let diff = openflow_plugin.calculate_diff(&current_state, openflow_state).await?;
+
+    if diff.actions.is_empty() {
+        println!("✅ All flows are already up-to-date. Nothing to restore.");
+        return Ok(());
+    }
+
+    // Filter actions: only keep flow-related creates, skip bridge/port operations
+    let flow_actions: Vec<_> = diff.actions.iter()
+        .filter(|action| {
+            match action {
+                state::StateDiff::Create { resource, .. } => {
+                    // Only restore flows, not bridges or ports
+                    resource.contains("flow/") || resource.contains("flows")
+                }
+                // Don't delete or modify anything during restore
+                _ => false,
+            }
+        })
+        .collect();
+
+    if flow_actions.is_empty() {
+        println!("✅ No flows need to be restored.");
+        if !diff.actions.is_empty() {
+            println!("ℹ️  Note: Found {} non-flow differences (bridges/ports). Use 'op-dbus apply' for full state.", diff.actions.len());
+        }
+        return Ok(());
+    }
+
+    println!("🔧 Found {} flows to restore", flow_actions.len());
+
+    // Filter by bridge if specified
+    let filtered_actions: Vec<_> = if let Some(ref bridge_name) = bridge {
+        flow_actions.iter()
+            .filter(|action| {
+                if let state::StateDiff::Create { resource, .. } = action {
+                    resource.contains(bridge_name)
+                } else {
+                    false
+                }
+            })
+            .collect()
+    } else {
+        flow_actions.iter().collect()
+    };
+
+    if filtered_actions.is_empty() {
+        println!("✅ No flows to restore for bridge: {}", bridge.unwrap_or_default());
+        return Ok(());
+    }
+
+    // Show what will be restored
+    for (i, action) in filtered_actions.iter().enumerate() {
+        if let state::StateDiff::Create { resource, .. } = action {
+            println!("  {}. {}", i + 1, resource);
+        }
+    }
+
+    if dry_run {
+        println!("\n🔍 Dry-run mode: No changes made.");
+        println!("   Run without --dry-run to actually restore flows.");
+        return Ok(());
+    }
+
+    // Apply the flow restoration
+    println!("\n⚙️  Applying flow restoration...");
+
+    // Create a filtered diff with only the flow actions
+    let filtered_diff = state::StateDiff {
+        plugin: diff.plugin.clone(),
+        actions: filtered_actions.iter().map(|&action| action.clone()).collect(),
+    };
+
+    match openflow_plugin.apply_state(&filtered_diff).await {
+        Ok(_) => {
+            println!("✅ Successfully restored {} flows!", filtered_actions.len());
+            Ok(())
+        }
+        Err(e) => {
+            println!("❌ Failed to restore flows: {}", e);
+            Err(e)
+        }
+    }
 }
 
 async fn setup_dhcp_server() -> Result<()> {
@@ -611,6 +745,14 @@ async fn main() -> Result<()> {
             let diffs = state_manager.show_diff(desired).await?;
             println!("{}", serde_json::to_string_pretty(&diffs)?);
             Ok(())
+        }
+
+        Commands::RestoreFlows {
+            state_file,
+            bridge,
+            dry_run,
+        } => {
+            handle_restore_flows_command(&state_manager, state_file, bridge, dry_run).await
         }
 
         Commands::Verify { full } => {
