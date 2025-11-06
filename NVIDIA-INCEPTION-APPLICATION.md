@@ -124,6 +124,12 @@
    - ML anomaly detection
    - Compliance automation
 
+2. **Creative "Off-Label" Technology Use**:
+   - **BTRFS**: Originally a filesystem → Repurposed as blockchain backend, cache layer, audit trail
+   - **MCP** (Anthropic): AI tool protocol → Repurposed for infrastructure control ("say change retention")
+   - **D-Bus**: Desktop IPC → Repurposed for server management and auto-discovery
+   - **Result**: Innovation without inventing new tech - smart recombination
+
 2. **Enterprise-Grade Architecture**:
    - Snapshot retention with rolling windows
    - Sub-millisecond cache performance
