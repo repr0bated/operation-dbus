@@ -23,6 +23,12 @@ pub mod orchestrator;
 pub mod agent_registry;
 pub mod tool_registry;
 
+// Introspection tools for hardware, CPU features, ISP analysis
+pub mod introspection_tools;
+
+// MCP Manager (web interface for orchestration)
+pub mod manager;
+
 // Chat interface
 pub mod chat_server;
 
