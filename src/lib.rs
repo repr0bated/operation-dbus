@@ -5,6 +5,7 @@
 // Core modules
 pub mod blockchain;
 pub mod cache;
+pub mod introspection;
 pub mod native;
 pub mod nonnet_db;
 pub mod state;
