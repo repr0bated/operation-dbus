@@ -28,13 +28,15 @@ op-dbus dynamically discovers what's available on your system:
 
 ## 📦 Quick Start
 
-### 1. Build
+### Cargo (Traditional)
+
+#### 1. Build
 
 ```bash
 cargo build --release
 ```
 
-### 2. Install
+#### 2. Install
 
 ```bash
 sudo ./install-portable.sh
@@ -46,6 +48,45 @@ The installer will:
 - ✅ Introspect your current system state
 - ✅ Create `/etc/op-dbus/state.json` with discovered configuration
 - ✅ Set up systemd service (disabled by default)
+
+### Nix / NixOS (Recommended)
+
+#### With Flakes
+
+```bash
+# Try without installing
+nix run github:repr0bated/operation-dbus -- query
+
+# Install to user profile
+nix profile install github:repr0bated/operation-dbus
+```
+
+#### NixOS Configuration
+
+Add to `/etc/nixos/configuration.nix`:
+
+```nix
+{
+  services.op-dbus = {
+    enable = true;
+    state = {
+      version = 1;
+      plugins = {
+        systemd = {
+          units = {
+            "nginx.service" = {
+              active_state = "active";
+              enabled = true;
+            };
+          };
+        };
+      };
+    };
+  };
+}
+```
+
+**See [NIX-INSTALL.md](NIX-INSTALL.md) for complete Nix documentation.**
 
 ### 3. Test
 
