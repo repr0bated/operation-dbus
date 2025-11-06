@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
 
 // Security configuration
@@ -371,7 +372,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_id = if args.len() > 1 {
         args[1].clone()
     } else {
-        format!("file-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
+        format!("file-{}", Uuid::new_v4().to_string()[..8].to_string())
     };
 
     println!("Starting Secure File Agent: {}", agent_id);
@@ -384,7 +385,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/File/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.File.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::session()?
+    let _conn = ConnectionBuilder::system()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()

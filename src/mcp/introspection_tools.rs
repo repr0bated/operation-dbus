@@ -76,11 +76,11 @@ async fn register_discover_system(registry: &ToolRegistry) -> Result<()> {
                             }
                         }
 
-                        ToolResult::success(ToolContent::text(
+                        Ok(ToolResult::success(ToolContent::text(
                             serde_json::to_string_pretty(&result).unwrap()
-                        ))
+                        )))
                     }
-                    Err(e) => ToolResult::error(&format!("Introspection failed: {}", e)),
+                    Err(e) => Ok(ToolResult::error(&format!("Introspection failed: {}", e))),
                 }
             })
         })
@@ -106,11 +106,11 @@ async fn register_analyze_cpu_features(registry: &ToolRegistry) -> Result<()> {
                         let result = serde_json::to_value(&analysis)
                             .unwrap_or_else(|_| json!({"error": "Failed to serialize"}));
 
-                        ToolResult::success(ToolContent::text(
+                        Ok(ToolResult::success(ToolContent::text(
                             serde_json::to_string_pretty(&result).unwrap()
-                        ))
+                        )))
                     }
-                    Err(e) => ToolResult::error(&format!("CPU analysis failed: {}", e)),
+                    Err(e) => Ok(ToolResult::error(&format!("CPU analysis failed: {}", e))),
                 }
             })
         })
@@ -170,11 +170,11 @@ async fn register_analyze_isp(registry: &ToolRegistry) -> Result<()> {
                             }
                         }
 
-                        ToolResult::success(ToolContent::text(
+                        Ok(ToolResult::success(ToolContent::text(
                             serde_json::to_string_pretty(&result).unwrap()
-                        ))
+                        )))
                     }
-                    Err(e) => ToolResult::error(&format!("ISP analysis failed: {}", e)),
+                    Err(e) => Ok(ToolResult::error(&format!("ISP analysis failed: {}", e))),
                 }
             })
         })
@@ -207,7 +207,7 @@ async fn register_generate_isp_request(registry: &ToolRegistry) -> Result<()> {
             Box::pin(async move {
                 let feature = match params.get("feature").and_then(|v| v.as_str()) {
                     Some(f) => f,
-                    None => return ToolResult::error("feature parameter is required"),
+                    None => return Ok(ToolResult::error("feature parameter is required")),
                 };
 
                 let use_case = params
@@ -226,7 +226,7 @@ async fn register_generate_isp_request(registry: &ToolRegistry) -> Result<()> {
                         isp_support::generate_iommu_enable_request()
                     }
                     _ => {
-                        return ToolResult::error(&format!("Unknown feature: {}", feature));
+                        return Ok(ToolResult::error(&format!("Unknown feature: {}", feature)));
                     }
                 };
 
@@ -238,11 +238,11 @@ async fn register_generate_isp_request(registry: &ToolRegistry) -> Result<()> {
                             "generated_at": chrono::Utc::now().to_rfc3339(),
                         });
 
-                        ToolResult::success(ToolContent::text(
+                        Ok(ToolResult::success(ToolContent::text(
                             serde_json::to_string_pretty(&result).unwrap()
-                        ))
+                        )))
                     }
-                    Err(e) => ToolResult::error(&format!("Failed to generate request: {}", e)),
+                    Err(e) => Ok(ToolResult::error(&format!("Failed to generate request: {}", e))),
                 }
             })
         })
@@ -274,12 +274,12 @@ async fn register_compare_hardware(registry: &ToolRegistry) -> Result<()> {
             Box::pin(async move {
                 let config1_path = match params.get("config1_path").and_then(|v| v.as_str()) {
                     Some(p) => p,
-                    None => return ToolResult::error("config1_path is required"),
+                    None => return Ok(ToolResult::error("config1_path is required")),
                 };
 
                 let config2_path = match params.get("config2_path").and_then(|v| v.as_str()) {
                     Some(p) => p,
-                    None => return ToolResult::error("config2_path is required"),
+                    None => return Ok(ToolResult::error("config2_path is required")),
                 };
 
                 // Read both configs
@@ -327,14 +327,14 @@ async fn register_compare_hardware(registry: &ToolRegistry) -> Result<()> {
                                     }
                                 });
 
-                                ToolResult::success(ToolContent::text(
+                                Ok(ToolResult::success(ToolContent::text(
                                     serde_json::to_string_pretty(&result).unwrap()
-                                ))
+                                )))
                             }
-                            _ => ToolResult::error("Failed to parse JSON configs"),
+                            _ => Ok(ToolResult::error("Failed to parse JSON configs")),
                         }
                     }
-                    _ => ToolResult::error("Failed to read configuration files"),
+                    _ => Ok(ToolResult::error("Failed to read configuration files")),
                 }
             })
         })

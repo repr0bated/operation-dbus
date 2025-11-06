@@ -3,7 +3,6 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
 
@@ -437,7 +436,7 @@ impl CpuFeatureAnalyzer {
     }
 
     /// Check IOMMU (VT-d/AMD-Vi) support
-    fn check_iommu(&self, flags: &[String]) -> Result<Option<(CpuFeature, Option<Recommendation>)>> {
+    fn check_iommu(&self, _flags: &[String]) -> Result<Option<(CpuFeature, Option<Recommendation>)>> {
         // Check for IOMMU support in kernel
         let dmesg_output = Command::new("dmesg")
             .output()
@@ -486,7 +485,7 @@ impl CpuFeatureAnalyzer {
     fn check_sgx(
         &self,
         flags: &[String],
-        msr_available: bool,
+        _msr_available: bool,
     ) -> Result<Option<(CpuFeature, Option<BiosLock>, Option<Recommendation>)>> {
         let sgx_supported = flags.contains(&"sgx".to_string());
 
@@ -532,7 +531,7 @@ impl CpuFeatureAnalyzer {
     fn check_turbo(
         &self,
         cpu_model: &CpuModel,
-        msr_available: bool,
+        _msr_available: bool,
     ) -> Result<Option<(CpuFeature, Option<Recommendation>)>> {
         // Check if turbo is currently enabled
         let turbo_enabled = if cpu_model.vendor == "Intel" {

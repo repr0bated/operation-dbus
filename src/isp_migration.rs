@@ -127,7 +127,7 @@ impl IspMigrationAnalyzer {
 
     fn detect_current_provider(&self) -> Result<ProviderAnalysis> {
         // Detect provider from hostname, network info, etc.
-        let hostname = hostname::get()?.to_string_lossy().to_string();
+        let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
         let (name, service_type) = self.identify_provider(&hostname);
 

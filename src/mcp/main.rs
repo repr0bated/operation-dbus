@@ -1,9 +1,7 @@
 //! Refactored MCP server using tool registry for loose coupling
 
-#[path = "../mcp/tool_registry.rs"]
-mod tool_registry;
-#[path = "../mcp/introspection_tools.rs"]
-mod introspection_tools;
+use op_dbus::mcp::tool_registry;
+use op_dbus::mcp::introspection_tools;
 
 use tool_registry::{
     AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,

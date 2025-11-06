@@ -17,11 +17,12 @@ pub mod discovery;
 pub mod discovery_enhanced;
 pub mod introspection_parser;
 pub mod json_introspection;
-pub mod orchestrator;
 
 // Refactored modules for loose coupling
 pub mod agent_registry;
 pub mod tool_registry;
+
+pub mod orchestrator;
 
 // Introspection tools for hardware, CPU features, ISP analysis
 pub mod introspection_tools;

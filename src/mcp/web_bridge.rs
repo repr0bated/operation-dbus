@@ -415,7 +415,7 @@ async fn api_status(State(state): State<AppState>) -> Json<ApiResponse<McpStatus
 async fn api_list_agents(State(state): State<AppState>) -> Json<ApiResponse<Vec<AgentInfo>>> {
     match &state.orchestrator {
         Some(orch) => {
-            match orch.call::<(), Vec<String>>("ListAgents", &()).await {
+            match orch.call::<&str, (), Vec<String>>("ListAgents", &()).await {
                 Ok(agent_ids) => {
                     // Convert agent IDs to AgentInfo structures
                     let agents: Vec<AgentInfo> = agent_ids
@@ -463,7 +463,7 @@ async fn api_spawn_agent(
     Json(req): Json<SpawnAgentRequest>,
 ) -> Json<ApiResponse<AgentInfo>> {
     match &state.orchestrator {
-        Some(orch) => match orch.call::<(String,), String>("SpawnAgent", &(req.agent_type.clone(),)).await {
+        Some(orch) => match orch.call::<&str, (String,), String>("SpawnAgent", &(req.agent_type.clone(),)).await {
             Ok(agent_id) => {
                 let agent = AgentInfo {
                     id: agent_id.clone(),

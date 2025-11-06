@@ -17,6 +17,7 @@ mod tool_registry;
 use agent_registry::AgentRegistry;
 use chat_server::{create_chat_router, ChatServerState};
 use tool_registry::{DynamicToolBuilder, Tool, ToolRegistry};
+use op_dbus::blockchain::StreamingBlockchain;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -327,7 +328,7 @@ impl Tool for BlockchainSnapshotTool {
         match action {
             "list" => {
                 // List all snapshots
-                let blockchain = crate::blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path)
+                let blockchain = StreamingBlockchain::new(&blockchain_path)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to initialize blockchain: {}", e))?;
 
@@ -343,7 +344,7 @@ impl Tool for BlockchainSnapshotTool {
                 }
 
                 let mut output = format!("Found {} state snapshots:\n\n", snapshots.len());
-                for (name, timestamp) in snapshots {
+                for (name, timestamp) in &snapshots {
                     output.push_str(&format!("• {} ({})\n", name, timestamp));
                 }
                 output.push_str("\nUse action='show' with snapshot_name to view details.");
@@ -360,7 +361,7 @@ impl Tool for BlockchainSnapshotTool {
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("snapshot_name required for show action"))?;
 
-                let blockchain = crate::blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path).await?;
+                let blockchain = StreamingBlockchain::new(&blockchain_path).await?;
                 let state_file = blockchain.rollback_to_snapshot(snapshot_name).await?;
 
                 let state_content = tokio::fs::read_to_string(&state_file).await?;
@@ -440,7 +441,7 @@ impl Tool for BlockchainRetentionTool {
         let blockchain_path = std::env::var("OPDBUS_BLOCKCHAIN_PATH")
             .unwrap_or_else(|_| "/var/lib/op-dbus/blockchain".to_string());
 
-        let mut blockchain = crate::blockchain::streaming_blockchain::StreamingBlockchain::new(&blockchain_path)
+        let mut blockchain = StreamingBlockchain::new(&blockchain_path)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to initialize blockchain: {}", e))?;
 

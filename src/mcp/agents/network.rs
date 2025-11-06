@@ -1,6 +1,12 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::process::Command;
+use uuid::Uuid;
 use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
+
+// Security configuration
+const FORBIDDEN_CHARS: &[char] = &['$', '`', ';', '&', '|', '>', '<', '(', ')', '{', '}', '\n', '\r'];
+const MAX_TARGET_LENGTH: usize = 256;
+const MAX_COUNT: u32 = 20;
 
 #[derive(Debug, Deserialize)]
 struct NetworkTask {
@@ -76,9 +82,34 @@ impl NetworkAgent {
 }
 
 impl NetworkAgent {
+    fn validate_target(&self, target: &str) -> Result<(), String> {
+        if target.len() > MAX_TARGET_LENGTH {
+            return Err(format!(
+                "Target exceeds maximum length of {} characters",
+                MAX_TARGET_LENGTH
+            ));
+        }
+
+        if target.trim().is_empty() {
+            return Err("Target cannot be empty".to_string());
+        }
+
+        for forbidden_char in FORBIDDEN_CHARS {
+            if target.contains(*forbidden_char) {
+                return Err(format!(
+                    "Target contains forbidden character: {:?}",
+                    forbidden_char
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     fn ping(&self, target: Option<&str>, count: Option<u32>) -> Result<String, String> {
         let target = target.ok_or("Target is required for ping operation")?;
-        let count = count.unwrap_or(4);
+        self.validate_target(target)?;
+        let count = count.unwrap_or(4).min(MAX_COUNT);
 
         let output = Command::new("ping")
             .arg("-c")
@@ -162,7 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         format!(
             "network-{}",
-            uuid::Uuid::new_v4().to_string()[..8].to_string()
+            Uuid::new_v4().to_string()[..8].to_string()
         )
     };
 
@@ -175,7 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/Network/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.Network.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::session()?
+    let _conn = ConnectionBuilder::system()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()

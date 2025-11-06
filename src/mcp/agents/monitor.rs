@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::process::Command;
+use uuid::Uuid;
 use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
 
 #[derive(Debug, Deserialize)]
@@ -163,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         format!(
             "monitor-{}",
-            uuid::Uuid::new_v4().to_string()[..8].to_string()
+            Uuid::new_v4().to_string()[..8].to_string()
         )
     };
 
@@ -176,7 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/Monitor/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.Monitor.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::session()?
+    let _conn = ConnectionBuilder::system()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()

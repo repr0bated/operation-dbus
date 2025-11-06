@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 use tracing::info;
+use crate::state::plugin::StatePlugin;
 
 #[derive(Parser)]
 #[command(
@@ -489,18 +490,30 @@ async fn main() -> Result<()> {
         info!("⊗ Skipping plugin: pcidecl - {}", pci_plugin.unavailable_reason());
     }
 
-    // Auto-discover and register D-Bus services as plugins
-    info!("Auto-discovering D-Bus services...");
-    match state::auto_plugin::PluginDiscovery::create_plugins().await {
-        Ok(auto_plugins) => {
-            let count = auto_plugins.len();
-            for plugin in auto_plugins {
-                state_manager.register_plugin(plugin).await;
+    // Keyring plugin (GNOME keyring / KDE wallet integration)
+    let keyring_plugin = state::plugins::KeyringPlugin::new();
+    if keyring_plugin.is_available() {
+        info!("✓ Registering plugin: keyring (GNOME/KDE credential storage)");
+        state_manager.register_plugin(Box::new(keyring_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: keyring - {}", keyring_plugin.unavailable_reason());
+    }
+
+    // Auto-discover and register D-Bus services as plugins (requires MCP)
+    #[cfg(feature = "mcp")]
+    {
+        info!("Auto-discovering D-Bus services...");
+        match state::auto_plugin::PluginDiscovery::create_plugins().await {
+            Ok(auto_plugins) => {
+                let count = auto_plugins.len();
+                for plugin in auto_plugins {
+                    state_manager.register_plugin(plugin).await;
+                }
+                info!("✓ Registered {} auto-generated plugins", count);
             }
-            info!("✓ Registered {} auto-generated plugins", count);
-        }
-        Err(e) => {
-            info!("⊗ Auto-discovery failed: {} (continuing with manual plugins)", e);
+            Err(e) => {
+                info!("⊗ Auto-discovery failed: {} (continuing with manual plugins)", e);
+            }
         }
     }
 
@@ -986,7 +999,7 @@ async fn handle_discover_command(
 
     // Export machine state if requested
     if export {
-        let output_path = output.unwrap_or_else(|| PathBuf::from("./machine-state.json"));
+        let output_path = output.clone().unwrap_or_else(|| PathBuf::from("./machine-state.json"));
         let json = serde_json::to_string_pretty(&report)?;
         tokio::fs::write(&output_path, json).await?;
         println!("✓ Exported machine state to: {}", output_path.display());
@@ -1467,7 +1480,7 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
                 println!("  L3 cache optimization is working optimally");
             }
 
-            if *clear {
+            if clear {
                 cache.clear_numa_stats();
                 println!("\n✓ Statistics cleared");
             }

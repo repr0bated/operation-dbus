@@ -6,7 +6,7 @@ pub use cpu_features::*;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::process::Command;
 use zbus::Connection;
 
@@ -415,7 +415,8 @@ impl SystemIntrospector {
     async fn discover_dbus_services(&self) -> Result<(Vec<String>, Vec<String>)> {
         println!("  📡 Discovering D-Bus services...");
 
-        // Use existing auto_plugin discovery for system services
+        // Use existing auto_plugin discovery for system services (if MCP enabled)
+        #[cfg(feature = "mcp")]
         let system_services = match crate::state::auto_plugin::PluginDiscovery::discover_services().await {
             Ok(services) => {
                 println!("    ✓ Found {} services on system bus", services.len());
@@ -429,6 +430,15 @@ impl SystemIntrospector {
                 println!("    ✓ Found {} services on system bus (fallback)", services.len());
                 services
             }
+        };
+
+        // Direct discovery when MCP is not available
+        #[cfg(not(feature = "mcp"))]
+        let system_services = {
+            let system_conn = Connection::system().await?;
+            let services = self.list_dbus_names(&system_conn).await?;
+            println!("    ✓ Found {} services on system bus", services.len());
+            services
         };
 
         // Session bus (may not exist in server environments)
@@ -454,11 +464,12 @@ impl SystemIntrospector {
         let proxy = DBusProxy::new(conn).await?;
         let names = proxy.list_names().await?;
 
-        // Filter out temporary names (starting with :)
+        // Filter out temporary names (starting with :) and convert to String
         Ok(names
             .into_iter()
             .filter(|name| !name.starts_with(':'))
-            .filter(|name| name != "org.freedesktop.DBus")
+            .filter(|name| name.as_str() != "org.freedesktop.DBus")
+            .map(|name| name.to_string())
             .collect())
     }
 

@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::snapshot_manager::{SnapshotConfig, SnapshotManager};
-use super::numa::{NumaNode, NumaStats, NumaTopology};
+use super::numa::{NumaStats, NumaTopology};
 
 /// NUMA-aware cache placement strategy
 #[derive(Debug, Clone)]
