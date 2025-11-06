@@ -162,6 +162,16 @@ enum CacheCommands {
 
     /// Delete all snapshots
     DeleteSnapshots,
+
+    /// Show NUMA topology and configuration
+    NumaInfo,
+
+    /// Show NUMA performance statistics
+    NumaStats {
+        /// Clear statistics after showing
+        #[arg(long)]
+        clear: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1049,7 +1059,171 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
             println!("Deleting all cache snapshots...");
             let cache = crate::cache::BtrfsCache::new(cache_dir)?;
             let count = cache.delete_all_snapshots().await?;
-            println!("? Deleted {} snapshots", count);
+            println!("✓ Deleted {} snapshots", count);
+            Ok(())
+        }
+        CacheCommands::NumaInfo => {
+            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+
+            println!("=== NUMA Topology and Configuration ===\n");
+
+            if let Some(topology) = cache.numa_topology() {
+                if topology.is_numa_system() {
+                    println!("NUMA System: Yes ({} nodes)", topology.node_count());
+
+                    if let Some(current) = topology.current_node() {
+                        println!("Current Node: {}", current);
+                    }
+
+                    println!("\nNodes:");
+                    for (node_id, node) in topology.nodes() {
+                        println!("\n  Node {}:", node_id);
+                        println!("    CPUs: {} cores", node.cpu_list.len());
+
+                        if node.cpu_list.len() <= 16 {
+                            println!("          {:?}", node.cpu_list);
+                        } else {
+                            println!(
+                                "          [{}-{} and {} more]",
+                                node.cpu_list[0],
+                                node.cpu_list[15],
+                                node.cpu_list.len() - 16
+                            );
+                        }
+
+                        println!(
+                            "    Memory: {:.1} GB total, {:.1} GB free ({:.1}% used)",
+                            node.memory_total_kb as f64 / (1024.0 * 1024.0),
+                            node.memory_free_kb as f64 / (1024.0 * 1024.0),
+                            node.memory_utilization()
+                        );
+
+                        // Show distances to other nodes
+                        if topology.node_count() > 1 {
+                            print!("    Distance:");
+                            for other_id in 0..topology.node_count() as u32 {
+                                if let Some(distance) = node.distance_to_nodes.get(&other_id) {
+                                    print!(" [→ Node {}: {}]", other_id, distance);
+                                }
+                            }
+                            println!();
+                        }
+                    }
+
+                    println!("\nNUMA Distance Matrix:");
+                    println!("  (10 = local node, higher = more hops/latency)");
+                    for (node_id, node) in topology.nodes() {
+                        print!("  Node {}: ", node_id);
+                        for other_id in 0..topology.node_count() as u32 {
+                            if let Some(distance) = node.distance_to_nodes.get(&other_id) {
+                                print!("{:3} ", distance);
+                            }
+                        }
+                        println!();
+                    }
+                } else {
+                    println!("NUMA System: No (single-node)");
+                    if let Some(node) = topology.get_node(0) {
+                        println!("CPUs: {} cores", node.cpu_list.len());
+                        println!(
+                            "Memory: {:.1} GB total, {:.1} GB free",
+                            node.memory_total_kb as f64 / (1024.0 * 1024.0),
+                            node.memory_free_kb as f64 / (1024.0 * 1024.0)
+                        );
+                    }
+                }
+            } else {
+                println!("NUMA System: Detection failed");
+            }
+
+            println!("\nCache Configuration:");
+            let numa_info = cache.numa_info();
+            println!("  Placement Strategy: {:?}", numa_info.placement_strategy);
+            println!("  Memory Policy: {:?}", numa_info.memory_policy);
+            println!("  CPU Affinity: {:?}", numa_info.cpu_affinity);
+
+            println!("\nL3 Cache Optimization:");
+            if numa_info.cpu_affinity.is_empty() {
+                println!("  Status: Disabled (no CPU affinity set)");
+            } else {
+                println!("  Status: Enabled");
+                println!(
+                    "  Strategy: Pin operations to CPUs {:?}",
+                    numa_info.cpu_affinity
+                );
+                println!("  Benefit: Shared L3 cache on same socket (16-32MB typical)");
+                println!("  Effect: BTRFS metadata, SQLite index, vectors stay in L3");
+            }
+
+            Ok(())
+        }
+        CacheCommands::NumaStats { clear } => {
+            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let stats = cache.numa_stats();
+
+            println!("=== NUMA Performance Statistics ===\n");
+
+            if stats.is_empty() {
+                println!("No NUMA statistics available yet.");
+                println!("Statistics are collected during cache operations.\n");
+                return Ok(());
+            }
+
+            for (node_id, node_stats) in &stats {
+                println!("Node {}:", node_id);
+                println!("  Total Operations: {}", node_stats.operations);
+                println!("  Local Accesses: {} ({:.1}%)",
+                    node_stats.local_accesses,
+                    node_stats.local_hit_rate() * 100.0
+                );
+                println!("  Remote Accesses: {} ({:.1}%)",
+                    node_stats.remote_accesses,
+                    (1.0 - node_stats.local_hit_rate()) * 100.0
+                );
+                println!("  Average Latency: {} ns", node_stats.avg_latency_ns());
+
+                // Estimate performance impact
+                let local_time = node_stats.local_accesses as f64 * 50.0; // ~50ns local
+                let remote_time = node_stats.remote_accesses as f64 * 105.0; // ~105ns remote
+                let total_time_ms = (local_time + remote_time) / 1_000_000.0;
+
+                println!("  Estimated Time: {:.2} ms total", total_time_ms);
+
+                if node_stats.remote_accesses > 0 {
+                    let penalty_ms = (node_stats.remote_accesses as f64 * 55.0) / 1_000_000.0;
+                    println!("  NUMA Penalty: {:.2} ms (from remote access)", penalty_ms);
+                }
+
+                println!();
+            }
+
+            // Show overall statistics
+            let total_ops: u64 = stats.values().map(|s| s.operations).sum();
+            let total_local: u64 = stats.values().map(|s| s.local_accesses).sum();
+            let total_remote: u64 = stats.values().map(|s| s.remote_accesses).sum();
+
+            println!("Overall:");
+            println!("  Total Operations: {}", total_ops);
+            println!(
+                "  Local Hit Rate: {:.1}%",
+                (total_local as f64 / total_ops as f64) * 100.0
+            );
+
+            if total_remote > 0 {
+                println!("\n⚠ Warning: {} remote NUMA accesses detected", total_remote);
+                println!("  Remote access is 2.1x slower than local");
+                println!("  Consider pinning process to specific NUMA node:");
+                println!("    numactl --cpunodebind=0 --membind=0 op-dbus ...");
+            } else if total_local > 100 {
+                println!("\n✓ Excellent: All accesses are NUMA-local!");
+                println!("  L3 cache optimization is working optimally");
+            }
+
+            if *clear {
+                cache.clear_numa_stats();
+                println!("\n✓ Statistics cleared");
+            }
+
             Ok(())
         }
     }
