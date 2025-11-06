@@ -9,9 +9,9 @@
 ### CRITICAL ISSUES
 
 #### ❌ **Data Safety Violations**
-- **VPS wiped TWICE without authorization**
+- **VPS wiped THREE TIMES without authorization**
 - No warning, no backup, no recovery
-- Complete data loss events
+- Complete data loss events (3x pattern = systematic failure)
 
 #### ❌ **Terrible Support**
 - **5-day response time** (industry standard: <4 hours)
@@ -31,7 +31,7 @@
 
 **Current Risk Level**: 🔴 **CRITICAL**
 
-**Probability of VPS wipe before April**: High (already happened twice)
+**Probability of VPS wipe before April**: **EXTREMELY HIGH** (already happened THREE TIMES - established pattern)
 
 **Impact of another wipe**:
 - Netmaker VPN down (all your infrastructure loses connectivity)
@@ -405,15 +405,18 @@ EOF
 ### Cancellation Request
 
 ```
-Subject: Service Cancellation - Unauthorized VPS Wipes
+Subject: Service Cancellation - THREE Unauthorized VPS Wipes
 
 Dear HostKey Support,
 
 I am cancelling my VPS service (ID: [your-id]) effective immediately due to
-unauthorized deletion of my VPS on two separate occasions:
+unauthorized deletion of my VPS on THREE separate occasions:
 
 Incident 1: [Date] - VPS wiped without authorization or prior notice
 Incident 2: [Date] - VPS wiped without authorization or prior notice
+Incident 3: [Date] - VPS wiped without authorization or prior notice
+
+Three incidents establishes a pattern of systematic failure in your operations.
 
 Additionally, your support response time of 5+ days is unacceptable for
 production services.
@@ -433,13 +436,17 @@ Regards,
 **TrustPilot / Reddit / WebHostingTalk**:
 
 ```
-⭐ 1/5 - DO NOT USE FOR PRODUCTION
+⭐ 1/5 - DO NOT USE FOR PRODUCTION - VPS WIPED THREE TIMES
 
-HostKey wiped my VPS twice without authorization or warning. Complete data
-loss both times. Support takes 5+ days to respond.
+HostKey wiped my VPS THREE TIMES without authorization or warning. Complete data
+loss every time. Support takes 5+ days to respond.
 
 For context: I paid $180/year ($15/month) for 4vCPU/16GB RAM. Seemed like
-a great deal until my server was deleted... twice... without my permission.
+a great deal until my server was deleted... THREE TIMES... without my permission.
+
+After the first wipe, I thought "mistake, won't happen again."
+After the second wipe, I thought "really bad luck."
+After the THIRD wipe, I realized this is a systematic operational failure.
 
 Migrated to Hetzner Cloud ($14/month, same specs) and have had zero issues.
 Professional support, no surprise wipes.
