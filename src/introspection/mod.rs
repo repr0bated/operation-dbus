@@ -1,6 +1,9 @@
 // Comprehensive system introspection
 // Discovers D-Bus services, non-D-Bus services, and conversion opportunities
 
+mod cpu_features;
+pub use cpu_features::*;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -34,6 +37,9 @@ pub struct SystemConfiguration {
 
     /// CPU vulnerability mitigations status
     pub cpu_mitigations: Vec<CpuMitigation>,
+
+    /// CPU features and BIOS locks analysis
+    pub cpu_features: Option<CpuFeatureAnalysis>,
 
     /// Loaded kernel modules
     pub loaded_modules: Vec<String>,
@@ -207,9 +213,31 @@ impl SystemIntrospector {
         let hardware = self.read_hardware_info()?;
         println!("    ✓ Read hardware info ({} {})", hardware.vendor, hardware.model);
 
+        // CPU feature analysis (detect hidden/locked BIOS features)
+        let cpu_features = match CpuFeatureAnalyzer::new().analyze() {
+            Ok(analysis) => {
+                let locked_count = analysis.bios_locks.len();
+                let disabled_count = analysis.features.iter()
+                    .filter(|f| matches!(f.status, FeatureStatus::DisabledByBios | FeatureStatus::LockedByBios))
+                    .count();
+
+                if locked_count > 0 || disabled_count > 0 {
+                    println!("    ⚠️  CPU feature analysis: {} disabled, {} BIOS-locked", disabled_count, locked_count);
+                } else {
+                    println!("    ✓ CPU feature analysis complete");
+                }
+                Some(analysis)
+            },
+            Err(e) => {
+                println!("    ⚠️  CPU feature analysis failed: {}", e);
+                None
+            }
+        };
+
         Ok(SystemConfiguration {
             kernel_cmdline,
             cpu_mitigations,
+            cpu_features,
             loaded_modules,
             virtualization,
             hardware,
@@ -701,6 +729,80 @@ impl SystemIntrospector {
             println!("  {} {}: {}", status_icon, vuln_name, mitigation.status);
         }
         println!();
+
+        // CPU Features and BIOS Locks
+        if let Some(cpu_analysis) = &report.system_config.cpu_features {
+            println!("🔓 CPU FEATURES & BIOS LOCKS");
+            println!("──────────────────────────────────────────────────────────────");
+            println!("  CPU: {} (Family {})", cpu_analysis.cpu_model.model_name, cpu_analysis.cpu_model.family);
+            println!("  Microcode: {}\n", cpu_analysis.cpu_model.microcode);
+
+            // Show disabled/locked features first (most important)
+            let critical_features: Vec<_> = cpu_analysis.features.iter()
+                .filter(|f| matches!(f.status, FeatureStatus::DisabledByBios | FeatureStatus::LockedByBios))
+                .collect();
+
+            if !critical_features.is_empty() {
+                println!("  ⚠️  DISABLED/LOCKED FEATURES:");
+                for feature in critical_features {
+                    let status_icon = match feature.status {
+                        FeatureStatus::LockedByBios => "🔒",
+                        FeatureStatus::DisabledByBios => "⊗",
+                        _ => "?",
+                    };
+                    let status_text = match feature.status {
+                        FeatureStatus::LockedByBios => "BIOS Locked",
+                        FeatureStatus::DisabledByBios => "Disabled by BIOS",
+                        _ => "Unknown",
+                    };
+                    println!("    {} {} ({}): {}", status_icon, feature.name, feature.technical_name, status_text);
+                }
+                println!();
+            }
+
+            // Show BIOS locks with details
+            if !cpu_analysis.bios_locks.is_empty() {
+                println!("  🔒 BIOS LOCKS DETECTED:");
+                for lock in &cpu_analysis.bios_locks {
+                    println!("    Register: {}", lock.register);
+                    println!("      Lock Bit: {}", lock.lock_bit);
+                    println!("      Affects: {}", lock.affected_features.join(", "));
+                    println!("      Method: {}", lock.lock_method);
+                    println!();
+                }
+            }
+
+            // Show enabled features
+            let enabled_features: Vec<_> = cpu_analysis.features.iter()
+                .filter(|f| matches!(f.status, FeatureStatus::Enabled))
+                .collect();
+
+            if !enabled_features.is_empty() {
+                println!("  ✓ ENABLED FEATURES:");
+                for feature in enabled_features {
+                    println!("    ✓ {} ({})", feature.name, feature.technical_name);
+                }
+                println!();
+            }
+
+            // Show recommendations
+            if !cpu_analysis.recommendations.is_empty() {
+                println!("  💡 RECOMMENDATIONS:");
+                for rec in &cpu_analysis.recommendations {
+                    let priority_icon = match rec.priority {
+                        Priority::Critical => "🔴",
+                        Priority::High => "🟠",
+                        Priority::Medium => "🟡",
+                        Priority::Low => "🟢",
+                    };
+                    println!("    {} {} - {:?} Priority", priority_icon, rec.feature, rec.priority);
+                    println!("       Reason: {}", rec.reason);
+                    println!("       Benefit: {}", rec.benefit);
+                    println!("       Action: {}", rec.action);
+                    println!();
+                }
+            }
+        }
 
         // Kernel Parameters (show important ones)
         println!("⚙️  KERNEL CONFIGURATION");
