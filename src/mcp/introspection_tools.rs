@@ -113,7 +113,7 @@ async fn register_analyze_cpu_features(registry: &ToolRegistry) -> Result<()> {
                     Err(e) => ToolResult::error(&format!("CPU analysis failed: {}", e)),
                 }
             })
-        }))
+        })
         .build();
 
     registry.register_tool(Box::new(tool)).await?;
@@ -177,7 +177,7 @@ async fn register_analyze_isp(registry: &ToolRegistry) -> Result<()> {
                     Err(e) => ToolResult::error(&format!("ISP analysis failed: {}", e)),
                 }
             })
-        }))
+        })
         .build();
 
     registry.register_tool(Box::new(tool)).await?;
@@ -245,7 +245,7 @@ async fn register_generate_isp_request(registry: &ToolRegistry) -> Result<()> {
                     Err(e) => ToolResult::error(&format!("Failed to generate request: {}", e)),
                 }
             })
-        }))
+        })
         .build();
 
     registry.register_tool(Box::new(tool)).await?;
@@ -337,7 +337,7 @@ async fn register_compare_hardware(registry: &ToolRegistry) -> Result<()> {
                     _ => ToolResult::error("Failed to read configuration files"),
                 }
             })
-        }))
+        })
         .build();
 
     registry.register_tool(Box::new(tool)).await?;
