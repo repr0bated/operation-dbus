@@ -496,6 +496,19 @@ impl StatePlugin for LxcPlugin {
         "1.0.0"
     }
 
+    fn is_available(&self) -> bool {
+        // Check if pct command is available (Proxmox specific)
+        std::process::Command::new("pct")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+
+    fn unavailable_reason(&self) -> String {
+        "Proxmox pct command not found - this plugin requires Proxmox VE".to_string()
+    }
+
     async fn query_current_state(&self) -> Result<Value> {
         let containers = self.discover_from_ovs().await?;
         Ok(serde_json::to_value(LxcState { containers })?)

@@ -591,6 +591,19 @@ impl StatePlugin for NetStatePlugin {
         "1.0.0"
     }
 
+    fn is_available(&self) -> bool {
+        // Check if ovs-vsctl is available
+        std::process::Command::new("ovs-vsctl")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+
+    fn unavailable_reason(&self) -> String {
+        "OpenVSwitch (ovs-vsctl) not found - install with: apt install openvswitch-switch".to_string()
+    }
+
     async fn query_current_state(&self) -> Result<Value> {
         // Query current OVS state via D-Bus exclusively
         let network_config = self.query_current_state_dbus().await?;

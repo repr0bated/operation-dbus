@@ -325,27 +325,71 @@ async fn main() -> Result<()> {
 
     let mut sm = state::StateManager::new();
     let state_manager = Arc::new(sm);
-    state_manager
-        .register_plugin(Box::new(state::plugins::NetStatePlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::SystemdStatePlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::Login1Plugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::LxcPlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::SessDeclPlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::DnsResolverPlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::PciDeclPlugin::new()))
-        .await;
+
+    info!("Discovering available plugins...");
+
+    // Net plugin (requires OVS)
+    let net_plugin = state::plugins::NetStatePlugin::new();
+    if net_plugin.is_available() {
+        info!("✓ Registering plugin: net (OpenVSwitch)");
+        state_manager.register_plugin(Box::new(net_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: net - {}", net_plugin.unavailable_reason());
+    }
+
+    // Systemd plugin (always available on systemd systems)
+    let systemd_plugin = state::plugins::SystemdStatePlugin::new();
+    if systemd_plugin.is_available() {
+        info!("✓ Registering plugin: systemd");
+        state_manager.register_plugin(Box::new(systemd_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: systemd - {}", systemd_plugin.unavailable_reason());
+    }
+
+    // Login1 plugin (D-Bus session management)
+    let login1_plugin = state::plugins::Login1Plugin::new();
+    if login1_plugin.is_available() {
+        info!("✓ Registering plugin: login1");
+        state_manager.register_plugin(Box::new(login1_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: login1 - {}", login1_plugin.unavailable_reason());
+    }
+
+    // LXC plugin (requires Proxmox)
+    let lxc_plugin = state::plugins::LxcPlugin::new();
+    if lxc_plugin.is_available() {
+        info!("✓ Registering plugin: lxc (Proxmox)");
+        state_manager.register_plugin(Box::new(lxc_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: lxc - {}", lxc_plugin.unavailable_reason());
+    }
+
+    // SessDecl plugin
+    let sessdecl_plugin = state::plugins::SessDeclPlugin::new();
+    if sessdecl_plugin.is_available() {
+        info!("✓ Registering plugin: sessdecl");
+        state_manager.register_plugin(Box::new(sessdecl_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: sessdecl - {}", sessdecl_plugin.unavailable_reason());
+    }
+
+    // DNS Resolver plugin
+    let dns_plugin = state::plugins::DnsResolverPlugin::new();
+    if dns_plugin.is_available() {
+        info!("✓ Registering plugin: dnsresolver");
+        state_manager.register_plugin(Box::new(dns_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: dnsresolver - {}", dns_plugin.unavailable_reason());
+    }
+
+    // PCI Declaration plugin
+    let pci_plugin = state::plugins::PciDeclPlugin::new();
+    if pci_plugin.is_available() {
+        info!("✓ Registering plugin: pcidecl");
+        state_manager.register_plugin(Box::new(pci_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: pcidecl - {}", pci_plugin.unavailable_reason());
+    }
 
     // Start org.opdbus on system D-Bus to accept ApplyState calls for net plugin
     {
