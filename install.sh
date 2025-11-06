@@ -112,7 +112,7 @@ PartOf=openvswitch-switch.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/op-dbus run --state-file /etc/op-dbus/state.json
+ExecStart=/usr/local/bin/op-dbus --state-file /etc/op-dbus/state.json run
 ExecStartPost=/bin/sleep 2
 ExecStartPost=/usr/local/bin/op-dbus restore-flows
 Restart=on-failure
