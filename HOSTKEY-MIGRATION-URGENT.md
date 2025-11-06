@@ -1,6 +1,31 @@
-# URGENT: HostKey Migration Case Study
+# HostKey Migration Case Study (Deferred)
 
-## Critical Situation Summary
+## Status Update - November 2025
+
+**Migration Status**: ⏸️ **DEFERRED** - User unemployed, cannot afford alternative provider yet
+
+**This Document's Purpose**:
+- Case study for NVIDIA Inception application
+- Reference documentation for future migration
+- Evidence of systematic provider failures
+- Cost-benefit analysis for when funding becomes available
+
+**Migration Timeline**: When funding available through:
+- New employment
+- NVIDIA Inception program acceptance
+- Other funding sources
+
+**Current Plan**:
+- Continue on HostKey (contract through April 2026)
+- Maintain comprehensive backups (expect 4th wipe)
+- Document all incidents
+- Execute migration when financially feasible
+
+**Risk**: 🔴 **CRITICAL** - Risk unchanged, but migration must wait
+
+---
+
+## Critical Situation Summary (Original Assessment)
 
 **Current Provider**: HostKey
 **Cost**: $180/year (4 vCPU, 16GB RAM)

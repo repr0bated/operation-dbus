@@ -163,6 +163,29 @@ impl NaturalLanguageProcessor {
                 CommandIntent::ExecuteTool {
                     tool_name: "network".to_string(),
                 }
+            } else if lower.contains("discover") || lower.contains("introspect") || lower.contains("hardware") {
+                // System introspection
+                if lower.contains("provider") || lower.contains("isp") {
+                    parameters.insert("detect_provider".to_string(), serde_json::Value::Bool(true));
+                }
+                CommandIntent::ExecuteTool {
+                    tool_name: "discover_system".to_string(),
+                }
+            } else if lower.contains("cpu") && (lower.contains("feature") || lower.contains("bios") || lower.contains("lock")) {
+                // CPU feature analysis
+                CommandIntent::ExecuteTool {
+                    tool_name: "analyze_cpu_features".to_string(),
+                }
+            } else if lower.contains("isp") || lower.contains("provider") || lower.contains("migrate") {
+                // ISP analysis
+                CommandIntent::ExecuteTool {
+                    tool_name: "analyze_isp".to_string(),
+                }
+            } else if lower.contains("compare") && lower.contains("hardware") {
+                // Hardware comparison
+                CommandIntent::ExecuteTool {
+                    tool_name: "compare_hardware".to_string(),
+                }
             } else {
                 CommandIntent::Unknown
             }
@@ -177,6 +200,13 @@ impl NaturalLanguageProcessor {
 
     pub fn generate_suggestions(partial_input: &str) -> Vec<String> {
         let suggestions = vec![
+            "run discover_system",
+            "run analyze_cpu_features",
+            "run analyze_isp",
+            "discover hardware",
+            "show cpu features",
+            "check bios locks",
+            "analyze isp restrictions",
             "run systemd status service=",
             "run file read path=",
             "run network list",
@@ -428,7 +458,12 @@ impl ChatServerState {
                 • run <tool> <params> - Execute a tool\n\
                 • list tools - Show available tools\n\
                 \n\
-                Examples:\n\
+                Introspection Tools:\n\
+                • discover hardware - Full system introspection\n\
+                • show cpu features - CPU feature & BIOS lock analysis\n\
+                • analyze isp - ISP restriction analysis\n\
+                \n\
+                System Tools:\n\
                 • run systemd status service=nginx\n\
                 • run file read path=/etc/hosts\n\
                 • run network list"
@@ -444,6 +479,26 @@ impl ChatServerState {
                 • stop agent file\n\
                 • agents"
             }
+            Some("introspection") => {
+                "🔍 Introspection Commands:\n\
+                \n\
+                System Discovery:\n\
+                • discover hardware - Full system introspection\n\
+                • run discover_system - Same as above\n\
+                \n\
+                CPU Analysis:\n\
+                • show cpu features - Detect VT-x, IOMMU, SGX, Turbo\n\
+                • check bios locks - Find BIOS-locked features\n\
+                • run analyze_cpu_features - Same as above\n\
+                \n\
+                ISP/Provider Analysis:\n\
+                • analyze isp restrictions - Check provider limitations\n\
+                • run analyze_isp - Same as above\n\
+                \n\
+                Hardware Comparison:\n\
+                • compare hardware - Compare two configurations\n\
+                • run compare_hardware config1_path=/path1 config2_path=/path2"
+            }
             _ => {
                 "📚 MCP Chat Help\n\
                 ══════════════\n\
@@ -455,7 +510,17 @@ impl ChatServerState {
                 • status - System status\n\
                 • help [topic] - Get help\n\
                 \n\
-                Try 'help tools' or 'help agents' for more details."
+                Topics:\n\
+                • help tools - Tool usage\n\
+                • help agents - Agent management\n\
+                • help introspection - System introspection tools\n\
+                \n\
+                Natural Language:\n\
+                You can also use natural language:\n\
+                • 'discover hardware'\n\
+                • 'show cpu features'\n\
+                • 'check bios locks'\n\
+                • 'analyze isp restrictions'"
             }
         };
 

@@ -396,16 +396,16 @@ cat samsung360-laptop-baseline.json # Copy/paste to notepad
 4. ✅ Document findings
 
 ### Short Term (This Week)
-1. Backup HostKey VPS (URGENT - 4th wipe imminent)
-2. Order Hetzner Cloud CX31 or Dedicated AX41
-3. Migrate Netmaker from HostKey to Hetzner
-4. Compare Samsung 360 Pro vs HostKey vs Hetzner
+1. ✅ Test on Samsung 360 Pro (primary goal)
+2. ⏸️ Backup HostKey VPS (deferred - maintain backups but migration not affordable yet)
+3. ⏸️ ISP migration (deferred until funding available - user unemployed)
+4. 📝 Document findings for NVIDIA Inception application
 
-### Medium Term (This Month)
-1. Run op-dbus on production Hetzner server
-2. Build introspection database over time
-3. Create case study with real data
-4. Update NVIDIA Inception application
+### Medium Term (This Month/Quarter)
+1. ⏸️ Production deployment (deferred - requires ISP migration funding)
+2. 📝 Use Samsung 360 Pro as reference implementation
+3. 📝 Create case study with Samsung + HostKey comparison
+4. 📝 Complete NVIDIA Inception application (may provide funding for migration)
 
 ---
 

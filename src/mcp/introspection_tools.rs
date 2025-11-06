@@ -76,7 +76,7 @@ async fn register_discover_system(registry: &ToolRegistry) -> Result<()> {
                             }
                         }
 
-                        ToolResult::success(ToolContent::Text(
+                        ToolResult::success(ToolContent::text(
                             serde_json::to_string_pretty(&result).unwrap()
                         ))
                     }
@@ -106,7 +106,7 @@ async fn register_analyze_cpu_features(registry: &ToolRegistry) -> Result<()> {
                         let result = serde_json::to_value(&analysis)
                             .unwrap_or_else(|_| json!({"error": "Failed to serialize"}));
 
-                        ToolResult::success(ToolContent::Text(
+                        ToolResult::success(ToolContent::text(
                             serde_json::to_string_pretty(&result).unwrap()
                         ))
                     }
@@ -170,7 +170,7 @@ async fn register_analyze_isp(registry: &ToolRegistry) -> Result<()> {
                             }
                         }
 
-                        ToolResult::success(ToolContent::Text(
+                        ToolResult::success(ToolContent::text(
                             serde_json::to_string_pretty(&result).unwrap()
                         ))
                     }
@@ -238,7 +238,7 @@ async fn register_generate_isp_request(registry: &ToolRegistry) -> Result<()> {
                             "generated_at": chrono::Utc::now().to_rfc3339(),
                         });
 
-                        ToolResult::success(ToolContent::Text(
+                        ToolResult::success(ToolContent::text(
                             serde_json::to_string_pretty(&result).unwrap()
                         ))
                     }

@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
 
 use super::orchestrator::Orchestrator;
-use super::tools::introspection::McpTool;
+use super::tool_registry::{Tool, ToolRegistry};
 
 /// MCP Manager state
 #[derive(Clone)]
@@ -25,8 +25,8 @@ pub struct McpManagerState {
     /// Orchestrator for managing agents
     orchestrator: Arc<Orchestrator>,
 
-    /// Registered MCP tools
-    tools: Arc<RwLock<HashMap<String, Box<dyn McpTool>>>>,
+    /// Tool registry for managing MCP tools
+    tool_registry: Arc<ToolRegistry>,
 
     /// Introspection database (cached results)
     introspection_db: Arc<RwLock<IntrospectionDatabase>>,
@@ -67,18 +67,13 @@ pub struct IntrospectionDatabase {
 }
 
 impl McpManagerState {
-    pub async fn new(orchestrator: Orchestrator) -> Self {
+    pub async fn new(orchestrator: Orchestrator, tool_registry: ToolRegistry) -> Self {
         Self {
             servers: Arc::new(RwLock::new(HashMap::new())),
             orchestrator: Arc::new(orchestrator),
-            tools: Arc::new(RwLock::new(HashMap::new())),
+            tool_registry: Arc::new(tool_registry),
             introspection_db: Arc::new(RwLock::new(IntrospectionDatabase::default())),
         }
-    }
-
-    pub async fn register_tool(&self, tool: Box<dyn McpTool>) {
-        let mut tools = self.tools.write().await;
-        tools.insert(tool.name().to_string(), tool);
     }
 }
 
@@ -86,7 +81,7 @@ impl McpManagerState {
 
 /// GET / - Manager dashboard
 async fn dashboard() -> Html<&'static str> {
-    Html(include_str!("../mcp/web/manager.html"))
+    Html(include_str!("web/index.html"))
 }
 
 /// GET /api/servers - List all MCP servers
@@ -183,24 +178,9 @@ async fn delete_server(
 }
 
 /// GET /api/tools - List all available MCP tools
-async fn list_tools(State(state): State<McpManagerState>) -> Json<Vec<ToolInfo>> {
-    let tools = state.tools.read().await;
-    let tool_list: Vec<ToolInfo> = tools
-        .values()
-        .map(|tool| ToolInfo {
-            name: tool.name().to_string(),
-            description: tool.description().to_string(),
-            parameters: tool.parameters().to_vec(),
-        })
-        .collect();
-    Json(tool_list)
-}
-
-#[derive(Debug, Serialize)]
-struct ToolInfo {
-    name: String,
-    description: String,
-    parameters: Vec<crate::mcp::tools::introspection::ToolParameter>,
+async fn list_tools(State(state): State<McpManagerState>) -> Json<Vec<super::tool_registry::ToolInfo>> {
+    let tools = state.tool_registry.list_tools().await;
+    Json(tools)
 }
 
 /// POST /api/tools/:name/execute - Execute a tool
@@ -209,15 +189,15 @@ async fn execute_tool(
     Path(name): Path<String>,
     Json(params): Json<HashMap<String, serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tools = state.tools.read().await;
+    let params_value = serde_json::Value::Object(params.into_iter().collect());
 
-    if let Some(tool) = tools.get(&name) {
-        match tool.execute(params).await {
-            Ok(result) => Ok(Json(result)),
-            Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Tool execution failed: {}", e))),
-        }
-    } else {
-        Err((StatusCode::NOT_FOUND, format!("Tool {} not found", name)))
+    match state.tool_registry.execute_tool(&name, params_value).await {
+        Ok(result) => {
+            let result_json = serde_json::to_value(&result)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialization failed: {}", e)))?;
+            Ok(Json(result_json))
+        },
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Tool execution failed: {}", e))),
     }
 }
 
@@ -331,13 +311,11 @@ pub async fn start_manager(
     orchestrator: Orchestrator,
     bind_addr: &str,
 ) -> anyhow::Result<()> {
-    let state = McpManagerState::new(orchestrator).await;
+    // Create tool registry and register introspection tools
+    let tool_registry = ToolRegistry::new();
+    super::introspection_tools::register_introspection_tools(&tool_registry).await?;
 
-    // Register introspection tools
-    use super::tools::introspection::register_introspection_tools;
-    for tool in register_introspection_tools() {
-        state.register_tool(tool).await;
-    }
+    let state = McpManagerState::new(orchestrator, tool_registry).await;
 
     let app = create_manager_router(state);
 
