@@ -349,14 +349,25 @@ impl LxcPlugin {
 
                         // Append export if not already present
                         if !existing_content.contains("NETMAKER_TOKEN") {
-                            if tokio::fs::write(
+                            match tokio::fs::write(
                                 &bashrc_path,
                                 format!("{}{}", existing_content, export_line),
                             )
                             .await
-                            .is_ok()
                             {
-                                log::info!("Injected netmaker token into {} .bashrc", container.id);
+                                Ok(_) => {
+                                    log::info!(
+                                        "Injected netmaker token into {} .bashrc",
+                                        container.id
+                                    );
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "Failed to inject netmaker token into {}: {}",
+                                        container.id,
+                                        e
+                                    );
+                                }
                             }
                         }
                         break;
@@ -374,9 +385,9 @@ impl LxcPlugin {
 
         // Find port names matching this container (vi{VMID} or internal_{VMID})
         let potential_ports = vec![
-            format!("vi{}", ct_id),           // Proxmox veth pattern
-            format!("internal_{}", ct_id),     // Socket networking pattern
-            format!("veth{}pl", ct_id),        // Alternative veth pattern
+            format!("vi{}", ct_id),        // Proxmox veth pattern
+            format!("internal_{}", ct_id), // Socket networking pattern
+            format!("veth{}pl", ct_id),    // Alternative veth pattern
         ];
 
         // Try each potential port name
@@ -411,12 +422,26 @@ impl LxcPlugin {
                                                     "columns": ["_uuid"]
                                                 }]);
 
-                                                if let Ok(bridge_result) = client.transact(bridge_ops).await {
-                                                    if let Some(bridge_rows) = bridge_result[0]["rows"].as_array() {
-                                                        if let Some(bridge_row) = bridge_rows.first() {
-                                                            if let Some(bridge_uuid_array) = bridge_row["_uuid"].as_array() {
-                                                                if bridge_uuid_array.len() == 2 && bridge_uuid_array[0] == "uuid" {
-                                                                    let bridge_uuid = bridge_uuid_array[1].as_str().unwrap();
+                                                if let Ok(bridge_result) =
+                                                    client.transact(bridge_ops).await
+                                                {
+                                                    if let Some(bridge_rows) =
+                                                        bridge_result[0]["rows"].as_array()
+                                                    {
+                                                        if let Some(bridge_row) =
+                                                            bridge_rows.first()
+                                                        {
+                                                            if let Some(bridge_uuid_array) =
+                                                                bridge_row["_uuid"].as_array()
+                                                            {
+                                                                if bridge_uuid_array.len() == 2
+                                                                    && bridge_uuid_array[0]
+                                                                        == "uuid"
+                                                                {
+                                                                    let bridge_uuid =
+                                                                        bridge_uuid_array[1]
+                                                                            .as_str()
+                                                                            .unwrap();
 
                                                                     // Remove port from bridge and delete it
                                                                     let delete_ops = serde_json::json!([
@@ -435,7 +460,9 @@ impl LxcPlugin {
                                                                         }
                                                                     ]);
 
-                                                                    client.transact(delete_ops).await?;
+                                                                    client
+                                                                        .transact(delete_ops)
+                                                                        .await?;
                                                                     return Ok(port_name.clone());
                                                                 }
                                                             }
@@ -694,11 +721,22 @@ impl StatePlugin for LxcPlugin {
                     let cleanup_result = Self::cleanup_ovs_port_for_container(resource).await;
                     match cleanup_result {
                         Ok(port_name) => {
-                            log::info!("Cleaned up OVS port {} for container {}", port_name, resource);
-                            changes_applied.push(format!("Removed OVS port {} for container {}", port_name, resource));
+                            log::info!(
+                                "Cleaned up OVS port {} for container {}",
+                                port_name,
+                                resource
+                            );
+                            changes_applied.push(format!(
+                                "Removed OVS port {} for container {}",
+                                port_name, resource
+                            ));
                         }
                         Err(e) => {
-                            log::warn!("Could not cleanup OVS port for container {}: {}", resource, e);
+                            log::warn!(
+                                "Could not cleanup OVS port for container {}: {}",
+                                resource,
+                                e
+                            );
                         }
                     }
 

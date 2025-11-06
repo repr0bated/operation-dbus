@@ -50,6 +50,12 @@ pub struct PciLive {
 
 pub struct PciDeclPlugin;
 
+impl Default for PciDeclPlugin {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl PciDeclPlugin {
     pub fn new() -> Self {
         Self
@@ -89,7 +95,7 @@ impl PciDeclPlugin {
             .arg(format!("lspci -s {} >/dev/null 2>&1; echo $?", addr))
             .output()
         {
-            return out.stdout.get(0).map(|b| *b == b'0').unwrap_or(false);
+            return out.stdout.first().map(|b| *b == b'0').unwrap_or(false);
         }
         false
     }

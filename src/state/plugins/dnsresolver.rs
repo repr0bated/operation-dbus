@@ -36,6 +36,12 @@ pub struct DnsItem {
 
 pub struct DnsResolverPlugin;
 
+impl Default for DnsResolverPlugin {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl DnsResolverPlugin {
     pub fn new() -> Self {
         Self
@@ -176,7 +182,7 @@ impl StatePlugin for DnsResolverPlugin {
             },
         };
         let cur_all = Self::query_system();
-        let cur = cur_all.get(0);
+        let cur = cur_all.first();
         let mut actions = Vec::new();
         for item in &want.items {
             match cur {
@@ -265,7 +271,7 @@ impl StatePlugin for DnsResolverPlugin {
             Err(_) => return Ok(true),
         };
         let cur_all = Self::query_system();
-        let cur = match cur_all.get(0) {
+        let cur = match cur_all.first() {
             Some(v) => v,
             None => return Ok(false),
         };
