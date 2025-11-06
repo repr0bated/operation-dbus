@@ -22,8 +22,6 @@ pub mod json_introspection;
 pub mod agent_registry;
 pub mod tool_registry;
 
-pub mod orchestrator;
-
 // Introspection tools for hardware, CPU features, ISP analysis
 pub mod introspection_tools;
 

@@ -13,7 +13,6 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
 
-use super::orchestrator::Orchestrator;
 use super::tool_registry::{Tool, ToolRegistry};
 
 /// MCP Manager state
@@ -21,9 +20,6 @@ use super::tool_registry::{Tool, ToolRegistry};
 pub struct McpManagerState {
     /// Active MCP servers
     servers: Arc<RwLock<HashMap<String, McpServerInfo>>>,
-
-    /// Orchestrator for managing agents
-    orchestrator: Arc<Orchestrator>,
 
     /// Tool registry for managing MCP tools
     tool_registry: Arc<ToolRegistry>,
@@ -67,10 +63,9 @@ pub struct IntrospectionDatabase {
 }
 
 impl McpManagerState {
-    pub async fn new(orchestrator: Orchestrator, tool_registry: ToolRegistry) -> Self {
+    pub async fn new(tool_registry: ToolRegistry) -> Self {
         Self {
             servers: Arc::new(RwLock::new(HashMap::new())),
-            orchestrator: Arc::new(orchestrator),
             tool_registry: Arc::new(tool_registry),
             introspection_db: Arc::new(RwLock::new(IntrospectionDatabase::default())),
         }
@@ -308,14 +303,13 @@ pub fn create_manager_router(state: McpManagerState) -> Router {
 
 /// Start MCP Manager server
 pub async fn start_manager(
-    orchestrator: Orchestrator,
     bind_addr: &str,
 ) -> anyhow::Result<()> {
     // Create tool registry and register introspection tools
     let tool_registry = ToolRegistry::new();
     super::introspection_tools::register_introspection_tools(&tool_registry).await?;
 
-    let state = McpManagerState::new(orchestrator, tool_registry).await;
+    let state = McpManagerState::new(tool_registry).await;
 
     let app = create_manager_router(state);
 
