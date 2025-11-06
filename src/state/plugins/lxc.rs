@@ -274,39 +274,139 @@ impl LxcPlugin {
         let bridge = Self::get_bridge_for_network_type(container);
         log::info!("Container {} will use bridge {}", container.id, bridge);
 
-        // Get template from properties or use default
-        let template = container
-            .properties
-            .as_ref()
+        // Extract properties with sensible defaults
+        let props = container.properties.as_ref();
+
+        // Template (OS image)
+        let template = props
             .and_then(|p| p.get("template"))
             .and_then(|v| v.as_str())
             .unwrap_or("local-btrfs:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst");
 
-        log::info!("Using template: {}", template);
+        // Hostname
+        let hostname = props
+            .and_then(|p| p.get("hostname"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(&format!("ct{}", container.id));
 
-        // Use pct create (Proxmox Container Toolkit)
-        let output = tokio::process::Command::new("pct")
-            .args([
-                "create",
-                &container.id,
-                template,
-                "--hostname",
-                &format!("ct{}", container.id),
-                "--memory",
-                "512",
-                "--swap",
-                "512",
-                "--rootfs",
-                "local-btrfs:8",
-                "--net0",
-                &format!("name=eth0,bridge={},firewall=1", bridge),
-                "--unprivileged",
-                "1",
-                "--features",
-                "nesting=1",
-            ])
-            .output()
-            .await?;
+        // Memory (MB)
+        let memory = props
+            .and_then(|p| p.get("memory"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(512);
+
+        // Swap (MB)
+        let swap = props
+            .and_then(|p| p.get("swap"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(512);
+
+        // Storage location and size
+        let storage = props
+            .and_then(|p| p.get("storage"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("local-btrfs");
+
+        let rootfs_size = props
+            .and_then(|p| p.get("rootfs_size"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(8);
+
+        let rootfs = format!("{}:{}", storage, rootfs_size);
+
+        // CPU cores
+        let cores = props
+            .and_then(|p| p.get("cores"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(2);
+
+        // Unprivileged mode
+        let unprivileged = props
+            .and_then(|p| p.get("unprivileged"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        // Features (comma-separated)
+        let features = props
+            .and_then(|p| p.get("features"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("nesting=1");
+
+        // Network configuration
+        let firewall = props
+            .and_then(|p| p.get("firewall"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let net0 = format!(
+            "name=eth0,bridge={},firewall={}",
+            bridge,
+            if firewall { "1" } else { "0" }
+        );
+
+        // Optional: IP address configuration
+        if let Some(ip) = props.and_then(|p| p.get("ip")).and_then(|v| v.as_str()) {
+            // ip can be "dhcp" or "192.168.1.100/24"
+            // pct expects: --net0 "name=eth0,bridge=vmbr0,ip=192.168.1.100/24,gw=192.168.1.1"
+            // For now, we'll handle this in a future enhancement
+            log::info!("IP configuration: {} (note: not yet implemented)", ip);
+        }
+
+        log::info!(
+            "Creating container {}: template={}, memory={}MB, cores={}, rootfs={}",
+            container.id,
+            template,
+            memory,
+            cores,
+            rootfs
+        );
+
+        // Build pct create command
+        let mut cmd = tokio::process::Command::new("pct");
+        cmd.args([
+            "create",
+            &container.id,
+            template,
+            "--hostname",
+            hostname,
+            "--memory",
+            &memory.to_string(),
+            "--swap",
+            &swap.to_string(),
+            "--cores",
+            &cores.to_string(),
+            "--rootfs",
+            &rootfs,
+            "--net0",
+            &net0,
+            "--unprivileged",
+            if unprivileged { "1" } else { "0" },
+            "--features",
+            features,
+        ]);
+
+        // Optional: Start on boot
+        if let Some(onboot) = props.and_then(|p| p.get("onboot")).and_then(|v| v.as_bool()) {
+            cmd.args(["--onboot", if onboot { "1" } else { "0" }]);
+        }
+
+        // Optional: Protection (prevent accidental deletion)
+        if let Some(protection) = props.and_then(|p| p.get("protection")).and_then(|v| v.as_bool()) {
+            cmd.args(["--protection", if protection { "1" } else { "0" }]);
+        }
+
+        // Optional: Nameserver
+        if let Some(nameserver) = props.and_then(|p| p.get("nameserver")).and_then(|v| v.as_str()) {
+            cmd.args(["--nameserver", nameserver]);
+        }
+
+        // Optional: Searchdomain
+        if let Some(searchdomain) = props.and_then(|p| p.get("searchdomain")).and_then(|v| v.as_str()) {
+            cmd.args(["--searchdomain", searchdomain]);
+        }
+
+        // Execute pct create
+        let output = cmd.output().await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -320,9 +420,7 @@ impl LxcPlugin {
         );
 
         // Inject netmaker token for first-boot join (if netmaker network type)
-        let network_type = container
-            .properties
-            .as_ref()
+        let network_type = props
             .and_then(|p| p.get("network_type"))
             .and_then(|v| v.as_str())
             .unwrap_or("bridge");
