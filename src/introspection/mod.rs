@@ -387,10 +387,21 @@ impl SystemIntrospector {
     async fn discover_dbus_services(&self) -> Result<(Vec<String>, Vec<String>)> {
         println!("  📡 Discovering D-Bus services...");
 
-        // System bus
-        let system_conn = Connection::system().await?;
-        let system_services = self.list_dbus_names(&system_conn).await?;
-        println!("    ✓ Found {} services on system bus", system_services.len());
+        // Use existing auto_plugin discovery for system services
+        let system_services = match crate::state::auto_plugin::PluginDiscovery::discover_services().await {
+            Ok(services) => {
+                println!("    ✓ Found {} services on system bus", services.len());
+                services
+            }
+            Err(e) => {
+                log::warn!("Failed to use auto_plugin discovery: {}, falling back", e);
+                // Fallback to direct discovery
+                let system_conn = Connection::system().await?;
+                let services = self.list_dbus_names(&system_conn).await?;
+                println!("    ✓ Found {} services on system bus (fallback)", services.len());
+                services
+            }
+        };
 
         // Session bus (may not exist in server environments)
         let session_services = match Connection::session().await {
@@ -471,12 +482,12 @@ impl SystemIntrospector {
             ManagementStatus::ManagedBuiltIn {
                 plugin_name: "login1".to_string(),
             }
-        } else if service_name.starts_with("org.freedesktop.") {
-            // Well-known freedesktop service - can be auto-generated
+        } else if self.can_auto_generate(service_name) {
+            // Service can be managed by auto-generated plugin
             ManagementStatus::ManagedAuto
         } else {
             ManagementStatus::Unmanaged {
-                reason: "No plugin available".to_string(),
+                reason: "No plugin available, not auto-discoverable".to_string(),
             }
         };
 
@@ -490,6 +501,34 @@ impl SystemIntrospector {
             management_status,
             recommended_plugin,
         }
+    }
+
+    /// Check if a service can be auto-generated (uses same logic as PluginDiscovery)
+    fn can_auto_generate(&self, service_name: &str) -> bool {
+        // Reuse the same logic from auto_plugin.rs
+        if service_name.starts_with(':') {
+            return false; // Temporary unique names
+        }
+
+        if service_name == "org.freedesktop.DBus" {
+            return false; // DBus daemon itself
+        }
+
+        if service_name.starts_with("org.freedesktop.DBus.") {
+            return false; // DBus internal services
+        }
+
+        // Well-known freedesktop services can be auto-generated
+        if service_name.starts_with("org.freedesktop.") {
+            return true;
+        }
+
+        // Custom services with reverse domain names
+        if service_name.contains('.') && !service_name.starts_with("org.freedesktop.systemd1.") {
+            return true;
+        }
+
+        false
     }
 
     /// Recommend a plugin for a D-Bus service
@@ -705,16 +744,38 @@ impl SystemIntrospector {
         if !report.managed_dbus_services.is_empty() {
             println!("✅ MANAGED D-BUS SERVICES");
             println!("──────────────────────────────────────────────────────────────");
-            for service in &report.managed_dbus_services {
-                let status_str = match &service.management_status {
-                    ManagementStatus::ManagedBuiltIn { plugin_name } => {
-                        format!("Built-in plugin: {}", plugin_name)
+
+            let built_in: Vec<_> = report.managed_dbus_services.iter()
+                .filter(|s| matches!(s.management_status, ManagementStatus::ManagedBuiltIn { .. }))
+                .collect();
+
+            let auto_gen: Vec<_> = report.managed_dbus_services.iter()
+                .filter(|s| matches!(s.management_status, ManagementStatus::ManagedAuto))
+                .collect();
+
+            // Show built-in plugins first
+            if !built_in.is_empty() {
+                println!("  Built-in Plugins (read-write):");
+                for service in built_in {
+                    if let ManagementStatus::ManagedBuiltIn { plugin_name } = &service.management_status {
+                        println!("    ✓ {} → {}", service.service_name, plugin_name);
                     }
-                    ManagementStatus::ManagedAuto => "Auto-generated plugin".to_string(),
-                    _ => "Unknown".to_string(),
-                };
-                println!("  ✓ {} ({})", service.service_name, service.bus_type);
-                println!("    {}", status_str);
+                }
+                println!();
+            }
+
+            // Show auto-generated plugins
+            if !auto_gen.is_empty() {
+                println!("  Auto-Generated Plugins (read-only):");
+                for service in auto_gen {
+                    println!("    🤖 {}", service.service_name);
+                    if let Some(plugin) = &service.recommended_plugin {
+                        println!("       Can become: {} plugin (with semantic mapping)", plugin);
+                    }
+                }
+                println!();
+                println!("  ℹ️  Auto-generated plugins can query state but cannot apply changes.");
+                println!("     To enable writes, create a dedicated plugin or semantic mapping.");
             }
             println!();
         }
