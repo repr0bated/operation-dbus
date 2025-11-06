@@ -47,7 +47,7 @@ async fn register_discover_system(registry: &ToolRegistry) -> Result<()> {
                 }
             }
         }))
-        .handler(Arc::new(|params| {
+        .handler(|params| {
             Box::pin(async move {
                 let include_packages = params
                     .get("include_packages")
@@ -83,10 +83,10 @@ async fn register_discover_system(registry: &ToolRegistry) -> Result<()> {
                     Err(e) => ToolResult::error(&format!("Introspection failed: {}", e)),
                 }
             })
-        }))
+        })
         .build();
 
-    registry.register_tool(tool).await;
+    registry.register_tool(Box::new(tool)).await?;
     Ok(())
 }
 
@@ -98,7 +98,7 @@ async fn register_analyze_cpu_features(registry: &ToolRegistry) -> Result<()> {
             "type": "object",
             "properties": {}
         }))
-        .handler(Arc::new(|_params| {
+        .handler(|_params| {
             Box::pin(async move {
                 let analyzer = CpuFeatureAnalyzer::new();
                 match analyzer.analyze() {
@@ -116,7 +116,7 @@ async fn register_analyze_cpu_features(registry: &ToolRegistry) -> Result<()> {
         }))
         .build();
 
-    registry.register_tool(tool).await;
+    registry.register_tool(Box::new(tool)).await?;
     Ok(())
 }
 
@@ -137,7 +137,7 @@ async fn register_analyze_isp(registry: &ToolRegistry) -> Result<()> {
                 }
             }
         }))
-        .handler(Arc::new(|params| {
+        .handler(|params| {
             Box::pin(async move {
                 let analyzer = IspMigrationAnalyzer::new();
                 match analyzer.analyze() {
@@ -180,7 +180,7 @@ async fn register_analyze_isp(registry: &ToolRegistry) -> Result<()> {
         }))
         .build();
 
-    registry.register_tool(tool).await;
+    registry.register_tool(Box::new(tool)).await?;
     Ok(())
 }
 
@@ -203,7 +203,7 @@ async fn register_generate_isp_request(registry: &ToolRegistry) -> Result<()> {
             },
             "required": ["feature"]
         }))
-        .handler(Arc::new(|params| {
+        .handler(|params| {
             Box::pin(async move {
                 let feature = match params.get("feature").and_then(|v| v.as_str()) {
                     Some(f) => f,
@@ -248,7 +248,7 @@ async fn register_generate_isp_request(registry: &ToolRegistry) -> Result<()> {
         }))
         .build();
 
-    registry.register_tool(tool).await;
+    registry.register_tool(Box::new(tool)).await?;
     Ok(())
 }
 
@@ -270,7 +270,7 @@ async fn register_compare_hardware(registry: &ToolRegistry) -> Result<()> {
             },
             "required": ["config1_path", "config2_path"]
         }))
-        .handler(Arc::new(|params| {
+        .handler(|params| {
             Box::pin(async move {
                 let config1_path = match params.get("config1_path").and_then(|v| v.as_str()) {
                     Some(p) => p,
@@ -327,7 +327,7 @@ async fn register_compare_hardware(registry: &ToolRegistry) -> Result<()> {
                                     }
                                 });
 
-                                ToolResult::success(ToolContent::Text(
+                                ToolResult::success(ToolContent::text(
                                     serde_json::to_string_pretty(&result).unwrap()
                                 ))
                             }
@@ -340,6 +340,6 @@ async fn register_compare_hardware(registry: &ToolRegistry) -> Result<()> {
         }))
         .build();
 
-    registry.register_tool(tool).await;
+    registry.register_tool(Box::new(tool)).await?;
     Ok(())
 }

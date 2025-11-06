@@ -6,6 +6,8 @@
 pub mod blockchain;
 pub mod cache;
 pub mod introspection;
+pub mod isp_migration;
+pub mod isp_support;
 pub mod native;
 pub mod nonnet_db;
 pub mod state;
