@@ -570,6 +570,15 @@ async fn main() -> Result<()> {
         info!("⊗ Skipping plugin: net - {}", net_plugin.unavailable_reason());
     }
 
+    // OpenFlow plugin (requires OVS) - manages flows and socket networking
+    let openflow_plugin = state::plugins::OpenFlowPlugin::new();
+    if openflow_plugin.is_available() {
+        info!("✓ Registering plugin: openflow (Flow management)");
+        state_manager.register_plugin(Box::new(openflow_plugin)).await;
+    } else {
+        info!("⊗ Skipping plugin: openflow - {}", openflow_plugin.unavailable_reason());
+    }
+
     // Systemd plugin (always available on systemd systems)
     let systemd_plugin = state::plugins::SystemdStatePlugin::new();
     if systemd_plugin.is_available() {

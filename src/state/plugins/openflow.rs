@@ -722,6 +722,19 @@ impl StatePlugin for OpenFlowPlugin {
         "0.1.0"
     }
 
+    fn is_available(&self) -> bool {
+        // OpenFlow plugin requires OVS to be available
+        std::process::Command::new("ovs-vsctl")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+
+    fn unavailable_reason(&self) -> String {
+        "OpenVSwitch (ovs-vsctl) not found - install with: apt install openvswitch-switch".to_string()
+    }
+
     async fn query_current_state(&self) -> Result<Value> {
         log::info!("Querying current OpenFlow state with container discovery");
 
