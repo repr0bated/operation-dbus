@@ -1,5 +1,5 @@
 {
-  description = "op-dbus - Portable declarative system state management";
+  description = "operation-dbus: Declarative infrastructure management with ML-vectorized audit trails";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -30,14 +30,29 @@
         ];
 
         buildInputs = with pkgs; [
+          # Core dependencies
           dbus
           systemd
           openssl
+          sqlite
+
+          # BTRFS support
+          btrfs-progs
+
+          # NUMA support
+          numactl
+
+          # ML dependencies (ONNX Runtime)
+          # Note: onnxruntime package may not be in nixpkgs, you may need to build it
+          # For now, we'll add it as optional
         ];
 
         # Optional runtime dependencies
         runtimeDeps = with pkgs; [
           openvswitch  # For network management plugin
+          btrfs-progs  # For BTRFS subvolume management
+          numactl      # For NUMA topology detection
+          sqlite       # For cache index
           # proxmox not in nixpkgs - would need custom package
         ];
 
@@ -124,6 +139,7 @@
       }
     ) // {
       # NixOS module
-      nixosModules.default = import ./nixos-module.nix;
+      nixosModules.default = import ./nixos/modules/operation-dbus.nix;
+      nixosModules.operation-dbus = import ./nixos/modules/operation-dbus.nix;
     };
 }
