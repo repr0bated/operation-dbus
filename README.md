@@ -4,6 +4,23 @@
 
 op-dbus is a portable tool for declarative infrastructure management that automatically adapts to your system's capabilities.
 
+---
+
+## 🆕 Fresh NixOS Installation?
+
+**Just wiped your drive and installed NixOS?** → Read **[START-HERE.md](START-HERE.md)** first!
+
+```bash
+# Get git, pull latest code, and bootstrap
+nix-shell -p git
+git pull origin claude/this-is-no-011CUr6iUZZC7YKhhLSY2MK6
+./bootstrap.sh
+```
+
+Or just read the quick start: `cat START-HERE.md | less`
+
+---
+
 ## ✨ Key Features
 
 - **🔌 Dynamic Plugin Discovery** - Automatically detects and uses available system components
