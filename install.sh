@@ -47,6 +47,14 @@ parse_args() {
                 MODE="agent"
                 shift
                 ;;
+            --privacy-client)
+                MODE="privacy-client"
+                shift
+                ;;
+            --privacy-vps)
+                MODE="privacy-vps"
+                shift
+                ;;
             --help)
                 show_help
                 exit 0
@@ -65,16 +73,20 @@ show_help() {
 Usage: $0 [MODE]
 
 Deployment Modes:
-  --full         Full deployment (Proxmox): D-Bus + Blockchain + LXC + Netmaker
-  --standalone   Standalone: D-Bus + Blockchain (no containers)
-  --agent-only   Agent only: D-Bus plugins only (minimal)
+  --full            Full deployment (Proxmox): D-Bus + Blockchain + LXC + Netmaker
+  --standalone      Standalone: D-Bus + Blockchain (no containers)
+  --agent-only      Agent only: D-Bus plugins only (minimal)
+  --privacy-client  Privacy Router Client: WireGuard + Warp + XRay (3 containers)
+  --privacy-vps     Privacy Router VPS: XRay Server endpoint (1 container)
 
 If no mode is specified, the script will prompt interactively.
 
 Examples:
   sudo ./install.sh --full
   sudo ./install.sh --standalone
-  sudo ./install.sh                    # Interactive mode selection
+  sudo ./install.sh --privacy-client    # GhostBridge workstation
+  sudo ./install.sh --privacy-vps       # GhostBridge VPS server
+  sudo ./install.sh                     # Interactive mode selection
 
 EOF
 }
