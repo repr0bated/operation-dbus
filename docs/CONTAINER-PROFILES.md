@@ -446,13 +446,21 @@ curl --proxy vmess://UUID@VPS_IP:443 https://ifconfig.me
 
 In addition to the privacy router containers (100-102), you can create general-purpose containers with optional Netmaker mesh networking. Each container can individually choose to join Netmaker or use standard bridge networking.
 
+**IMPORTANT**: These containers use **traditional LXC**, NOT Proxmox pct. While op-dbus can run on a Proxmox host, it creates and manages its own containers separately from Proxmox's container management system.
+
 ### Architecture
 
-**Container Creation**: BTRFS snapshot-based templates (Proxmox)
-- Proxmox stores raw BTRFS disk images inside `/var/lib/pve/local-btrfs/subvol/`
-- Templates stored in `/var/lib/pve/local-btrfs/template/cache/`
-- Templates are created once, then cloned via BTRFS snapshots
-- No direct `pct` commands needed after template creation
+**Container Creation**: Traditional LXC with BTRFS templates (NOT Proxmox pct)
+- op-dbus uses **traditional LXC** (lxc-create, lxc-start, lxc-attach)
+- BTRFS templates stored in `/var/lib/lxc/` (traditional LXC path)
+- Templates created outside Proxmox functionality
+- Cloned via BTRFS snapshots for instant container creation
+- **Proxmox does NOT control these containers once created**
+
+**Container Management**:
+- **OVS-managed**: Socket networking via OpenFlow flows
+- **Netmaker-managed**: Mesh networking via WireGuard tunnels
+- op-dbus orchestrates container lifecycle, not Proxmox
 
 **Netmaker Integration**:
 - Join key stored in `/etc/op-dbus/netmaker.env` on host
@@ -475,7 +483,7 @@ In addition to the privacy router containers (100-102), you can create general-p
   },
   "properties": {
     "network_type": "netmaker",
-    "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst"
+    "template": "debian-netmaker"
   }
 }
 ```
@@ -501,7 +509,7 @@ In addition to the privacy router containers (100-102), you can create general-p
   },
   "properties": {
     "network_type": "bridge",
-    "template": "local-btrfs:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
+    "template": "debian-12"
   }
 }
 ```
@@ -526,15 +534,15 @@ NETMAKER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 3. Token injected into container rootfs `/etc/netmaker.env`
 4. First-boot service reads token and runs `netclient join`
 
-### Template Creation (BTRFS-Based)
+### Template Creation (Traditional LXC + BTRFS)
 
 **Create Netmaker-Ready Template**:
 ```bash
-# On Proxmox host
+# On host (uses traditional LXC, not Proxmox pct)
 sudo ./create-netmaker-template.sh
 
-# This creates:
-# /var/lib/pve/local-btrfs/template/cache/debian-13-netmaker_custom.tar.zst
+# This creates a traditional LXC template:
+# /var/lib/lxc/netmaker-template/rootfs/
 ```
 
 **Template Contents**:
@@ -543,14 +551,20 @@ sudo ./create-netmaker-template.sh
 - Systemd service for auto-join (`netmaker-first-boot.service`)
 - WireGuard kernel modules
 
-**BTRFS Snapshot Process** (Proxmox Internal):
+**BTRFS Snapshot Process** (Traditional LXC):
 ```
-1. Extract template tar.zst → /var/lib/pve/local-btrfs/subvol/<vmid>/
-2. Create BTRFS snapshot → raw disk image
-3. Container rootfs lives in snapshot at /var/lib/pve/local-btrfs/subvol/<vmid>/
-4. Future containers clone this snapshot (instant creation)
-5. Template cache: /var/lib/pve/local-btrfs/template/cache/*.tar.zst
+1. Create base container → /var/lib/lxc/<template-name>/
+2. Install netclient and configure first-boot scripts
+3. Stop container, create BTRFS snapshot of rootfs
+4. Future containers created via: lxc-create -B btrfs -t <template>
+5. BTRFS instantly clones snapshot (copy-on-write)
+6. No Proxmox pct commands - pure traditional LXC
 ```
+
+**Key Difference from Proxmox**:
+- **Proxmox pct**: Uses /var/lib/pve/, managed by Proxmox
+- **op-dbus LXC**: Uses /var/lib/lxc/, managed by op-dbus
+- **No overlap**: These are separate container ecosystems
 
 ### Installation with General Containers
 
@@ -581,7 +595,7 @@ sudo ./create-netmaker-template.sh
           "name": "app-server",
           "properties": {
             "network_type": "netmaker",
-            "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst"
+            "template": "debian-netmaker"
           }
         },
         {
@@ -589,7 +603,7 @@ sudo ./create-netmaker-template.sh
           "name": "database-server",
           "properties": {
             "network_type": "netmaker",
-            "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst"
+            "template": "debian-netmaker"
           }
         }
       ]
