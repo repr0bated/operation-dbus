@@ -72,14 +72,20 @@
         "network": {
           "bridge": "ovsbr0",
           "veth": false,
-          "socket_networking": true,
-          "port_name": "internal_101",
+          "socket_networking": false,
+          "wg_tunnel": true,
+          "port_name": "wg-warp",
           "ipv4": "10.0.0.101/24"
         },
-        "services": ["cloudflare-warp"],
+        "services": ["wg-quick@wg-warp"],
         "config": {
-          "warp": {
-            "endpoint": "engage.cloudflareclient.com:2408"
+          "wg-quick": {
+            "interface": "wg-warp",
+            "address": "10.99.1.2/32",
+            "private_key_file": "/etc/wireguard/warp-private.key",
+            "endpoint": "engage.cloudflareclient.com:2408",
+            "public_key": "WARP_PUBLIC_KEY",
+            "post_up": "ovs-vsctl add-port ovsbr0 wg-warp"
           }
         }
       },
@@ -252,9 +258,9 @@
 Client Devices
     ↓ (WiFi/Ethernet)
 WireGuard Gateway (Container 100, internal_100, 10.0.0.100)
-    ↓ (OpenFlow: table 10, priority 1000, output:internal_101)
+    ↓ (OpenFlow: table 10, priority 1000, output:wg-warp)
     ↓ (Security flows: Level 3 obfuscation)
-Warp Tunnel (Container 101, internal_101, 10.0.0.101)
+Warp Tunnel (Container 101, wg-warp port via wg-quick PostUp)
     ↓ (OpenFlow: table 10, priority 1000, output:internal_102)
     ↓ (Obfuscation: TTL normalization, packet padding)
 XRay Client (Container 102, internal_102, 10.0.0.102)
@@ -361,13 +367,40 @@ systemctl enable wg-quick@wg0
 ```
 
 ### Warp Tunnel (Container 101)
+
+**Important**: Warp uses WireGuard protocol via `wg-quick`, which creates a tunnel interface that's added to OVS as a port (not socket networking)
+
+**Tool**: [wgcf](https://github.com/ViRb3/wgcf) - Cloudflare Warp WireGuard config generator
+
 ```bash
 # In container 101
-curl https://pkg.cloudflareclient.com/pubkey.gpg | gpg --dearmor | tee /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg >/dev/null
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/cloudflare-client.list
-apt-get update && apt-get install cloudflare-warp
-warp-cli register
-warp-cli connect
+apt-get install wireguard
+
+# Install wgcf to generate Warp config
+wget https://github.com/ViRb3/wgcf/releases/latest/download/wgcf_$(uname -s | tr '[:upper:]' '[:lower:]')_amd64 -O /usr/local/bin/wgcf
+chmod +x /usr/local/bin/wgcf
+
+# Register with Cloudflare Warp
+wgcf register
+wgcf generate
+
+# Modify wgcf-profile.conf to add OVS integration
+sed -i '/\[Interface\]/a PostUp = ovs-vsctl add-port ovsbr0 wg-warp\nPostDown = ovs-vsctl del-port ovsbr0 wg-warp' wgcf-profile.conf
+
+# Install config
+mv wgcf-profile.conf /etc/wireguard/wg-warp.conf
+
+# Start tunnel (wg-quick automatically adds to OVS via PostUp)
+systemctl enable wg-quick@wg-warp
+systemctl start wg-quick@wg-warp
+
+# Verify tunnel added to OVS
+ovs-vsctl show | grep wg-warp
+# Should show: Port "wg-warp"
+
+# Verify Warp working
+curl --interface wg-warp https://www.cloudflare.com/cdn-cgi/trace/
+# Should show warp=on
 ```
 
 ### XRay Client (Container 102) / XRay Server (VPS Container 100)
