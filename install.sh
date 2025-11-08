@@ -149,32 +149,50 @@ select_mode() {
     echo "      D-Bus + Blockchain + LXC/Proxmox + Netmaker"
     echo "      For container-based deployments with mesh networking"
     echo ""
-    echo "  [2] Standalone"
-    echo "      D-Bus + Blockchain (no containers)"
-    echo "      For enterprise deployments without containers"
+    echo "  [2] Privacy Client (WireGuard + Warp + XRay)"
+    echo "      3-container privacy router (client side)"
+    echo "      WireGuard gateway → Warp tunnel → XRay client → VPS"
+    echo "      Socket OpenFlow networking, Level 3 obfuscation"
     echo ""
-    echo "  [3] Agent Only"
+    echo "  [3] Privacy VPS (XRay Server only)"
+    echo "      Single XRay server container (VPS side)"
+    echo "      Receives encrypted traffic from privacy clients"
+    echo "      Socket OpenFlow networking, Level 2 obfuscation"
+    echo ""
+    echo "  [4] Standalone"
+    echo "      D-Bus + Blockchain (no containers)"
+    echo "      OVS bridge + security flows only"
+    echo ""
+    echo "  [5] Agent Only"
     echo "      D-Bus plugins only (minimal)"
     echo "      For lightweight plugin-only deployments"
     echo ""
 
     while true; do
-        read -rp "Enter choice [1-3]: " CHOICE
+        read -rp "Enter choice [1-5]: " CHOICE
         case $CHOICE in
             1)
                 MODE="full"
                 break
                 ;;
             2)
-                MODE="standalone"
+                MODE="privacy-client"
                 break
                 ;;
             3)
+                MODE="privacy-vps"
+                break
+                ;;
+            4)
+                MODE="standalone"
+                break
+                ;;
+            5)
                 MODE="agent"
                 break
                 ;;
             *)
-                echo "Invalid choice. Please enter 1, 2, or 3."
+                echo "Invalid choice. Please enter 1, 2, 3, 4, or 5."
                 ;;
         esac
     done
@@ -402,6 +420,189 @@ EOF
 }
 EOF
             ;;
+        privacy-client)
+            cat <<'EOF'
+{
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "ports": [],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": ["10.0.0.1/24"],
+            "gateway": null
+          }
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "enabled": true,
+          "active_state": "active"
+        }
+      }
+    },
+    "lxc": {
+      "container_profile": "privacy-client",
+      "containers": [
+        {
+          "id": 100,
+          "name": "wireguard-gateway",
+          "template": "debian-12",
+          "autostart": true,
+          "network": {
+            "bridge": "ovsbr0",
+            "veth": false,
+            "socket_networking": true,
+            "port_name": "internal_100",
+            "ipv4": "10.0.0.100/24"
+          }
+        },
+        {
+          "id": 101,
+          "name": "warp-tunnel",
+          "template": "debian-12",
+          "autostart": true,
+          "network": {
+            "bridge": "ovsbr0",
+            "veth": false,
+            "socket_networking": true,
+            "port_name": "internal_101",
+            "ipv4": "10.0.0.101/24"
+          }
+        },
+        {
+          "id": 102,
+          "name": "xray-client",
+          "template": "debian-12",
+          "autostart": true,
+          "network": {
+            "bridge": "ovsbr0",
+            "veth": false,
+            "socket_networking": true,
+            "port_name": "internal_102",
+            "ipv4": "10.0.0.102/24"
+          }
+        }
+      ]
+    },
+    "openflow": {
+      "enable_security_flows": true,
+      "obfuscation_level": 3,
+      "auto_discover_containers": true,
+      "flow_policies": [
+        {
+          "name": "wireguard-to-warp",
+          "selector": "container:100",
+          "template": {
+            "table": 10,
+            "priority": 1000,
+            "actions": [{"type": "output", "port": "internal_101"}]
+          }
+        },
+        {
+          "name": "warp-to-xray",
+          "selector": "container:101",
+          "template": {
+            "table": 10,
+            "priority": 1000,
+            "actions": [{"type": "output", "port": "internal_102"}]
+          }
+        }
+      ],
+      "bridges": [{
+        "name": "ovsbr0",
+        "flows": [],
+        "socket_ports": [
+          {"name": "internal_100", "container_id": "100"},
+          {"name": "internal_101", "container_id": "101"},
+          {"name": "internal_102", "container_id": "102"}
+        ]
+      }]
+    }
+  }
+}
+EOF
+            ;;
+        privacy-vps)
+            cat <<'EOF'
+{
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "ports": [],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": ["10.0.0.1/24"],
+            "gateway": null
+          }
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "enabled": true,
+          "active_state": "active"
+        }
+      }
+    },
+    "lxc": {
+      "container_profile": "privacy-vps",
+      "containers": [
+        {
+          "id": 100,
+          "name": "xray-server",
+          "template": "debian-12",
+          "autostart": true,
+          "network": {
+            "bridge": "ovsbr0",
+            "veth": false,
+            "socket_networking": true,
+            "port_name": "internal_100",
+            "ipv4": "10.0.0.100/24"
+          }
+        }
+      ]
+    },
+    "openflow": {
+      "enable_security_flows": true,
+      "obfuscation_level": 2,
+      "auto_discover_containers": true,
+      "flow_policies": [
+        {
+          "name": "xray-server-forwarding",
+          "selector": "container:100",
+          "template": {
+            "table": 10,
+            "priority": 1000,
+            "actions": [{"type": "normal"}]
+          }
+        }
+      ],
+      "bridges": [{
+        "name": "ovsbr0",
+        "flows": [],
+        "socket_ports": [
+          {"name": "internal_100", "container_id": "100"}
+        ]
+      }]
+    }
+  }
+}
+EOF
+            ;;
         agent)
             cat <<'EOF'
 {
@@ -428,7 +629,7 @@ create_systemd_service() {
     local after_clause="After=network-online.target"
     local requires_clause=""
 
-    if [ "$MODE" = "full" ] || [ "$MODE" = "standalone" ]; then
+    if [ "$MODE" = "full" ] || [ "$MODE" = "standalone" ] || [ "$MODE" = "privacy-client" ] || [ "$MODE" = "privacy-vps" ]; then
         after_clause="After=network-online.target openvswitch-switch.service"
         requires_clause="Requires=openvswitch-switch.service"
     fi
