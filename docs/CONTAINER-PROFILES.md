@@ -446,21 +446,31 @@ curl --proxy vmess://UUID@VPS_IP:443 https://ifconfig.me
 
 In addition to the privacy router containers (100-102), you can create general-purpose containers with optional Netmaker mesh networking. Each container can individually choose to join Netmaker or use standard bridge networking.
 
-**IMPORTANT**: These containers use **traditional LXC**, NOT Proxmox pct. While op-dbus can run on a Proxmox host, it creates and manages its own containers separately from Proxmox's container management system.
+**IMPORTANT**: Containers can be created via **Proxmox GUI** OR **traditional LXC**. The end result is the same: a BTRFS subvolume with a disk image. op-dbus manages the networking (OVS/Netmaker), not the container creation.
 
 ### Architecture
 
-**Container Creation**: Traditional LXC with BTRFS templates (NOT Proxmox pct)
-- op-dbus uses **traditional LXC** (lxc-create, lxc-start, lxc-attach)
-- BTRFS templates stored in `/var/lib/lxc/` (traditional LXC path)
-- Templates created outside Proxmox functionality
-- Cloned via BTRFS snapshots for instant container creation
-- **Proxmox does NOT control these containers once created**
+**Container Creation Options**: Flexible (Proxmox GUI OR traditional LXC)
 
-**Container Management**:
-- **OVS-managed**: Socket networking via OpenFlow flows
-- **Netmaker-managed**: Mesh networking via WireGuard tunnels
-- op-dbus orchestrates container lifecycle, not Proxmox
+**Option 1: Proxmox GUI** (User-Friendly)
+- User creates container via Proxmox web interface
+- Proxmox stores as: `/var/lib/pve/local-btrfs/subvol/<vmid>/`
+- BTRFS subvolume with disk image inside
+- op-dbus takes over networking once created
+
+**Option 2: Traditional LXC** (Direct)
+- Create via: `lxc-create -B btrfs -n <name> -t <template>`
+- Stored at: `/var/lib/lxc/<name>/`
+- Also a BTRFS subvolume with disk image
+- Same disk image format as Proxmox
+
+**Key Insight**: Both methods produce a **BTRFS subvolume** containing a disk image. op-dbus works with either, managing only the networking layer (OVS socket networking or Netmaker mesh).
+
+**Container Management by op-dbus**:
+- **NOT**: Container lifecycle (create/destroy) - user chooses Proxmox OR LXC
+- **YES**: Networking - OVS socket networking OR Netmaker mesh
+- **YES**: Network configuration - bridges, flows, socket ports
+- op-dbus orchestrates networking, not container creation
 
 **Netmaker Integration**:
 - Join key stored in `/etc/op-dbus/netmaker.env` on host
@@ -560,27 +570,42 @@ sudo lxc-attach -n netmaker-template
 - Systemd service for auto-join (`netmaker-first-boot.service`)
 - WireGuard kernel modules
 
-**BTRFS Snapshot Process** (Traditional LXC):
+**BTRFS Subvolume Structure** (Same for Both Methods):
 ```
-1. Create base container → /var/lib/lxc/<template-name>/
-2. Install netclient and configure first-boot scripts
-3. Stop container, create BTRFS snapshot of rootfs
-4. Future containers created via: lxc-create -B btrfs -t <template>
-5. BTRFS instantly clones snapshot (copy-on-write)
-6. No Proxmox pct commands - pure traditional LXC
+# Proxmox-created container
+$ btrfs subvolume list /
+ID 256 path var/lib/pve/local-btrfs/subvol/100
+  └─ /var/lib/pve/local-btrfs/subvol/100/rootfs/  # Disk image
+
+# Traditional LXC container
+$ btrfs subvolume list /
+ID 257 path var/lib/lxc/container-name
+  └─ /var/lib/lxc/container-name/rootfs/  # Disk image (same format!)
+
+# Both are BTRFS subvolumes with identical disk image format
+# op-dbus works with either by managing OVS/Netmaker networking
 ```
 
-**Key Difference from Proxmox**:
-- **Proxmox pct**: Uses /var/lib/pve/, managed by Proxmox
-- **op-dbus LXC**: Uses /var/lib/lxc/, managed by op-dbus
-- **No overlap**: These are separate container ecosystems
+**Creation Method Comparison**:
 
-**⚠️ IMPLEMENTATION STATUS**:
-Current code still uses `pct` commands (legacy). Needs migration to traditional LXC:
-- **src/state/plugins/lxc.rs:269-315**: Uses `pct create/start/attach`
-- **create-netmaker-template.sh**: Uses `pct` throughout
-- **TODO**: Migrate to `lxc-create`, `lxc-start`, `lxc-attach`
-- **TODO**: Update template handling for traditional LXC paths
+| Method | Path | Created By | Managed By | Networking |
+|--------|------|-----------|------------|------------|
+| Proxmox GUI | `/var/lib/pve/local-btrfs/subvol/<vmid>/` | User (Proxmox web UI) | op-dbus (networking only) | OVS/Netmaker |
+| Traditional LXC | `/var/lib/lxc/<name>/` | User (lxc-create) | op-dbus (networking only) | OVS/Netmaker |
+| BTRFS Template | Either path (snapshot cloning) | Either method | op-dbus (networking only) | OVS/Netmaker |
+
+**op-dbus Role**: Regardless of creation method, op-dbus manages:
+- OVS bridge configuration
+- Socket OpenFlow networking OR Netmaker mesh
+- Network policies and flows
+- Container discovery (via OVS port introspection)
+
+**⚠️ IMPLEMENTATION FLEXIBILITY**:
+Current code uses `pct` commands, which works for Proxmox-created containers.
+For traditional LXC support, would need parallel code paths:
+- **Proxmox path**: Keep existing `pct` commands (src/state/plugins/lxc.rs:269-315)
+- **LXC path**: Add `lxc-create`, `lxc-start`, `lxc-attach` variants
+- Both produce BTRFS subvolumes with disk images - op-dbus works with either
 
 ### Installation with General Containers
 
