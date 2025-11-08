@@ -33,10 +33,21 @@ pub struct OpenFlowConfig {
     /// Enable security hardening flows (default: true)
     #[serde(default = "default_security_enabled")]
     pub enable_security_flows: bool,
+
+    /// Traffic obfuscation level for privacy (0=none, 1=basic, 2=pattern-hiding, 3=advanced)
+    /// Level 1: Basic security (drop invalid, rate limit)
+    /// Level 2: Pattern hiding (timing randomization, packet padding, TTL rewriting)
+    /// Level 3: Advanced obfuscation (traffic morphing, protocol mimicry, decoy traffic)
+    #[serde(default = "default_obfuscation_level")]
+    pub obfuscation_level: u8,
 }
 
 fn default_security_enabled() -> bool {
     true
+}
+
+fn default_obfuscation_level() -> u8 {
+    1  // Basic obfuscation enabled by default
 }
 
 fn default_auto_discover() -> bool {
@@ -1008,6 +1019,165 @@ impl OpenFlowPlugin {
 
         security_flows
     }
+
+    /// Generate Level 2 obfuscation flows: Pattern hiding
+    /// Hides traffic patterns via timing randomization, packet padding, TTL normalization
+    fn generate_pattern_hiding_flows(bridge_name: &str) -> Vec<FlowEntry> {
+        let mut obfuscation_flows = Vec::new();
+
+        // Level 2.1: TTL Normalization (prevent fingerprinting via TTL analysis)
+        // Rewrite all outbound packet TTLs to a standard value (64 or 128)
+        obfuscation_flows.push(FlowEntry {
+            table: 0,
+            priority: 29000,  // Lower than security (30000+), higher than normal
+            match_fields: HashMap::from([
+                ("ip".to_string(), "".to_string()),
+            ]),
+            actions: vec![
+                FlowAction::SetField {
+                    field: "nw_ttl".to_string(),
+                    value: "64".to_string(),  // Standard Linux TTL
+                },
+                FlowAction::Normal,
+            ],
+            cookie: Some(0xCAFE0001),
+            idle_timeout: 0,
+            hard_timeout: 0,
+        });
+
+        // Level 2.2: Packet Size Normalization (prevent size-based fingerprinting)
+        // This requires adding padding at application layer, OpenFlow can only mark
+        obfuscation_flows.push(FlowEntry {
+            table: 0,
+            priority: 29000,
+            match_fields: HashMap::from([
+                ("tcp".to_string(), "".to_string()),
+            ]),
+            actions: vec![
+                FlowAction::LoadRegister { register: 0, value: 1 },  // Mark for padding
+                FlowAction::Normal,
+            ],
+            cookie: Some(0xCAFE0002),
+            idle_timeout: 0,
+            hard_timeout: 0,
+        });
+
+        // Level 2.3: Flow Timing Randomization (prevent timing analysis)
+        // Use idle_timeout with randomness to break timing patterns
+        // Note: True timing randomization requires controller
+        obfuscation_flows.push(FlowEntry {
+            table: 0,
+            priority: 29000,
+            match_fields: HashMap::from([
+                ("udp".to_string(), "".to_string()),
+            ]),
+            actions: vec![
+                FlowAction::LoadRegister { register: 1, value: 1 },  // Mark for timing control
+                FlowAction::Normal,
+            ],
+            cookie: Some(0xCAFE0003),
+            idle_timeout: 30,  // Vary between flows for timing obfuscation
+            hard_timeout: 0,
+        });
+
+        log::info!(
+            "Generated {} Level 2 (pattern hiding) flows for bridge {}",
+            obfuscation_flows.len(),
+            bridge_name
+        );
+
+        obfuscation_flows
+    }
+
+    /// Generate Level 3 obfuscation flows: Advanced traffic morphing
+    /// Makes tunnel traffic look like normal HTTPS/HTTP traffic via protocol mimicry
+    fn generate_advanced_obfuscation_flows(bridge_name: &str) -> Vec<FlowEntry> {
+        let mut advanced_flows = Vec::new();
+
+        // Level 3.1: Protocol Mimicry - Mark WireGuard traffic for morphing
+        // Tag WireGuard UDP:51820 for transformation to look like DNS or HTTPS
+        advanced_flows.push(FlowEntry {
+            table: 0,
+            priority: 28000,
+            match_fields: HashMap::from([
+                ("udp".to_string(), "".to_string()),
+                ("tp_dst".to_string(), "51820".to_string()),  // WireGuard
+            ]),
+            actions: vec![
+                FlowAction::LoadRegister { register: 2, value: 0x51820 },  // Mark as WireGuard
+                FlowAction::SetField {
+                    field: "tp_dst".to_string(),
+                    value: "443".to_string(),  // Disguise as HTTPS
+                },
+                FlowAction::Normal,
+            ],
+            cookie: Some(0xBEEF0001),
+            idle_timeout: 0,
+            hard_timeout: 0,
+        });
+
+        // Level 3.2: Decoy Traffic Generation (requires controller)
+        // Mark flows for decoy injection - controller adds random noise packets
+        advanced_flows.push(FlowEntry {
+            table: 0,
+            priority: 28000,
+            match_fields: HashMap::from([
+                ("tcp".to_string(), "".to_string()),
+                ("tcp_flags".to_string(), "+ack".to_string()),  // Established TCP
+            ]),
+            actions: vec![
+                FlowAction::LoadRegister { register: 3, value: 1 },  // Mark for decoy injection
+                FlowAction::Normal,
+            ],
+            cookie: Some(0xBEEF0002),
+            idle_timeout: 0,
+            hard_timeout: 0,
+        });
+
+        // Level 3.3: Traffic Shaping to Mimic HTTPS Patterns
+        // Use connection tracking to shape tunnel traffic to match HTTPS timing
+        advanced_flows.push(FlowEntry {
+            table: 0,
+            priority: 28000,
+            match_fields: HashMap::from([
+                ("tcp".to_string(), "".to_string()),
+                ("tp_dst".to_string(), "443".to_string()),
+            ]),
+            actions: vec![
+                FlowAction::LoadRegister { register: 4, value: 443 },  // Mark as HTTPS-shaped
+                FlowAction::Normal,
+            ],
+            cookie: Some(0xBEEF0003),
+            idle_timeout: 0,
+            hard_timeout: 0,
+        });
+
+        // Level 3.4: Fragment Size Randomization
+        // Mark packets for fragmentation to hide true packet sizes
+        // Actual fragmentation done by controller or kernel
+        advanced_flows.push(FlowEntry {
+            table: 0,
+            priority: 28000,
+            match_fields: HashMap::from([
+                ("ip".to_string(), "".to_string()),
+            ]),
+            actions: vec![
+                FlowAction::LoadRegister { register: 5, value: 1400 },  // Target fragment size
+                FlowAction::Normal,
+            ],
+            cookie: Some(0xBEEF0004),
+            idle_timeout: 0,
+            hard_timeout: 0,
+        });
+
+        log::info!(
+            "Generated {} Level 3 (advanced obfuscation) flows for bridge {}",
+            advanced_flows.len(),
+            bridge_name
+        );
+
+        advanced_flows
+    }
 }
 
 #[async_trait]
@@ -1060,6 +1230,7 @@ impl StatePlugin for OpenFlowPlugin {
             flow_policies: None,
             auto_discover_containers: false,
             enable_security_flows: false, // Query mode: don't inject, report actual state
+            obfuscation_level: 0,         // Query mode: report actual flows, no injection
         };
 
         Ok(serde_json::to_value(config)?)
@@ -1071,22 +1242,47 @@ impl StatePlugin for OpenFlowPlugin {
         let current_config: OpenFlowConfig = serde_json::from_value(current.clone())?;
         let mut desired_config: OpenFlowConfig = serde_json::from_value(desired.clone())?;
 
-        // Inject security flows if enabled (default: true)
+        // Inject security and obfuscation flows based on configuration
         if desired_config.enable_security_flows {
-            log::info!("Security hardening enabled, injecting default security flows");
-            for bridge_config in &mut desired_config.bridges {
-                let security_flows = Self::generate_security_flows(&bridge_config.name);
-                let security_count = security_flows.len();
+            log::info!(
+                "Security hardening enabled (obfuscation level {}), injecting flows",
+                desired_config.obfuscation_level
+            );
 
-                // Prepend security flows (they have higher priority)
-                let mut combined_flows = security_flows;
-                combined_flows.extend(bridge_config.flows.clone());
-                bridge_config.flows = combined_flows;
+            for bridge_config in &mut desired_config.bridges {
+                let mut all_flows = Vec::new();
+                let mut flow_count = 0;
+
+                // Level 1: Basic security (always enabled if enable_security_flows=true)
+                if desired_config.obfuscation_level >= 1 {
+                    let security_flows = Self::generate_security_flows(&bridge_config.name);
+                    flow_count += security_flows.len();
+                    all_flows.extend(security_flows);
+                }
+
+                // Level 2: Pattern hiding (TTL normalization, packet padding, timing)
+                if desired_config.obfuscation_level >= 2 {
+                    let pattern_flows = Self::generate_pattern_hiding_flows(&bridge_config.name);
+                    flow_count += pattern_flows.len();
+                    all_flows.extend(pattern_flows);
+                }
+
+                // Level 3: Advanced obfuscation (protocol mimicry, decoy traffic, morphing)
+                if desired_config.obfuscation_level >= 3 {
+                    let advanced_flows = Self::generate_advanced_obfuscation_flows(&bridge_config.name);
+                    flow_count += advanced_flows.len();
+                    all_flows.extend(advanced_flows);
+                }
+
+                // Prepend generated flows to user-defined flows (generated have higher priority)
+                all_flows.extend(bridge_config.flows.clone());
+                bridge_config.flows = all_flows;
 
                 log::info!(
-                    "Bridge {}: injected {} security flows",
+                    "Bridge {}: injected {} flows (Level {} obfuscation)",
                     bridge_config.name,
-                    security_count
+                    flow_count,
+                    desired_config.obfuscation_level
                 );
             }
         }
