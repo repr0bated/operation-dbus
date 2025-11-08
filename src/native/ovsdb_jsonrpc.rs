@@ -119,17 +119,40 @@ impl OvsdbClient {
 
     /// Create OVS bridge
     pub async fn create_bridge(&self, bridge_name: &str) -> Result<()> {
-        // Generate UUID for bridge
+        // Generate UUIDs for bridge, port, and interface
         let bridge_uuid = format!("bridge-{}", bridge_name);
+        let port_uuid = format!("port-{}", bridge_name);
+        let iface_uuid = format!("iface-{}", bridge_name);
 
         let operations = json!([
             {
                 "op": "insert",
                 "table": "Bridge",
                 "row": {
-                    "name": bridge_name
+                    "name": bridge_name,
+                    "datapath_type": "system",      // CRITICAL: Enables kernel interface and persistence
+                    "stp_enable": false,            // Disable Spanning Tree Protocol
+                    "ports": ["named-uuid", port_uuid]
                 },
                 "uuid-name": bridge_uuid
+            },
+            {
+                "op": "insert",
+                "table": "Port",
+                "row": {
+                    "name": bridge_name,
+                    "interfaces": ["named-uuid", iface_uuid]
+                },
+                "uuid-name": port_uuid
+            },
+            {
+                "op": "insert",
+                "table": "Interface",
+                "row": {
+                    "name": bridge_name,
+                    "type": "internal"
+                },
+                "uuid-name": iface_uuid
             },
             {
                 "op": "mutate",
