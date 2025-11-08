@@ -472,8 +472,9 @@ EOF
           "network": {
             "bridge": "ovsbr0",
             "veth": false,
-            "socket_networking": true,
-            "port_name": "internal_101",
+            "socket_networking": false,
+            "wg_tunnel": true,
+            "port_name": "wg-warp",
             "ipv4": "10.0.0.101/24"
           }
         },
@@ -503,7 +504,7 @@ EOF
           "template": {
             "table": 10,
             "priority": 1000,
-            "actions": [{"type": "output", "port": "internal_101"}]
+            "actions": [{"type": "output", "port": "wg-warp"}]
           }
         },
         {
@@ -521,7 +522,7 @@ EOF
         "flows": [],
         "socket_ports": [
           {"name": "internal_100", "container_id": "100"},
-          {"name": "internal_101", "container_id": "101"},
+          {"name": "wg-warp", "container_id": "101"},
           {"name": "internal_102", "container_id": "102"}
         ]
       }]
