@@ -206,14 +206,14 @@ fi
 
 ### 6. NixOS Integration Paths
 
-**Install script must support both:**
+**Install script must support both traditional and NixOS deployments:**
 
-**Option A: Traditional install (Debian/Proxmox host)**
+**Option A: Traditional install (Debian/Proxmox/Other Linux)**
 ```bash
 # Install operation-dbus binary
 cargo build --release
 cp target/release/op-dbus /usr/local/bin/
-# Create subvolumes, OVS bridges, templates
+# Create subvolumes, OVS bridges, templates (imperative)
 # Configure Proxmox defaults
 ```
 
@@ -225,34 +225,134 @@ cp target/release/op-dbus /usr/local/bin/
 
   services.operation-dbus = {
     enable = true;
-    btrfs.enable = true;
-    numa.enable = true;
-    ml.executionProvider = "cuda";
+
+    btrfs = {
+      enable = true;
+      basePath = "/var/lib/op-dbus";
+      compressionLevel = 3;
+      subvolumes = [ "@cache" "@timing" "@vectors" "@state" "@snapshots" "@plugins" "@templates" ];
+    };
+
+    numa = {
+      enable = true;  # For multi-socket systems
+      node = 0;
+      cpuList = "0-7";
+    };
+
+    ml = {
+      enable = true;
+      executionProvider = "cuda";  # or "cpu"
+      numThreads = 8;
+    };
+
+    netmaker = {
+      enable = true;
+      joinKey = "your-netmaker-join-key";
+    };
+
+    mcp = {
+      enable = true;
+      port = 8080;
+    };
+
+    defaultState = {
+      version = "1.0";
+      plugins = {};
+    };
   };
 }
 ```
 
-**Install script must:**
-1. Detect NixOS: `[ -f /etc/NIXOS ]`
-2. If NixOS: Guide user to declarative config (don't manually create files)
-3. If traditional: Proceed with imperative setup
-4. Create `/etc/opdbus/deployment-type` file (nixos|traditional)
+**NixOS Module Files (already in repo):**
+- `nixos/modules/operation-dbus.nix` - Main module with all options
+- `nixos/examples/proxmox-host.nix` - Full production example
+- `nixos/examples/workstation.nix` - Minimal example
+- `nixos/netboot/configs/*.nix` - Netboot installer configs
 
-**Bridge between worlds:**
+**Install script NixOS detection:**
+
 ```bash
-# Install script creates compatibility layer
+#!/bin/bash
+# install-opdbus.sh
+
 if [ -f /etc/NIXOS ]; then
-    echo "NixOS detected. Install via:"
-    echo "  nix-env -iA nixos.operation-dbus"
-    echo "  sudo nixos-rebuild switch"
+    echo "═══════════════════════════════════════════════════════"
+    echo "NixOS detected!"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "For NixOS, use the declarative configuration instead of this script."
+    echo ""
+    echo "Quick start:"
+    echo "1. Clone this repo to /etc/nixos/operation-dbus:"
+    echo "   cd /etc/nixos"
+    echo "   git clone https://github.com/repr0bated/operation-dbus.git"
+    echo ""
+    echo "2. Import the module in /etc/nixos/configuration.nix:"
+    echo "   imports = [ ./operation-dbus/nixos/modules/operation-dbus.nix ];"
+    echo ""
+    echo "3. Enable and configure:"
+    echo "   services.operation-dbus.enable = true;"
+    echo "   services.operation-dbus.btrfs.enable = true;"
+    echo ""
+    echo "4. Apply configuration:"
+    echo "   sudo nixos-rebuild switch"
+    echo ""
+    echo "See nixos/examples/ for complete configuration examples."
+    echo ""
+    echo "Exiting (no changes made)."
     exit 0
-else
-    # Traditional setup
-    create_subvolumes
-    setup_ovs
-    create_templates
 fi
+
+# Traditional Linux path continues...
+echo "Traditional Linux detected, proceeding with installation..."
 ```
+
+**What NixOS module handles automatically:**
+- BTRFS subvolume creation (via systemd.tmpfiles)
+- OVS bridge configuration (via systemd.services.openvswitch)
+- Netmaker installation and enrollment (via services.netmaker)
+- MCP chat server systemd service
+- operation-dbus systemd service with CPUAffinity, environment vars
+- Firewall rules (networking.firewall.allowedTCPPorts)
+- All in `/etc/nixos/configuration.nix` - version controlled, declarative
+
+**Hybrid approach (for testing NixOS module on traditional system):**
+```bash
+# Install script can optionally generate NixOS-compatible config
+./install-opdbus.sh --generate-nix-config
+
+# Creates: /tmp/operation-dbus-config.nix
+# User can copy to NixOS system or compare declarative vs imperative
+```
+
+**Integration test:**
+```bash
+# Test NixOS module works
+nix-build '<nixpkgs/nixos>' \
+  -A config.system.build.toplevel \
+  -I nixos-config=./nixos/examples/workstation.nix
+
+# Test traditional install works
+./install-opdbus.sh  # On Debian/Ubuntu/etc
+```
+
+**Deployment type marker:**
+```bash
+# Install script creates
+/etc/opdbus/deployment-type
+# Contains: "traditional" or "nixos"
+
+# operation-dbus binary checks this to know:
+# - Where to find configs (traditional: /etc/opdbus/, NixOS: /nix/store/...)
+# - How to suggest updates (apt/dnf vs nixos-rebuild)
+# - Audit trail metadata (deployment method)
+```
+
+**Why both paths matter:**
+- **Traditional**: Most users on Debian/Proxmox, familiar imperative approach
+- **NixOS**: Declarative, reproducible, version-controlled infrastructure-as-code
+- **Same architecture**: Both create identical BTRFS/OVS/Netmaker infrastructure
+- **Migration path**: Start traditional, migrate to NixOS later (or vice versa)
 
 ### 7. Plugin Subvolume Structure
 
@@ -400,6 +500,132 @@ ovs-ofctl add-flow ovsbr0 \
 - Mesh (WireGuard): ~10ms latency, 1-10Gbps (encrypted)
 - Choice depends on: same host (socket) or distributed (mesh)
 
+### 10. MCP Web Server (Chat Interface)
+
+**Purpose:**
+Provides a conversational web UI for interacting with operation-dbus through natural language instead of raw CLI commands or JSON APIs.
+
+**Architecture:**
+```
+Browser (port 8080)
+    ↓ WebSocket
+Chat Server (Rust/Axum)
+    ↓ D-Bus
+operation-dbus → Introspection → Tools/Plugins
+```
+
+**Install script must:**
+
+1. **Build MCP chat server:**
+```bash
+cargo build --features mcp --bin mcp-chat --release
+cp target/release/mcp-chat /usr/local/bin/
+```
+
+2. **Create systemd service:**
+```bash
+cat > /etc/systemd/system/mcp-chat.service <<EOF
+[Unit]
+Description=operation-dbus MCP Chat Server
+After=network.target opdbus.service
+Requires=opdbus.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/op-dbus
+ExecStart=/usr/local/bin/mcp-chat
+Restart=on-failure
+Environment="MCP_CHAT_PORT=8080"
+Environment="RUST_LOG=info"
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+3. **Install web frontend:**
+```bash
+mkdir -p /var/lib/op-dbus/web
+cp src/mcp/web/* /var/lib/op-dbus/web/
+chmod 644 /var/lib/op-dbus/web/*
+```
+
+4. **Configure firewall (if enabled):**
+```bash
+# UFW
+ufw allow 8080/tcp comment "MCP Chat Interface"
+
+# firewalld
+firewall-cmd --permanent --add-port=8080/tcp
+firewall-cmd --reload
+```
+
+5. **Enable and start service:**
+```bash
+systemctl daemon-reload
+systemctl enable mcp-chat
+systemctl start mcp-chat
+```
+
+**User Experience:**
+```
+1. Admin opens browser: http://server-ip:8080/chat.html
+2. Chat interface loads with WebSocket connection
+3. Admin types: "create container web-01 with socket networking"
+4. NLP parser converts to: op-dbus container create web-01 --network socket
+5. Command executes, real-time output streams to chat
+6. History saved, searchable via ML embeddings
+```
+
+**Natural Language Examples:**
+```
+User: "show me all containers"
+→ Executes: op-dbus query containers
+
+User: "create debian container named db-01 with netmaker mesh"
+→ Executes: op-dbus container create db-01 --template debian-base --network mesh
+
+User: "what containers were created yesterday?"
+→ ML search: blockchain DB + embeddings → results
+
+User: "status of systemd services"
+→ D-Bus introspection: org.freedesktop.systemd1 → service list
+```
+
+**WebSocket Protocol:**
+- Client sends: Plain text natural language
+- Server sends: JSON responses with type, content, timestamp, tools_used
+- Bidirectional: Server can push status updates
+
+**Why this matters:**
+- **Accessibility**: Non-technical users can manage infrastructure via chat
+- **Audit trail**: All chat commands logged to blockchain
+- **Discovery**: "help" and auto-suggestions guide users to available tools
+- **Real-time**: WebSocket enables live progress updates
+- **Mobile-friendly**: Responsive UI works on any device
+
+**Testing:**
+```bash
+# After install, verify chat server
+curl http://localhost:8080/chat.html
+# Should return HTML
+
+# Check WebSocket endpoint
+wscat -c ws://localhost:8080/ws
+# Should connect successfully
+
+# Test command via WebSocket
+> list tools
+< {"type":"assistant","content":"Available tools: systemd, file, network, process, lxc, netmaker..."}
+```
+
+**Integration with operation-dbus:**
+- Chat server uses operation-dbus D-Bus API
+- All commands execute through same tool registry
+- Permissions respect same D-Bus policies
+- Audit trail unified (both CLI and chat commands logged)
+
 ## Install Script Flow
 
 ```bash
@@ -463,12 +689,20 @@ ovs-ofctl add-flow ovsbr0 \
     - Create systemd service
     - Enable and start service
 
-11. Run system introspection
+11. Build and install MCP chat server
+    - cargo build --features mcp --bin mcp-chat --release
+    - Install binary to /usr/local/bin/mcp-chat
+    - Copy web frontend to /var/lib/op-dbus/web/
+    - Create systemd service for chat server
+    - Configure firewall (port 8080)
+    - Enable and start service
+
+12. Run system introspection
     - op-dbus query → discover current state
     - Save to @state/current-state.json
     - Create initial snapshots
 
-12. Enable upgrade mode
+13. Enable upgrade mode
     - Create /etc/opdbus/installed marker
     - Record installation timestamp
     - Future runs = upgrade/update mode
@@ -535,6 +769,8 @@ After install script completes:
 - ✅ Container templates ready to clone
 - ✅ Blockchain audit trail initialized
 - ✅ Plugin system configured
+- ✅ MCP chat server running on port 8080
+- ✅ Web UI accessible via browser
 
 **Capabilities:**
 - ✅ Create containers in ~50ms (BTRFS snapshot)
@@ -548,20 +784,18 @@ After install script completes:
 
 **Commands unlocked:**
 ```bash
-# Create local container (socket networking)
+# Via CLI:
 op-dbus container create web-01 --template debian-base --network socket
-
-# Create distributed container (Netmaker mesh)
 op-dbus container create db-01 --template debian-base --network mesh
-
-# Query current state
 op-dbus query
-
-# Search operations (ML semantic search)
 op-dbus search "containers created last week"
-
-# Take system snapshot
 op-dbus snapshot create backup-$(date +%Y%m%d)
+
+# Via Web Chat (http://server-ip:8080/chat.html):
+"create container web-01 with socket networking"
+"show me all containers"
+"what containers were created yesterday?"
+"status of systemd services"
 
 # Upgrade infrastructure
 ./install-opdbus.sh  # Detects existing install, upgrades
