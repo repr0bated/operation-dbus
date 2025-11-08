@@ -437,6 +437,235 @@ sudo lxc-attach -n xray-server -- netstat -tlnp | grep 443
 curl --proxy vmess://UUID@VPS_IP:443 https://ifconfig.me
 ```
 
+## Profile 4: General Containers with Optional Netmaker
+**Use Case**: Beyond privacy router, any containers created at install
+**Containers**: Variable (104+, user-defined)
+**Networking**: Optional Netmaker mesh integration
+
+### Overview
+
+In addition to the privacy router containers (100-102), you can create general-purpose containers with optional Netmaker mesh networking. Each container can individually choose to join Netmaker or use standard bridge networking.
+
+### Architecture
+
+**Container Creation**: BTRFS snapshot-based templates (Proxmox)
+- Proxmox stores raw BTRFS disk images inside `/var/lib/pve/local-btrfs/subvol/`
+- Templates stored in `/var/lib/pve/local-btrfs/template/cache/`
+- Templates are created once, then cloned via BTRFS snapshots
+- No direct `pct` commands needed after template creation
+
+**Netmaker Integration**:
+- Join key stored in `/etc/op-dbus/netmaker.env` on host
+- Template auto-injects token at container creation
+- First-boot script joins Netmaker network automatically
+
+### Configuration Examples
+
+#### Container WITH Netmaker (Mesh Networking)
+```json
+{
+  "id": 104,
+  "name": "app-server",
+  "template": "debian-12",
+  "autostart": true,
+  "network": {
+    "bridge": "mesh",
+    "veth": true,
+    "ipv4": "10.1.0.104/24"
+  },
+  "properties": {
+    "network_type": "netmaker",
+    "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst"
+  }
+}
+```
+
+**Behavior**:
+- Uses `mesh` bridge (Netmaker WireGuard mesh)
+- Reads `/etc/op-dbus/netmaker.env` from host
+- Injects `NETMAKER_TOKEN` into container
+- First boot: `netclient join -t $NETMAKER_TOKEN`
+- Gets mesh IP (e.g., 10.10.0.104) from Netmaker
+
+#### Container WITHOUT Netmaker (Standard Bridge)
+```json
+{
+  "id": 105,
+  "name": "web-server",
+  "template": "debian-12",
+  "autostart": true,
+  "network": {
+    "bridge": "ovsbr0",
+    "veth": true,
+    "ipv4": "10.0.0.105/24"
+  },
+  "properties": {
+    "network_type": "bridge",
+    "template": "local-btrfs:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
+  }
+}
+```
+
+**Behavior**:
+- Uses `ovsbr0` bridge (standard OVS bridge)
+- No Netmaker integration
+- Static IP configuration only
+- No mesh networking
+
+### Netmaker Token Configuration
+
+**On Host** (`/etc/op-dbus/netmaker.env`):
+```bash
+# Netmaker enrollment token for automatic container join
+NETMAKER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Token Injection Flow**:
+1. Host stores token in `/etc/op-dbus/netmaker.env`
+2. Container creation reads this file (via `lxc.rs:332`)
+3. Token injected into container rootfs `/etc/netmaker.env`
+4. First-boot service reads token and runs `netclient join`
+
+### Template Creation (BTRFS-Based)
+
+**Create Netmaker-Ready Template**:
+```bash
+# On Proxmox host
+sudo ./create-netmaker-template.sh
+
+# This creates:
+# /var/lib/pve/local-btrfs/template/cache/debian-13-netmaker_custom.tar.zst
+```
+
+**Template Contents**:
+- netclient binary pre-installed
+- First-boot join script (`/usr/local/bin/netmaker-first-boot.sh`)
+- Systemd service for auto-join (`netmaker-first-boot.service`)
+- WireGuard kernel modules
+
+**BTRFS Snapshot Process** (Proxmox Internal):
+```
+1. Extract template tar.zst → /var/lib/pve/local-btrfs/subvol/<vmid>/
+2. Create BTRFS snapshot → raw disk image
+3. Container rootfs lives in snapshot at /var/lib/pve/local-btrfs/subvol/<vmid>/
+4. Future containers clone this snapshot (instant creation)
+5. Template cache: /var/lib/pve/local-btrfs/template/cache/*.tar.zst
+```
+
+### Installation with General Containers
+
+**Full State Configuration** (Privacy Router + General Containers):
+```json
+{
+  "version": 1,
+  "plugins": {
+    "lxc": {
+      "containers": [
+        {
+          "id": 100,
+          "name": "wireguard-gateway",
+          "properties": {"network_type": "bridge"}
+        },
+        {
+          "id": 101,
+          "name": "warp-tunnel",
+          "properties": {"network_type": "bridge"}
+        },
+        {
+          "id": 102,
+          "name": "xray-client",
+          "properties": {"network_type": "bridge"}
+        },
+        {
+          "id": 104,
+          "name": "app-server",
+          "properties": {
+            "network_type": "netmaker",
+            "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst"
+          }
+        },
+        {
+          "id": 105,
+          "name": "database-server",
+          "properties": {
+            "network_type": "netmaker",
+            "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst"
+          }
+        }
+      ]
+    },
+    "openflow": {
+      "enable_security_flows": true,
+      "obfuscation_level": 3
+    }
+  }
+}
+```
+
+**Installation**:
+```bash
+# 1. Create Netmaker template
+sudo ./create-netmaker-template.sh
+
+# 2. Set Netmaker token
+echo 'NETMAKER_TOKEN="your-token-here"' | sudo tee /etc/op-dbus/netmaker.env
+
+# 3. Install with privacy-client profile
+sudo op-dbus init --profile privacy-client > /etc/op-dbus/state.json
+
+# 4. Edit to add general containers (104, 105, etc.)
+sudo nano /etc/op-dbus/state.json
+
+# 5. Apply state (creates all containers)
+sudo op-dbus apply /etc/op-dbus/state.json
+```
+
+### Netmaker Mesh Communication
+
+**Container 104 → Container 105** (via Netmaker mesh):
+```bash
+# Inside container 104
+ping 10.10.0.105  # Mesh IP, NOT bridge IP
+
+# Direct WireGuard tunnel between containers
+# No need to route through host OVS bridge
+```
+
+**Container 104 → Container 100** (via OVS bridge):
+```bash
+# Inside container 104
+ping 10.0.0.100  # Bridge IP (WireGuard gateway)
+
+# Routes through ovsbr0 bridge
+# Uses OpenFlow flows for routing
+```
+
+### Choice: Netmaker vs Standard Bridge
+
+| Feature | Netmaker (`network_type: "netmaker"`) | Standard Bridge (`network_type: "bridge"`) |
+|---------|--------------------------------------|-------------------------------------------|
+| Bridge | `mesh` | `ovsbr0` |
+| IP Allocation | Dynamic (Netmaker DHCP) | Static (state.json) |
+| Container-to-Container | Direct WireGuard tunnel | Via OVS flows |
+| Multi-Host | Yes (mesh across hosts) | No (single host only) |
+| Latency | +1-2ms (WireGuard) | +0.1ms (kernel bridge) |
+| Security | Encrypted mesh | Plaintext (unless using tunnel containers) |
+| Setup Complexity | Medium (requires Netmaker server) | Low (just OVS) |
+
+### When to Use Netmaker
+
+**Use Netmaker When**:
+- Containers need to communicate across multiple Proxmox hosts
+- You want encrypted container-to-container traffic
+- Dynamic IP allocation is preferred
+- Building a multi-datacenter mesh network
+
+**Use Standard Bridge When**:
+- All containers on same host (privacy router use case)
+- Lowest latency required
+- Static IP configuration is acceptable
+- No need for cross-host networking
+
 ## Performance Comparison
 
 | Profile | Containers | Obfuscation | Latency Overhead | Throughput | Use Case |
@@ -444,6 +673,7 @@ curl --proxy vmess://UUID@VPS_IP:443 https://ifconfig.me
 | None | 0 | Level 1 | +0.1ms | 100% | Testing |
 | Privacy Client | 3 | Level 3 | +5-10ms | 80-85% | Maximum privacy |
 | Privacy VPS | 1 | Level 2 | +2-3ms | 90-95% | VPS endpoint |
+| General + Netmaker | Variable | Level 1-2 | +1-2ms | 95% | Multi-host mesh |
 
 ## Security Considerations
 
