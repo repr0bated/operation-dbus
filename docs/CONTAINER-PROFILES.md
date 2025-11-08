@@ -446,31 +446,35 @@ curl --proxy vmess://UUID@VPS_IP:443 https://ifconfig.me
 
 In addition to the privacy router containers (100-102), you can create general-purpose containers with optional Netmaker mesh networking. Each container can individually choose to join Netmaker or use standard bridge networking.
 
-**IMPORTANT**: Containers can be created via **Proxmox GUI** OR **traditional LXC**. The end result is the same: a BTRFS subvolume with a disk image. op-dbus manages the networking (OVS/Netmaker), not the container creation.
+**IMPORTANT**: Containers are created via **Proxmox** using the full Proxmox schema and functionality. op-dbus manages **networking only** (OVS/Netmaker), not container creation.
 
 ### Architecture
 
-**Container Creation Options**: Flexible (Proxmox GUI OR traditional LXC)
+**Container Creation**: Proxmox (Recommended & Primary Method)
 
-**Option 1: Proxmox GUI** (User-Friendly)
-- User creates container via Proxmox web interface
-- Proxmox stores as: `/var/lib/pve/local-btrfs/subvol/<vmid>/`
-- BTRFS subvolume with disk image inside
-- op-dbus takes over networking once created
+**Proxmox Container Creation** (Full Proxmox Functionality Preserved):
+- **Created By**: User via Proxmox web GUI or `pct create`
+- **Storage**: `/var/lib/pve/local-btrfs/subvol/<vmid>/` (BTRFS subvolume)
+- **Benefits**: Full Proxmox schema, snapshots, backups, migration, monitoring
+- **op-dbus Role**: Takes over networking ONLY after creation
 
-**Option 2: Traditional LXC** (Direct)
-- Create via: `lxc-create -B btrfs -n <name> -t <template>`
-- Stored at: `/var/lib/lxc/<name>/`
-- Also a BTRFS subvolume with disk image
-- Same disk image format as Proxmox
+**Why Proxmox**:
+- ✅ Full Proxmox feature set (snapshots, backups, HA, migration)
+- ✅ Familiar web GUI for container management
+- ✅ Proxmox schema with all configuration options
+- ✅ Integration with Proxmox cluster features
+- ✅ Template system and image management
 
-**Key Insight**: Both methods produce a **BTRFS subvolume** containing a disk image. op-dbus works with either, managing only the networking layer (OVS socket networking or Netmaker mesh).
+**Alternative: Traditional LXC** (Theoretical, Not Recommended):
+- Could use `lxc-create` to create containers in `/var/lib/lxc/`
+- Same BTRFS subvolume format as Proxmox
+- BUT: Loses all Proxmox functionality and schema
+- Only mentioned for completeness - **use Proxmox in practice**
 
-**Container Management by op-dbus**:
-- **NOT**: Container lifecycle (create/destroy) - user chooses Proxmox OR LXC
-- **YES**: Networking - OVS socket networking OR Netmaker mesh
-- **YES**: Network configuration - bridges, flows, socket ports
-- op-dbus orchestrates networking, not container creation
+**Container Management Division**:
+- **Proxmox manages**: Creation, lifecycle, storage, backups, snapshots
+- **op-dbus manages**: Networking ONLY - OVS socket networking OR Netmaker mesh
+- **Clean separation**: Proxmox = container, op-dbus = network
 
 **Netmaker Integration**:
 - Join key stored in `/etc/op-dbus/netmaker.env` on host
@@ -600,12 +604,18 @@ ID 257 path var/lib/lxc/container-name
 - Network policies and flows
 - Container discovery (via OVS port introspection)
 
-**⚠️ IMPLEMENTATION FLEXIBILITY**:
-Current code uses `pct` commands, which works for Proxmox-created containers.
-For traditional LXC support, would need parallel code paths:
-- **Proxmox path**: Keep existing `pct` commands (src/state/plugins/lxc.rs:269-315)
-- **LXC path**: Add `lxc-create`, `lxc-start`, `lxc-attach` variants
-- Both produce BTRFS subvolumes with disk images - op-dbus works with either
+**✅ IMPLEMENTATION STATUS**:
+Current code correctly uses Proxmox `pct` commands - this is the CORRECT approach:
+- **src/state/plugins/lxc.rs:269-315**: Uses `pct create/start/attach` ✅ KEEP THIS
+- **create-netmaker-template.sh**: Uses `pct` for Proxmox templates ✅ KEEP THIS
+- **Proxmox schema**: Preserves full Proxmox functionality ✅ CORRECT
+- **No changes needed**: Current implementation is correct for Proxmox containers
+
+**Why pct is Correct**:
+- Preserves Proxmox web GUI integration
+- Maintains Proxmox configuration schema
+- Keeps snapshots, backups, HA, migration features
+- op-dbus focuses on networking layer only
 
 ### Installation with General Containers
 
