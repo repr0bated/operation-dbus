@@ -539,10 +539,19 @@ NETMAKER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 **Create Netmaker-Ready Template**:
 ```bash
 # On host (uses traditional LXC, not Proxmox pct)
+# NOTE: create-netmaker-template.sh currently uses pct (legacy)
+#       Need to rewrite to use: lxc-create, lxc-start, lxc-attach
 sudo ./create-netmaker-template.sh
 
-# This creates a traditional LXC template:
-# /var/lib/lxc/netmaker-template/rootfs/
+# Manual creation using traditional LXC:
+sudo lxc-create -n netmaker-template -t debian -- -r bookworm
+sudo lxc-start -n netmaker-template
+sudo lxc-attach -n netmaker-template
+
+# Install netclient inside container...
+# (See script for full installation steps)
+
+# Creates template at: /var/lib/lxc/netmaker-template/
 ```
 
 **Template Contents**:
@@ -565,6 +574,13 @@ sudo ./create-netmaker-template.sh
 - **Proxmox pct**: Uses /var/lib/pve/, managed by Proxmox
 - **op-dbus LXC**: Uses /var/lib/lxc/, managed by op-dbus
 - **No overlap**: These are separate container ecosystems
+
+**⚠️ IMPLEMENTATION STATUS**:
+Current code still uses `pct` commands (legacy). Needs migration to traditional LXC:
+- **src/state/plugins/lxc.rs:269-315**: Uses `pct create/start/attach`
+- **create-netmaker-template.sh**: Uses `pct` throughout
+- **TODO**: Migrate to `lxc-create`, `lxc-start`, `lxc-attach`
+- **TODO**: Update template handling for traditional LXC paths
 
 ### Installation with General Containers
 
