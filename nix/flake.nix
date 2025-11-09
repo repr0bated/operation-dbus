@@ -32,6 +32,8 @@
             rust-analyzer
             clippy
             rustfmt
+            # Claude CLI
+            claude-cli
           ];
 
           shellHook = ''
@@ -43,6 +45,7 @@
             echo "  cargo test                 # Run tests"
             echo "  cargo clippy               # Lint code"
             echo "  cargo fmt                  # Format code"
+            echo "  claude                     # Claude CLI assistant"
           '';
         };
 
