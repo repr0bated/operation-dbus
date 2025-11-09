@@ -52,21 +52,24 @@
         bridges = {
           vmbr0 = {
             flows = [
-              # WARP → Gateway (outbound traffic)
-              "priority=100,in_port=veth101,actions=output:veth100"
+              # VPN clients → Gateway WireGuard (51820/udp)
+              "priority=100,udp,tp_dst=51820,actions=output:veth100"
 
-              # Gateway → WARP (return traffic from internet)
-              "priority=100,in_port=veth100,tcp,tp_dst=51820,actions=output:veth101"
+              # Gateway → WARP (client traffic to internet)
+              "priority=100,in_port=veth100,actions=output:veth101"
+
+              # WARP → Gateway (return traffic from internet)
+              "priority=100,in_port=veth101,actions=output:veth100"
 
               # Xray → WARP (proxy traffic routes through WARP)
               "priority=90,in_port=veth102,actions=output:veth101"
 
               # WARP → Xray (return traffic to proxy)
-              "priority=90,in_port=veth101,tcp,tp_src=443,actions=output:veth102"
-              "priority=90,in_port=veth101,tcp,tp_src=8443,actions=output:veth102"
+              "priority=90,in_port=veth101,tcp,tp_dst=443,actions=output:veth102"
+              "priority=90,in_port=veth101,tcp,tp_dst=8443,actions=output:veth102"
 
-              # Default: route to gateway
-              "priority=10,actions=output:veth100"
+              # Default: normal switching
+              "priority=10,actions=normal"
             ];
           };
         };
@@ -75,7 +78,7 @@
       # Privacy Router Containers
       lxc = {
         containers = [
-          # Gateway container - NAT, routing, firewall
+          # Gateway container - WireGuard VPN server with auto-provisioning
           {
             id = "100";
             veth = "veth100";
@@ -92,6 +95,18 @@
               swap = 512;
               features = {
                 nesting = true;
+              };
+              # WireGuard VPN server configuration
+              wireguard = {
+                enabled = true;
+                interface = "wg0";
+                listen_port = 51820;
+                ip_pool = "10.8.0.0/24";  # Client IP range
+                dns = "1.1.1.1";
+                # Auto-provision: dynamically create peer configs on signup
+                auto_provision = true;
+                # Peers managed via op-dbus API
+                peers = [];  # Dynamically added as users sign up
               };
             };
           }
