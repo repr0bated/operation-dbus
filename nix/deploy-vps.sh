@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Deploy op-dbus privacy router to VPS
+# Deploy op-dbus with Xray proxy to VPS
 # VPS: 80.209.240.244
+# Container: Xray proxy server only
 
 set -e
 
-VPS_IP="80.209.240.244"
-SSH_KEY="$HOME/.ssh/ghostbridge_key"
+VPS_IP="${VPS_IP:-80.209.240.244}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/ghostbridge_key}"
 
-echo "=== Deploying op-dbus to VPS ==="
+echo "=== Deploying Xray Proxy to VPS ==="
 echo "VPS: $VPS_IP"
+echo "Container: Xray only (no gateway/WARP)"
 echo ""
 
 # Step 1: Copy files to VPS
@@ -56,9 +58,12 @@ journalctl -u op-dbus -n 50 --no-pager
 EOF
 
 echo ""
-echo "=== Deployment complete! ==="
+echo "=== Deployment Complete! ==="
 echo ""
 echo "Next steps:"
 echo "1. SSH to VPS: ssh -i $SSH_KEY root@$VPS_IP"
-echo "2. Configure containers (see PRIVACY-ROUTER.md)"
-echo "3. Test connectivity"
+echo "2. Check container: lxc-ls -f"
+echo "3. Configure Xray container:"
+echo "   lxc-attach -n 102"
+echo "   # Install Xray and configure (see PRIVACY-ROUTER.md)"
+echo "4. Test proxy connectivity"

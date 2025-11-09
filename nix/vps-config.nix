@@ -1,6 +1,6 @@
 # Ready-to-deploy NixOS configuration for VPS
 # VPS: 80.209.240.244
-# Deploy privacy router: gateway + warp + xray
+# Simple Xray proxy server only
 
 { config, pkgs, ... }:
 
@@ -29,7 +29,7 @@
 
     firewall = {
       enable = true;
-      allowedTCPPorts = [ 22 443 8443 9573 9574 ];
+      allowedTCPPorts = [ 22 443 8443 ];
       trustedInterfaces = [ "ovsbr0" ];
     };
   };
@@ -40,13 +40,13 @@
     lxcfs.enable = true;
   };
 
-  # op-dbus with privacy router
+  # op-dbus with single Xray container
   services.op-dbus = {
     enable = true;
-    mode = "full";
+    mode = "standalone";  # Standalone mode - no full router
 
     stateConfig = {
-      # OVS Bridge
+      # Simple OVS Bridge
       net = {
         interfaces = [{
           name = "ovsbr0";
@@ -61,43 +61,9 @@
         }];
       };
 
-      # OpenFlow rules
-      openflow = {
-        bridges = {
-          ovsbr0 = {
-            flows = [
-              "priority=100,in_port=warp,actions=output:gateway"
-              "priority=100,in_port=gateway,actions=output:warp"
-              "priority=90,in_port=xray,actions=output:warp"
-              "priority=10,actions=output:gateway"
-            ];
-          };
-        };
-      };
-
-      # Containers: Gateway, WARP, Xray
+      # Container: Xray only
       lxc = {
         containers = [
-          {
-            id = "100";
-            veth = "veth100";
-            bridge = "ovsbr0";
-            running = true;
-            properties = {
-              name = "gateway";
-              ipv4_address = "10.0.0.100/24";
-            };
-          }
-          {
-            id = "101";
-            veth = "veth101";
-            bridge = "ovsbr0";
-            running = true;
-            properties = {
-              name = "warp";
-              ipv4_address = "10.0.0.101/24";
-            };
-          }
           {
             id = "102";
             veth = "veth102";
