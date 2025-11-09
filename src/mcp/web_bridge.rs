@@ -54,7 +54,9 @@ pub async fn run_web_server() -> Result<(), Box<dyn std::error::Error>> {
             "org.dbusmcp.Orchestrator",
             "/org/dbusmcp/Orchestrator",
             "org.dbusmcp.Orchestrator",
-        ).await {
+        )
+        .await
+        {
             Ok(proxy) => {
                 eprintln!("Web server connected to orchestrator");
                 Some(proxy)
@@ -463,7 +465,10 @@ async fn api_spawn_agent(
     Json(req): Json<SpawnAgentRequest>,
 ) -> Json<ApiResponse<AgentInfo>> {
     match &state.orchestrator {
-        Some(orch) => match orch.call::<(String,), String>("SpawnAgent", &(req.agent_type.clone(),)).await {
+        Some(orch) => match orch
+            .call::<(String,), String>("SpawnAgent", &(req.agent_type.clone(),))
+            .await
+        {
             Ok(agent_id) => {
                 let agent = AgentInfo {
                     id: agent_id.clone(),

@@ -1,6 +1,5 @@
 // State manager orchestrator - coordinates plugins and provides atomic operations
 // Note: Ledger functionality has been replaced with streaming blockchain
-use crate::blockchain::plugin_footprint::FootprintGenerator;
 use crate::state::plugin::{ApplyResult, Checkpoint, StateDiff, StatePlugin};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -9,6 +8,11 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+#[cfg(feature = "streaming-blockchain")]
+use crate::blockchain::plugin_footprint::FootprintGenerator;
+#[cfg(feature = "streaming-blockchain")]
+type FootprintSender = tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>;
 
 /// Desired state loaded from YAML/JSON
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,8 +38,8 @@ pub struct ApplyReport {
 /// State manager coordinates all plugins and provides atomic operations
 pub struct StateManager {
     plugins: Arc<RwLock<HashMap<String, Box<dyn StatePlugin>>>>,
-    blockchain_sender:
-        Option<tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>>,
+    #[cfg(feature = "streaming-blockchain")]
+    blockchain_sender: Option<FootprintSender>,
 }
 
 impl Default for StateManager {
@@ -49,19 +53,19 @@ impl StateManager {
     pub fn new() -> Self {
         Self {
             plugins: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "streaming-blockchain")]
             blockchain_sender: None,
         }
     }
 
     /// Enable blockchain footprints by providing a sender to a StreamingBlockchain receiver
-    pub fn set_blockchain_sender(
-        &mut self,
-        sender: tokio::sync::mpsc::UnboundedSender<crate::blockchain::PluginFootprint>,
-    ) {
+    #[cfg(feature = "streaming-blockchain")]
+    pub fn set_blockchain_sender(&mut self, sender: FootprintSender) {
         self.blockchain_sender = Some(sender);
     }
 
     /// Record a hashed footprint for a plugin operation (best-effort)
+    #[cfg(feature = "streaming-blockchain")]
     fn record_footprint(&self, plugin: &str, operation: &str, data: serde_json::Value) {
         if let Some(tx) = &self.blockchain_sender {
             let gen = FootprintGenerator::new(plugin);

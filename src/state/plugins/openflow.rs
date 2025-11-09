@@ -190,9 +190,7 @@ pub struct OpenFlowPlugin {
 
 impl OpenFlowPlugin {
     pub fn new() -> Self {
-        let ovsdb_client = Arc::new(
-            crate::native::ovsdb_jsonrpc::OvsdbClient::new()
-        );
+        let ovsdb_client = Arc::new(crate::native::ovsdb_jsonrpc::OvsdbClient::new());
 
         Self { ovsdb_client }
     }
@@ -221,7 +219,10 @@ impl OpenFlowPlugin {
             }
         }
 
-        log::info!("Discovered {} containers from OVS introspection", containers.len());
+        log::info!(
+            "Discovered {} containers from OVS introspection",
+            containers.len()
+        );
         Ok(containers)
     }
 
@@ -437,30 +438,6 @@ impl OpenFlowPlugin {
         Ok(())
     }
 
-    /// Delete flows via ovs-ofctl
-    async fn delete_flow(&self, bridge: &str, flow: &FlowEntry) -> Result<()> {
-        let match_str = self.match_to_string(&flow.match_fields);
-
-        log::info!("Deleting flow on {}: table={}, {}", bridge, flow.table, match_str);
-
-        let output = tokio::process::Command::new("ovs-ofctl")
-            .args(&[
-                "del-flows",
-                bridge,
-                &format!("table={},{}", flow.table, match_str),
-            ])
-            .output()
-            .await
-            .context("Failed to execute ovs-ofctl")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("Failed to delete flow: {}", stderr));
-        }
-
-        Ok(())
-    }
-
     /// Query current flows via ovs-ofctl dump-flows
     async fn query_flows(&self, bridge: &str) -> Result<Vec<FlowEntry>> {
         let output = tokio::process::Command::new("ovs-ofctl")
@@ -514,11 +491,16 @@ impl OpenFlowPlugin {
                 match key.trim() {
                     "table" => table = value.parse().ok()?,
                     "priority" => priority = value.parse().ok()?,
-                    "cookie" => cookie = Some(u64::from_str_radix(value.trim_start_matches("0x"), 16).ok()?),
+                    "cookie" => {
+                        cookie = Some(u64::from_str_radix(value.trim_start_matches("0x"), 16).ok()?)
+                    }
                     "actions" => actions = self.parse_actions(value),
                     _ => {
                         // Match field
-                        if !key.contains("duration") && !key.contains("n_packets") && !key.contains("n_bytes") {
+                        if !key.contains("duration")
+                            && !key.contains("n_packets")
+                            && !key.contains("n_bytes")
+                        {
                             match_fields.insert(key.to_string(), value.to_string());
                         }
                     }
@@ -588,15 +570,6 @@ impl OpenFlowPlugin {
             .join(",");
 
         format!("{},actions={}", parts.join(","), actions_str)
-    }
-
-    /// Convert match fields to string
-    fn match_to_string(&self, match_fields: &HashMap<String, String>) -> String {
-        match_fields
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join(",")
     }
 
     /// Convert action to string
@@ -1338,7 +1311,10 @@ impl StatePlugin for OpenFlowPlugin {
 
                     if !flow_exists {
                         actions.push(StateAction::Create {
-                            resource: format!("{}/flow/{}", desired_bridge.name, desired_flow.table),
+                            resource: format!(
+                                "{}/flow/{}",
+                                desired_bridge.name, desired_flow.table
+                            ),
                             config: serde_json::to_value(desired_flow)?,
                         });
                     }
@@ -1350,7 +1326,10 @@ impl StatePlugin for OpenFlowPlugin {
 
                     if !flow_desired {
                         actions.push(StateAction::Delete {
-                            resource: format!("{}/flow/{}", desired_bridge.name, current_flow.table),
+                            resource: format!(
+                                "{}/flow/{}",
+                                desired_bridge.name, current_flow.table
+                            ),
                         });
                     }
                 }
@@ -1364,7 +1343,10 @@ impl StatePlugin for OpenFlowPlugin {
 
                         if !port_exists {
                             actions.push(StateAction::Create {
-                                resource: format!("{}/port/{}", desired_bridge.name, desired_port.name),
+                                resource: format!(
+                                    "{}/port/{}",
+                                    desired_bridge.name, desired_port.name
+                                ),
                                 config: serde_json::to_value(desired_port)?,
                             });
                         }
@@ -1389,7 +1371,10 @@ impl StatePlugin for OpenFlowPlugin {
     }
 
     async fn apply_state(&self, diff: &StateDiff) -> Result<ApplyResult> {
-        log::info!("Applying OpenFlow state changes: {} actions", diff.actions.len());
+        log::info!(
+            "Applying OpenFlow state changes: {} actions",
+            diff.actions.len()
+        );
 
         let mut changes = Vec::new();
         let mut errors = Vec::new();
@@ -1427,7 +1412,10 @@ impl StatePlugin for OpenFlowPlugin {
                         // For deletion, we need to query current flows and match by table
                         let _table_str = parts.get(2).unwrap_or(&"0");
 
-                        errors.push(format!("Flow deletion by resource path needs implementation: {}", resource));
+                        errors.push(format!(
+                            "Flow deletion by resource path needs implementation: {}",
+                            resource
+                        ));
                     } else if resource.contains("/port/") {
                         // Delete socket port
                         let parts: Vec<&str> = resource.split('/').collect();
@@ -1476,7 +1464,10 @@ impl StatePlugin for OpenFlowPlugin {
     }
 
     async fn rollback(&self, checkpoint: &Checkpoint) -> Result<()> {
-        log::info!("Rolling back OpenFlow to checkpoint from {}", checkpoint.timestamp);
+        log::info!(
+            "Rolling back OpenFlow to checkpoint from {}",
+            checkpoint.timestamp
+        );
 
         let current = self.query_current_state().await?;
         let diff = self
