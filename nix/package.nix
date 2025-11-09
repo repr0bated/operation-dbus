@@ -6,8 +6,6 @@
 , openvswitch
 , systemd
 , dbus
-, claude-cli
-, makeWrapper
 }:
 
 rustPlatform.buildRustPackage rec {
@@ -22,7 +20,6 @@ rustPlatform.buildRustPackage rec {
 
   nativeBuildInputs = [
     pkg-config
-    makeWrapper
   ];
 
   buildInputs = [
@@ -30,10 +27,6 @@ rustPlatform.buildRustPackage rec {
     openvswitch
     systemd
     dbus
-  ];
-
-  propagatedBuildInputs = [
-    claude-cli
   ];
 
   # Build with default features (web UI)
