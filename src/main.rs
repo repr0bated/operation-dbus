@@ -344,6 +344,8 @@ async fn main() -> Result<()> {
         .await;
     state_manager
         .register_plugin(Box::new(state::plugins::PciDeclPlugin::new()))
+        .register_plugin(Box::new(state::plugins::PackageKitPlugin::new()))
+        .await;
         .await;
 
     // Start org.opdbus on system D-Bus to accept ApplyState calls for net plugin
