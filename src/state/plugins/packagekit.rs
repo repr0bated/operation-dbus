@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::process::Command;
-use tokio::time::{sleep, Duration};
-use zbus::{Connection, proxy};
+use zbus::proxy;
 
 use crate::state::plugin::{
     ApplyResult, Checkpoint, PluginCapabilities, StateAction, StateDiff, StatePlugin, DiffMetadata
@@ -67,26 +66,6 @@ impl PackageKitPlugin {
         Self
     }
 
-    async fn get_connection(&self) -> Result<Connection> {
-        Connection::system().await.map_err(Into::into)
-    }
-
-    /// Check if PackageKit is available
-    async fn packagekit_available(&self) -> bool {
-        let conn = match self.get_connection().await {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
-
-        // Try to get PackageKit service
-        conn.call_method(
-            Some("org.freedesktop.DBus"),
-            "/org/freedesktop/DBus",
-            Some("org.freedesktop.DBus"),
-            "GetNameOwner",
-            &"org.freedesktop.PackageKit",
-        ).await.is_ok()
-    }
 
     /// Install package via direct package manager
     async fn install_via_direct(&self, package_name: &str) -> Result<()> {

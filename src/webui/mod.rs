@@ -5,6 +5,7 @@
 pub mod server;
 
 #[cfg(feature = "web")]
+#[allow(unused_imports)]  // Used by binary, not library
 pub use server::{start_web_server, WebConfig};
 
 #[cfg(not(feature = "web"))]
