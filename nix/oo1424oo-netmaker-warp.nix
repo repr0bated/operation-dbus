@@ -45,8 +45,25 @@
         network = "privacy-mesh";
         interface = "nm-privacy";
         server = "https://netmaker-gateway:8081";
-        # nm-privacy bridges to mesh bridge
+        # nm-privacy attaches to mesh bridge (isolated)
         bridge = "mesh";
+      };
+
+      # Inter-bridge connection (veth pair)
+      # Connects mesh bridge to vmbr0 socket network
+      networking = {
+        veth_pairs = {
+          mesh_to_socket = {
+            peer1 = {
+              name = "to-socket";
+              bridge = "mesh";
+            };
+            peer2 = {
+              name = "from-mesh";
+              bridge = "vmbr0";
+            };
+          };
+        };
       };
 
       # WARP tunnel (on host) - privacy exit
@@ -58,37 +75,42 @@
         pre_down = "ovs-vsctl del-port vmbr0 warp0";
       };
 
-      # OpenFlow rules - Route mesh → socket network → WARP
+      # Bridge isolation - Separate mesh from socket network
+      # mesh bridge: Netmaker only
+      # vmbr0 bridge: Socket networking (containers + warp0)
+      # Inter-bridge connection: veth pair (veth-mesh-to-socket)
+
+      # OpenFlow rules
       openflow = {
         bridges = {
-          # Mesh bridge - receives Netmaker traffic
+          # Mesh bridge - Netmaker WireGuard mesh ONLY
           mesh = {
             flows = [
-              # Netmaker (nm-privacy) → vmbr0 (socket network)
-              "priority=100,in_port=nm-privacy,actions=output:vmbr0-port"
+              # Netmaker traffic → inter-bridge port
+              "priority=100,in_port=nm-privacy,actions=output:to-socket"
 
-              # Return traffic from vmbr0 → Netmaker
-              "priority=100,in_port=vmbr0-port,actions=output:nm-privacy"
+              # Return traffic from socket network → Netmaker
+              "priority=100,in_port=to-socket,actions=output:nm-privacy"
 
-              # Default
-              "priority=10,actions=normal"
+              # Default: drop (isolation)
+              "priority=1,actions=drop"
             ];
           };
 
-          # Main bridge - socket network with containers
+          # Socket network bridge - Containers + WARP
           vmbr0 = {
             flows = [
               # Traffic from mesh → route through warp0
-              "priority=100,in_port=mesh-port,actions=output:warp0"
+              "priority=100,in_port=from-mesh,actions=output:warp0"
 
-              # WARP return traffic → back to mesh
-              "priority=100,in_port=warp0,actions=output:mesh-port"
+              # WARP return → back to mesh
+              "priority=100,in_port=warp0,dl_dst=<mesh-mac>,actions=output:from-mesh"
 
               # Container traffic → route through warp0
               "priority=90,in_port=veth102,actions=output:warp0"
-              "priority=90,in_port=warp0,actions=output:veth102"
+              "priority=90,in_port=warp0,dl_dst=<container-mac>,actions=output:veth102"
 
-              # Default
+              # Default: normal switching for local traffic
               "priority=10,actions=normal"
             ];
           };
