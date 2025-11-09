@@ -19,13 +19,13 @@
   # Network - Preserve existing configuration
   networking = {
     hostName = "oo1424oo";
-    # Let existing network config handle physical interfaces
-    # op-dbus will manage OVS bridges
+    # Use existing Proxmox network configuration
+    # Containers attach to existing vmbr0 bridge
 
     firewall = {
       enable = true;
       allowedTCPPorts = [ 22 8006 9573 9574 443 8443 ];  # SSH, Proxmox, MCP, Web, Proxies
-      trustedInterfaces = [ "ovsbr0" "mesh" ];
+      trustedInterfaces = [ "vmbr0" ];  # Trust existing Proxmox bridge
     };
   };
 
@@ -43,38 +43,14 @@
     mode = "full";  # Full Proxmox mode
 
     stateConfig = {
-      # OVS Bridges
-      net = {
-        interfaces = [
-          {
-            name = "ovsbr0";
-            type = "ovs-bridge";
-            ports = [];  # Physical ports managed separately
-            ipv4 = {
-              enabled = true;
-              dhcp = false;
-              address = [ "10.0.0.1/24" ];
-              gateway = null;
-            };
-          }
-          {
-            name = "mesh";
-            type = "ovs-bridge";
-            ports = [];
-            ipv4 = {
-              enabled = true;
-              dhcp = false;
-              address = [ "10.1.0.1/24" ];
-              gateway = null;
-            };
-          }
-        ];
-      };
+      # Use existing Proxmox bridge (vmbr0)
+      # No need to create new bridges - Proxmox already has them!
 
       # OpenFlow rules - Socket networking between containers
+      # Uses existing Proxmox bridge (vmbr0 or existing OVS bridge)
       openflow = {
         bridges = {
-          ovsbr0 = {
+          vmbr0 = {
             flows = [
               # WARP → Gateway (outbound traffic)
               "priority=100,in_port=veth101,actions=output:veth100"
@@ -103,7 +79,7 @@
           {
             id = "100";
             veth = "veth100";
-            bridge = "ovsbr0";
+            bridge = "vmbr0";  # Use existing Proxmox bridge
             running = true;
             properties = {
               name = "gateway";
@@ -124,7 +100,7 @@
           {
             id = "101";
             veth = "veth101";
-            bridge = "ovsbr0";
+            bridge = "vmbr0";  # Use existing Proxmox bridge
             running = true;
             properties = {
               name = "warp";
@@ -138,12 +114,7 @@
               features = {
                 nesting = true;
               };
-              # WARP-specific config
-              wgcf = {
-                enabled = true;
-                interface = "wg0";
-                ovs_attach = true;  # Attach wg0 to OVS bridge as port
-              };
+              # Note: wg0 stays inside container, veth101 is the bridge attachment
             };
           }
 
@@ -151,7 +122,7 @@
           {
             id = "102";
             veth = "veth102";
-            bridge = "ovsbr0";
+            bridge = "vmbr0";  # Use existing Proxmox bridge
             running = true;
             properties = {
               name = "xray";
@@ -164,15 +135,6 @@
               swap = 256;
               features = {
                 nesting = false;
-              };
-              # Xray-specific config
-              xray = {
-                enabled = true;
-                config_path = "/etc/xray/config.json";
-                ports = {
-                  vmess = 443;
-                  vless = 8443;
-                };
               };
             };
           }
