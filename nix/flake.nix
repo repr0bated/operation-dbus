@@ -32,17 +32,23 @@
             rust-analyzer
             clippy
             rustfmt
+            # Node.js ecosystem
+            nodejs
+            npm
           ];
 
           shellHook = ''
             echo "op-dbus development environment"
             echo "Rust version: $(rustc --version)"
+            echo "Node version: $(node --version)"
+            echo "npm version: $(npm --version)"
             echo ""
             echo "Available commands:"
             echo "  cargo build --release      # Build op-dbus"
             echo "  cargo test                 # Run tests"
             echo "  cargo clippy               # Lint code"
             echo "  cargo fmt                  # Format code"
+            echo "  npm install                # Install Node dependencies"
           '';
         };
 
