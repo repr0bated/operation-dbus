@@ -32,9 +32,8 @@
             rust-analyzer
             clippy
             rustfmt
-            # Node.js ecosystem
+            # Node.js ecosystem (includes npm)
             nodejs
-            npm
           ];
 
           shellHook = ''
