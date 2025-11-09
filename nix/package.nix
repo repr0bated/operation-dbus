@@ -6,6 +6,8 @@
 , openvswitch
 , systemd
 , dbus
+, claude-cli
+, makeWrapper
 }:
 
 rustPlatform.buildRustPackage rec {
@@ -20,6 +22,7 @@ rustPlatform.buildRustPackage rec {
 
   nativeBuildInputs = [
     pkg-config
+    makeWrapper
   ];
 
   buildInputs = [
@@ -27,6 +30,10 @@ rustPlatform.buildRustPackage rec {
     openvswitch
     systemd
     dbus
+  ];
+
+  propagatedBuildInputs = [
+    claude-cli
   ];
 
   # Build with default features (web UI)
@@ -37,6 +44,12 @@ rustPlatform.buildRustPackage rec {
 
   # Tests require system access (OVS, D-Bus)
   doCheck = false;
+
+  postInstall = ''
+    # Install nix folder for module and package definitions
+    mkdir -p $out/share/op-dbus
+    cp -r ${../nix} $out/share/op-dbus/nix
+  '';
 
   meta = with lib; {
     description = "Declarative system state management via native protocols";
