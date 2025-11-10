@@ -323,8 +323,7 @@ async fn main() -> Result<()> {
     init_logging()?;
     let args = Cli::parse();
 
-    let mut sm = state::StateManager::new();
-    let state_manager = Arc::new(sm);
+    let state_manager = Arc::new(state::StateManager::new());
     state_manager
         .register_plugin(Box::new(state::plugins::NetStatePlugin::new()))
         .await;
@@ -856,6 +855,13 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
                 }
             }
 
+            let numa = cache.numa_info();
+            println!("\nNUMA:");
+            println!("  Nodes:            {}", numa.node_count);
+            println!("  CPU affinity:     {:?}", numa.cpu_affinity);
+            println!("  Placement:        {:?}", numa.placement_strategy);
+            println!("  Memory policy:    {:?}", numa.memory_policy);
+
             Ok(())
         }
 
@@ -944,78 +950,6 @@ async fn handle_blockchain_command(cmd: BlockchainCommands) -> Result<()> {
 
             println!("Blockchain list (limit: {})", limit.unwrap_or(10));
             println!("? Not yet fully implemented");
-            Ok(())
-        }
-        BlockchainCommands::Show { block_id } => {
-            println!("Showing block: {}", block_id);
-            println!("? Not yet implemented");
-            Ok(())
-        }
-        BlockchainCommands::Export { output } => {
-            println!("Exporting blockchain to: {:?}", output);
-            println!("? Not yet implemented");
-            Ok(())
-        }
-        BlockchainCommands::Verify { full } => {
-            println!("Verifying blockchain integrity (full: {})", full);
-            println!("? Not yet implemented");
-            Ok(())
-        }
-        BlockchainCommands::Search { query } => {
-            println!("Searching blockchain for: {}", query);
-            println!("? Not yet implemented");
-            let timing_path = blockchain_path.join("timing");
-            if !timing_path.exists() {
-                println!("No blocks found in blockchain.");
-                return Ok(());
-            }
-
-            // Read all block files
-            let mut blocks = Vec::new();
-            let mut entries = fs::read_dir(&timing_path).await?;
-            while let Some(entry) = entries.next_entry().await? {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("json") {
-                    if let Ok(content) = fs::read_to_string(&path).await {
-                        if let Ok(block) = serde_json::from_str::<serde_json::Value>(&content) {
-                            blocks.push(block);
-                        }
-                    }
-                }
-            }
-
-            // Sort by timestamp (newest first)
-            blocks.sort_by(|a, b| {
-                let ts_a = a["timestamp"].as_u64().unwrap_or(0);
-                let ts_b = b["timestamp"].as_u64().unwrap_or(0);
-                ts_b.cmp(&ts_a)
-            });
-
-            // Apply a default display limit for search results
-            let blocks_to_show = blocks.iter().take(10);
-
-            println!(
-                "=== Blockchain Blocks (showing {} of {}) ===\n",
-                blocks_to_show.len(),
-                blocks.len()
-            );
-            for block in blocks_to_show {
-                let timestamp = block["timestamp"].as_u64().unwrap_or(0);
-                let hash = block["hash"].as_str().unwrap_or("unknown");
-                let category = block["category"].as_str().unwrap_or("unknown");
-                let action = block["action"].as_str().unwrap_or("unknown");
-
-                let datetime = chrono::DateTime::from_timestamp(timestamp as i64, 0)
-                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "invalid".to_string());
-
-                println!("Block: {}", &hash[..16]);
-                println!("  Time:     {}", datetime);
-                println!("  Category: {}", category);
-                println!("  Action:   {}", action);
-                println!();
-            }
-
             Ok(())
         }
         BlockchainCommands::Show { block_id } => {

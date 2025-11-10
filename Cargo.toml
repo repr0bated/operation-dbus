@@ -87,6 +87,10 @@ web = ["axum", "tower", "tower-http", "mime_guess"]
 mcp = ["uuid", "toml"]
 # Minimal build that disables network DBus/system clients requiring OpenSSL
 minimal = []
+# Enable streaming blockchain with Btrfs snapshots
+streaming-blockchain = []
+# Enable experimental OpenFlow plugin integration
+openflow = []
 
 [[bin]]
 name = "op-dbus"

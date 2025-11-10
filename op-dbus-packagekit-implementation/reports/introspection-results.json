@@ -1,0 +1,109 @@
+{
+  "plugins": {
+    "login1": {
+      "sessions": [
+        {
+          "id": "2",
+          "path": "/org/freedesktop/login1/session/_32",
+          "seat": "",
+          "uid": 1000,
+          "user": "nixos"
+        },
+        {
+          "id": "23",
+          "path": "/org/freedesktop/login1/session/_323",
+          "seat": "",
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "id": "1",
+          "path": "/org/freedesktop/login1/session/_31",
+          "seat": "seat0",
+          "uid": 1000,
+          "user": "nixos"
+        },
+        {
+          "id": "6",
+          "path": "/org/freedesktop/login1/session/_36",
+          "seat": "",
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "id": "12",
+          "path": "/org/freedesktop/login1/session/_312",
+          "seat": "",
+          "uid": 0,
+          "user": "root"
+        }
+      ]
+    },
+    "sess": {
+      "sessions": [
+        {
+          "seat": "seat0",
+          "session_id": "1",
+          "tty": "931",
+          "uid": "1000",
+          "user": "nixos"
+        },
+        {
+          "seat": "-",
+          "session_id": "12",
+          "tty": "1249",
+          "uid": "0",
+          "user": "root"
+        },
+        {
+          "seat": "-",
+          "session_id": "2",
+          "tty": "957",
+          "uid": "1000",
+          "user": "nixos"
+        },
+        {
+          "seat": "-",
+          "session_id": "23",
+          "tty": "5293",
+          "uid": "0",
+          "user": "root"
+        },
+        {
+          "seat": "-",
+          "session_id": "6",
+          "tty": "1128",
+          "uid": "0",
+          "user": "root"
+        }
+      ]
+    },
+    "pcidecl": {
+      "items": [],
+      "version": 1
+    },
+    "lxc": {
+      "containers": []
+    },
+    "systemd": {},
+    "dnsresolver": {
+      "items": [
+        {
+          "id": "resolvconf",
+          "mode": "observe-only",
+          "options": [
+            "edns0"
+          ],
+          "servers": [
+            "8.8.8.8",
+            "8.8.4.4"
+          ]
+        }
+      ],
+      "version": 1
+    },
+    "net": {
+      "interfaces": []
+    }
+  }
+}

@@ -2,15 +2,15 @@
 
 #[path = "../mcp/tool_registry.rs"]
 mod tool_registry;
-use tool_registry::{
-    AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,
-    ToolResult,
-};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
+use tool_registry::{
+    AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,
+    ToolResult,
+};
 use zbus::Connection;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -68,7 +68,9 @@ impl McpServer {
                 "org.dbusmcp.Orchestrator",
                 "/org/dbusmcp/Orchestrator",
                 "org.dbusmcp.Orchestrator",
-            ).await {
+            )
+            .await
+            {
                 Ok(proxy) => {
                     eprintln!("Connected to orchestrator");
                     Some(proxy)

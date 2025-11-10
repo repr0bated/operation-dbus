@@ -12,7 +12,10 @@ use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
 use tracing::{debug, info, warn};
 
 use super::snapshot_manager::{SnapshotConfig, SnapshotManager};
@@ -60,7 +63,7 @@ pub struct BtrfsCache {
     placement_strategy: CachePlacementStrategy,
     memory_policy: MemoryPolicy,
     cpu_affinity: Vec<u32>, // CPU cores for affinity binding
-    current_node_index: std::sync::atomic::AtomicUsize,
+    current_node_index: AtomicUsize,
 }
 
 #[allow(dead_code)]
@@ -135,17 +138,12 @@ impl BtrfsCache {
         } else {
             Vec::new()
         };
-        let placement_strategy = if numa_nodes.is_empty() {
-            CachePlacementStrategy::Disabled
-        } else {
-            CachePlacementStrategy::LocalNode
-        };
-        let memory_policy = MemoryPolicy::Default;
+        let placement_strategy = Self::determine_placement_strategy(&numa_nodes);
+        let memory_policy = Self::determine_memory_policy();
 
         // Detect CPU affinity - bind cache operations to same CPUs as Btrfs operations
-        let cpu_affinity = if !numa_nodes.is_empty() {
-            // Use CPUs from first NUMA node to keep cache and Btrfs on same cores
-            numa_nodes[0].cpu_list.clone()
+        let cpu_affinity = if let Some(primary_node) = numa_nodes.first() {
+            primary_node.cpu_list.clone()
         } else {
             // No NUMA, use first few CPUs
             (0..(num_cpus::get().min(4) as u32)).collect()
@@ -159,8 +157,152 @@ impl BtrfsCache {
             placement_strategy,
             memory_policy,
             cpu_affinity,
-            current_node_index: std::sync::atomic::AtomicUsize::new(0),
+            current_node_index: AtomicUsize::new(0),
         })
+    }
+
+    fn determine_placement_strategy(numa_nodes: &[NumaNode]) -> CachePlacementStrategy {
+        let default_choice = if numa_nodes.is_empty() {
+            "disabled".to_string()
+        } else {
+            "local".to_string()
+        };
+
+        let placement = std::env::var("OPDBUS_CACHE_PLACEMENT")
+            .unwrap_or(default_choice)
+            .to_lowercase();
+
+        match placement.as_str() {
+            "round-robin" | "round_robin" | "roundrobin" => CachePlacementStrategy::RoundRobin,
+            "most-memory" | "most_memory" | "mostmemory" => CachePlacementStrategy::MostMemory,
+            "disabled" => CachePlacementStrategy::Disabled,
+            "local" | "local-node" | "local_node" => {
+                if numa_nodes.is_empty() {
+                    CachePlacementStrategy::Disabled
+                } else {
+                    CachePlacementStrategy::LocalNode
+                }
+            }
+            other => {
+                warn!(
+                    "Unknown OPDBUS_CACHE_PLACEMENT value '{}', defaulting to {}",
+                    other,
+                    if numa_nodes.is_empty() {
+                        "disabled"
+                    } else {
+                        "local"
+                    }
+                );
+                if numa_nodes.is_empty() {
+                    CachePlacementStrategy::Disabled
+                } else {
+                    CachePlacementStrategy::LocalNode
+                }
+            }
+        }
+    }
+
+    fn determine_memory_policy() -> MemoryPolicy {
+        match std::env::var("OPDBUS_CACHE_MEMORY_POLICY") {
+            Ok(value) => {
+                let value_lower = value.to_lowercase();
+                if let Some(rest) = value_lower.strip_prefix("bind:") {
+                    let nodes = Self::parse_node_list(rest);
+                    if nodes.is_empty() {
+                        warn!("OPDBUS_CACHE_MEMORY_POLICY=bind but no NUMA nodes listed");
+                        MemoryPolicy::Default
+                    } else {
+                        MemoryPolicy::Bind(nodes)
+                    }
+                } else if let Some(rest) = value_lower.strip_prefix("preferred:") {
+                    if rest.trim().is_empty() {
+                        MemoryPolicy::Preferred(None)
+                    } else {
+                        match rest.trim().parse::<u32>() {
+                            Ok(node) => MemoryPolicy::Preferred(Some(node)),
+                            Err(e) => {
+                                warn!(
+                                    "Failed to parse preferred NUMA node '{}': {}",
+                                    rest.trim(),
+                                    e
+                                );
+                                MemoryPolicy::Default
+                            }
+                        }
+                    }
+                } else if value_lower == "preferred" {
+                    MemoryPolicy::Preferred(None)
+                } else if let Some(rest) = value_lower.strip_prefix("interleave:") {
+                    let nodes = Self::parse_node_list(rest);
+                    if nodes.is_empty() {
+                        warn!("OPDBUS_CACHE_MEMORY_POLICY=interleave but no NUMA nodes listed");
+                        MemoryPolicy::Default
+                    } else {
+                        MemoryPolicy::Interleave(nodes)
+                    }
+                } else if value_lower == "default" || value_lower.is_empty() {
+                    MemoryPolicy::Default
+                } else {
+                    warn!(
+                        "Unknown OPDBUS_CACHE_MEMORY_POLICY value '{}', using default",
+                        value
+                    );
+                    MemoryPolicy::Default
+                }
+            }
+            Err(_) => MemoryPolicy::Default,
+        }
+    }
+
+    fn parse_node_list(list: &str) -> Vec<u32> {
+        list.split(',')
+            .filter_map(|s| {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    match trimmed.parse::<u32>() {
+                        Ok(value) => Some(value),
+                        Err(e) => {
+                            warn!("Invalid NUMA node id '{}': {}", trimmed, e);
+                            None
+                        }
+                    }
+                }
+            })
+            .collect()
+    }
+
+    fn select_numa_node(&self, operation: &str) -> Option<&NumaNode> {
+        if self.numa_nodes.is_empty() {
+            return None;
+        }
+
+        let selection = match self.placement_strategy {
+            CachePlacementStrategy::LocalNode => self.numa_nodes.first(),
+            CachePlacementStrategy::RoundRobin => {
+                let index = self.current_node_index.fetch_add(1, Ordering::Relaxed);
+                self.numa_nodes.get(index % self.numa_nodes.len())
+            }
+            CachePlacementStrategy::MostMemory => {
+                self.numa_nodes.iter().max_by_key(|node| node.memory_mb)
+            }
+            CachePlacementStrategy::Disabled => None,
+        };
+
+        if let Some(node) = selection {
+            debug!(
+                "NUMA node {} selected for {} (memory={} MB, distances={:?})",
+                node.node_id, operation, node.memory_mb, node.distance_to_nodes
+            );
+        } else {
+            debug!(
+                "No NUMA node selected for {} (strategy={:?})",
+                operation, self.placement_strategy
+            );
+        }
+
+        selection
     }
 
     /// Get or compute embedding
@@ -577,12 +719,30 @@ impl BtrfsCache {
         &self,
         operation: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.cpu_affinity.is_empty() {
+        let candidate_cpus = self
+            .select_numa_node(operation)
+            .and_then(|node| {
+                if node.cpu_list.is_empty() {
+                    None
+                } else {
+                    Some(node.cpu_list.clone())
+                }
+            })
+            .unwrap_or_else(|| self.cpu_affinity.clone());
+
+        if candidate_cpus.is_empty() {
+            debug!("No CPU affinity configured for {}", operation);
             return Ok(());
         }
 
-        let cpu_list = self
-            .cpu_affinity
+        if candidate_cpus == self.cpu_affinity {
+            debug!(
+                "Using default CPU affinity {:?} for {}",
+                candidate_cpus, operation
+            );
+        }
+
+        let cpu_list = candidate_cpus
             .iter()
             .map(|cpu| cpu.to_string())
             .collect::<Vec<_>>()

@@ -63,6 +63,12 @@ struct LiveSession {
 
 pub struct SessDeclPlugin;
 
+impl Default for SessDeclPlugin {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl SessDeclPlugin {
     pub fn new() -> Self {
         Self

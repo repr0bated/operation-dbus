@@ -1,0 +1,67 @@
+{
+  "plugins": {
+    "sess": {
+      "sessions": [
+        {
+          "seat": "-",
+          "session_id": "10",
+          "tty": "4518",
+          "uid": "0",
+          "user": "root"
+        },
+        {
+          "seat": "-",
+          "session_id": "7",
+          "tty": "1278",
+          "uid": "0",
+          "user": "root"
+        }
+      ]
+    },
+    "pcidecl": {
+      "items": [],
+      "version": 1
+    },
+    "net": {
+      "interfaces": []
+    },
+    "systemd": {},
+    "login1": {
+      "sessions": [
+        {
+          "id": "10",
+          "path": "/org/freedesktop/login1/session/_310",
+          "seat": "",
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "id": "7",
+          "path": "/org/freedesktop/login1/session/_37",
+          "seat": "",
+          "uid": 0,
+          "user": "root"
+        }
+      ]
+    },
+    "lxc": {
+      "containers": []
+    },
+    "dnsresolver": {
+      "items": [
+        {
+          "id": "resolvconf",
+          "mode": "observe-only",
+          "options": [
+            "edns0"
+          ],
+          "servers": [
+            "8.8.8.8",
+            "8.8.4.4"
+          ]
+        }
+      ],
+      "version": 1
+    }
+  }
+}
