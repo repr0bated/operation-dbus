@@ -130,16 +130,23 @@ EOF
     wantedBy = [ "multi-user.target" ];
     serviceConfig.Type = "oneshot";
     script = ''
-      # Install Claude Code via npm globally
+      # Install Claude Code from GitHub releases
+      CLAUDE_VERSION="latest"
+      INSTALL_DIR="/usr/local/bin"
+
       if ! command -v claude-code &> /dev/null; then
-        ${pkgs.nodejs_20}/bin/npm install -g @anthropic-ai/claude-code
+        echo "Installing Claude Code..."
+
+        # Download and install Claude Code
+        ${pkgs.curl}/bin/curl -fsSL https://storage.googleapis.com/anthropic-artifacts/claude-code/install.sh | ${pkgs.bash}/bin/bash
+
         echo "✓ Claude Code installed"
       else
         echo "✓ Claude Code already installed"
       fi
 
       # Verify installation
-      ${pkgs.nodejs_20}/bin/npm list -g @anthropic-ai/claude-code || true
+      command -v claude-code && claude-code --version || echo "Claude Code not in PATH yet - restart shell"
     '';
   };
 
