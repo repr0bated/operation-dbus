@@ -23,7 +23,9 @@
   networking.vswitches = {
     ovsbr0 = {
       # Attach physical interface as port
-      interfaces = [ "ens1" ];
+      interfaces = {
+        ens1 = { };
+      };
 
       # Disable STP
       extraOvsctlCmds = ''
