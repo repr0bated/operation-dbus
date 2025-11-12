@@ -9,32 +9,20 @@
   # Enable OpenVSwitch
   virtualisation.vswitch.enable = true;
 
+  # Declare OVS bridge with interfaces (official NixOS method)
+  networking.vswitches = {
+    ovsbr0.interfaces = {
+      ens1 = { };  # Physical interface
+      vps-int = { type = "internal"; };  # Internal port for host IP
+    };
+  };
+
   # Physical interface - no IP (managed by OVS)
   networking.interfaces.ens1.useDHCP = false;
   networking.interfaces.ens1.ipv4.addresses = [];
 
-  # Create OVS bridge manually (networking.vswitches has bugs)
-  systemd.services.ovs-bridge = {
-    description = "OVS Bridge Setup";
-    after = [ "ovsdb.service" "ovs-vswitchd.service" ];
-    requires = [ "ovsdb.service" "ovs-vswitchd.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    script = ''
-      ${pkgs.coreutils}/bin/sleep 2
-      ${pkgs.openvswitch}/bin/ovs-vsctl --may-exist add-br ovsbr0
-      ${pkgs.openvswitch}/bin/ovs-vsctl set Bridge ovsbr0 stp_enable=false
-      ${pkgs.openvswitch}/bin/ovs-vsctl --may-exist add-port ovsbr0 ens1
-      ${pkgs.iproute2}/bin/ip link set ovsbr0 up
-      ${pkgs.iproute2}/bin/ip link set ens1 up
-    '';
-  };
-
-  # Bridge interface IP
-  networking.interfaces.ovsbr0 = {
+  # IP configuration on internal port
+  networking.interfaces.vps-int = {
     ipv4.addresses = [{
       address = "80.209.240.244";
       prefixLength = 25;
