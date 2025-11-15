@@ -128,37 +128,81 @@ EOF
 
 echo "✓ Boot entry created: $ENTRY_FILE"
 
-# Step 4: Set as default boot (one-time)
+# Step 4: Boot configuration (PRESERVE existing config!)
 echo ""
-echo "━━━ Step 4: Setting boot configuration ━━━"
+echo "━━━ Step 4: Checking boot configuration ━━━"
 echo ""
 
 LOADER_CONF="$ESP_MOUNT/loader/loader.conf"
 
+# Check for netboot.xyz or other boot managers
+if [ -d "$ESP_MOUNT/netboot.xyz" ] || grep -q "netboot" "$ESP_MOUNT/loader/entries/"*.conf 2>/dev/null; then
+    echo "⚠️  netboot.xyz detected on ESP - preserving configuration"
+    PRESERVE_DEFAULT=true
+else
+    PRESERVE_DEFAULT=false
+fi
+
 # Backup existing config
 if [ -f "$LOADER_CONF" ]; then
     cp "$LOADER_CONF" "${LOADER_CONF}.backup"
-    echo "Backed up: ${LOADER_CONF}.backup"
+    echo "✓ Backed up: ${LOADER_CONF}.backup"
 fi
 
-# Read current timeout if exists
-TIMEOUT="5"
-if [ -f "$LOADER_CONF" ]; then
-    CURRENT_TIMEOUT=$(grep "^timeout" "$LOADER_CONF" | awk '{print $2}' || echo "5")
-    [ -n "$CURRENT_TIMEOUT" ] && TIMEOUT="$CURRENT_TIMEOUT"
+# Ask user about default boot
+if [ "$PRESERVE_DEFAULT" = true ]; then
+    echo ""
+    echo "Existing boot configuration detected."
+    echo "Choose how to configure default boot:"
+    echo "  1) Keep existing default (netboot.xyz?) - Manual selection required"
+    echo "  2) Set Proxmox installer as default - Auto-boot installer"
+    echo ""
+    read -p "Choice [1/2]: " -n 1 -r
+    echo ""
+
+    if [[ $REPLY =~ ^[2]$ ]]; then
+        SET_DEFAULT=true
+    else
+        SET_DEFAULT=false
+    fi
+else
+    # No existing boot manager, safe to set as default
+    SET_DEFAULT=true
 fi
 
-# Update loader.conf
-cat > "$LOADER_CONF" <<EOF
+if [ "$SET_DEFAULT" = true ]; then
+    # Read current settings to preserve
+    TIMEOUT="5"
+    CONSOLE_MODE="max"
+    EDITOR="no"
+
+    if [ -f "$LOADER_CONF" ]; then
+        TIMEOUT=$(grep "^timeout" "$LOADER_CONF" | awk '{print $2}' || echo "5")
+        CONSOLE_MODE=$(grep "^console-mode" "$LOADER_CONF" | awk '{print $2}' || echo "max")
+        EDITOR=$(grep "^editor" "$LOADER_CONF" | awk '{print $2}' || echo "no")
+    fi
+
+    # Update loader.conf with Proxmox as default
+    cat > "$LOADER_CONF" <<EOF
 default  proxmox-installer.conf
 timeout  $TIMEOUT
-console-mode max
-editor   no
+console-mode $CONSOLE_MODE
+editor   $EDITOR
 EOF
 
-echo "✓ Updated: $LOADER_CONF"
-echo "  Default: proxmox-installer.conf"
-echo "  Timeout: ${TIMEOUT}s"
+    echo "✓ Updated: $LOADER_CONF"
+    echo "  Default: proxmox-installer.conf (auto-boot)"
+    echo "  Timeout: ${TIMEOUT}s"
+else
+    echo "✓ Preserved existing boot configuration"
+    echo "  Boot entry added: proxmox-installer.conf"
+    echo "  Default: (unchanged - manual selection required)"
+    echo ""
+    echo "  To boot Proxmox installer:"
+    echo "    1. Reboot"
+    echo "    2. Press Space in systemd-boot menu"
+    echo "    3. Select 'Proxmox VE 9 Installer'"
+fi
 
 # Step 5: Create reboot helper script
 echo ""
