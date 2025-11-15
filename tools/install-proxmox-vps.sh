@@ -158,7 +158,13 @@ echo "━━━ Step 4: Installing GRUB ━━━"
 echo ""
 
 # Install GRUB to ESP
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --removable
+# Use --boot-directory to avoid overlay filesystem detection issues in live environments
+grub-install --target=x86_64-efi \
+    --efi-directory=/boot/efi \
+    --boot-directory=/boot/efi \
+    --bootloader-id=GRUB \
+    --removable \
+    --recheck
 
 echo "✓ GRUB installed"
 
