@@ -184,7 +184,26 @@ umount /mnt/source
 rmdir /mnt/source
 
 echo ""
-echo "━━━ Step 7: Installing GRUB ━━━"
+echo "━━━ Step 7: Installing netboot.xyz ━━━"
+echo ""
+
+NETBOOT_DIR="/mnt/target/boot/efi/netboot.xyz"
+mkdir -p "$NETBOOT_DIR"
+
+# Copy from repo if available
+if [ -f "boot/netboot.xyz/netboot.xyz.efi" ]; then
+    cp boot/netboot.xyz/netboot.xyz.efi "$NETBOOT_DIR/"
+    echo "✓ netboot.xyz copied from repo"
+else
+    # Download if not in repo
+    echo "Downloading netboot.xyz..."
+    wget -q -O "$NETBOOT_DIR/netboot.xyz.efi" \
+        https://boot.netboot.xyz/ipxe/netboot.xyz.efi
+    echo "✓ netboot.xyz downloaded"
+fi
+
+echo ""
+echo "━━━ Step 8: Installing GRUB ━━━"
 echo ""
 
 # Bind mount necessary filesystems for chroot
@@ -201,10 +220,23 @@ chroot /mnt/target grub-install \
     --removable \
     --no-nvram
 
+# Generate GRUB config with netboot.xyz entry
+cat > /mnt/target/etc/grub.d/40_custom <<'GRUBEOF'
+#!/bin/sh
+exec tail -n +3 $0
+# Custom entries
+
+menuentry "netboot.xyz" {
+    chainloader /netboot.xyz/netboot.xyz.efi
+}
+GRUBEOF
+
+chmod +x /mnt/target/etc/grub.d/40_custom
+
 # Generate GRUB config
 chroot /mnt/target update-grub
 
-echo "✓ GRUB installed"
+echo "✓ GRUB installed with netboot.xyz entry"
 
 # Unmount bind mounts
 umount /mnt/target/dev
@@ -212,7 +244,7 @@ umount /mnt/target/proc
 umount /mnt/target/sys
 
 echo ""
-echo "━━━ Step 8: Updating fstab ━━━"
+echo "━━━ Step 9: Updating fstab ━━━"
 echo ""
 
 # Get UUID of root partition
@@ -229,7 +261,7 @@ EOF
 echo "✓ fstab updated"
 
 echo ""
-echo "━━━ Step 9: Expanding Filesystem ━━━"
+echo "━━━ Step 10: Expanding Filesystem ━━━"
 echo ""
 
 # Resize BTRFS to use full partition
