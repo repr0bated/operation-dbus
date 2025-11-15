@@ -152,7 +152,8 @@ echo "━━━ Step 5: Extracting Proxmox ISO to ESP ━━━"
 echo ""
 
 INSTALLER_DIR="/boot/efi/proxmox-installer"
-MOUNT_DIR="/tmp/proxmox-iso-mount"
+# Mount to the real disk, not live overlay
+MOUNT_DIR="/mnt/proxmox/iso-mount"
 
 mkdir -p "$MOUNT_DIR"
 mkdir -p "$INSTALLER_DIR"
