@@ -171,8 +171,8 @@ rmdir "$MOUNT_DIR"
 echo "✓ Proxmox installer extracted to ESP"
 
 # Find kernel and initrd
-KERNEL=$(find "$INSTALLER_DIR" -name "vmlinuz*" -o -name "linux" | head -1)
-INITRD=$(find "$INSTALLER_DIR" -name "initrd*" -o -name "initrd.img*" | head -1)
+KERNEL=$(find "$INSTALLER_DIR" -type f \( -name "vmlinuz*" -o -name "linux*" \) | head -1)
+INITRD=$(find "$INSTALLER_DIR" -type f \( -name "initrd*" \) | head -1)
 
 if [ -z "$KERNEL" ] || [ -z "$INITRD" ]; then
     echo "❌ Error: Could not find kernel or initrd in ISO"
