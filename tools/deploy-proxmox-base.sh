@@ -211,6 +211,10 @@ mount --bind /dev /mnt/target/dev
 mount --bind /proc /mnt/target/proc
 mount --bind /sys /mnt/target/sys
 
+# Get partition UUIDs
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+ESP_UUID=$(blkid -s UUID -o value "$ESP_PART")
+
 # Install GRUB from chroot
 chroot /mnt/target grub-install \
     --target=x86_64-efi \
@@ -220,23 +224,26 @@ chroot /mnt/target grub-install \
     --removable \
     --no-nvram
 
-# Generate GRUB config with netboot.xyz entry
-cat > /mnt/target/etc/grub.d/40_custom <<'GRUBEOF'
-#!/bin/sh
-exec tail -n +3 $0
-# Custom entries
+# Create GRUB config directly on ESP (not using chroot update-grub)
+# This allows booting into the deployed Proxmox OR netboot.xyz
+cat > /mnt/target/boot/efi/grub/grub.cfg <<EOF
+set timeout=10
+set default=0
+
+menuentry "Proxmox VE (Deployed Base Image)" {
+    insmod btrfs
+    insmod part_gpt
+    search --no-floppy --fs-uuid --set=root $ROOT_UUID
+    linux /@/boot/vmlinuz-* root=UUID=$ROOT_UUID rootflags=subvol=@ ro quiet
+    initrd /@/boot/initrd.img-*
+}
 
 menuentry "netboot.xyz" {
     chainloader /netboot.xyz/netboot.xyz.efi
 }
-GRUBEOF
+EOF
 
-chmod +x /mnt/target/etc/grub.d/40_custom
-
-# Generate GRUB config
-chroot /mnt/target update-grub
-
-echo "✓ GRUB installed with netboot.xyz entry"
+echo "✓ GRUB installed with Proxmox and netboot.xyz entries"
 
 # Unmount bind mounts
 umount /mnt/target/dev
@@ -247,10 +254,7 @@ echo ""
 echo "━━━ Step 9: Updating fstab ━━━"
 echo ""
 
-# Get UUID of root partition
-ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
-ESP_UUID=$(blkid -s UUID -o value "$ESP_PART")
-
+# UUIDs already extracted in Step 8
 # Create fstab
 cat > /mnt/target/etc/fstab <<EOF
 # <file system> <mount point> <type> <options> <dump> <pass>
