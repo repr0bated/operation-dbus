@@ -9,7 +9,7 @@ boot/
 ├── grub/                         # GRUB configuration
 │   └── grub.cfg                  # GRUB boot menu
 ├── netboot.xyz/                  # netboot.xyz boot manager
-│   ├── netboot.xyz.conf          # Boot entry reference
+│   ├── netboot.xyz-grub-entry.txt  # GRUB entry reference
 │   ├── netboot.xyz.efi           # EFI binary (downloaded)
 │   └── README.md                 # Installation docs
 └── proxmox-iso/                  # Converted Proxmox ISOs
