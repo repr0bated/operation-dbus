@@ -39,21 +39,44 @@
       ]
     },
     "network": {
-      "comment": "Configure Proxmox bridge networking",
-      "interfaces": {
-        "vmbr0": {
-          "type": "bridge",
-          "bridge_ports": ["eth0"],
+      "comment": "Configure OVS bridges with OVSDB persistence",
+      "bridges": [
+        {
+          "name": "vmbr0",
+          "datapath_type": "system",
+          "ports": ["eth0"],
+          "internal_ports": ["vmbr0-if"],
           "address": "192.168.1.100/24",
-          "gateway": "192.168.1.1",
-          "dns": ["8.8.8.8", "1.1.1.1"],
-          "comment": "Primary bridge for VMs/containers"
+          "openflow": {
+            "auto_apply_defaults": true,
+            "default_rules": [
+              "priority=100,dl_dst=ff:ff:ff:ff:ff:ff,actions=drop",
+              "priority=50,actions=normal"
+            ]
+          },
+          "comment": "Primary bridge for VMs/containers (with physical uplink)"
         },
-        "vmbr1": {
-          "type": "bridge",
+        {
+          "name": "vmbr1",
+          "datapath_type": "system",
+          "internal_ports": ["vmbr1-if"],
           "address": "10.0.0.1/24",
-          "comment": "Internal network for containers"
+          "dhcp": false,
+          "openflow": {
+            "auto_apply_defaults": true,
+            "default_rules": [
+              "priority=50,actions=normal"
+            ]
+          },
+          "comment": "Internal network for containers (isolated)"
         }
+      ],
+      "ovsdb": {
+        "socket_path": "/var/run/openvswitch/db.sock",
+        "database_path": "/etc/openvswitch/conf.db",
+        "timeout_seconds": 30,
+        "persist": true,
+        "comment": "CRITICAL: persist=true ensures bridges survive reboots"
       }
     },
     "systemd": {

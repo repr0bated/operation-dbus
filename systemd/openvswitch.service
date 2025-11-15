@@ -1,0 +1,15 @@
+[Unit]
+Description=Open vSwitch Service (Database + Switch)
+Documentation=man:ovs-vswitchd(8) man:ovsdb-server(1)
+After=network-pre.target
+Before=network.target
+Wants=ovsdb-server.service ovs-vswitchd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/bin/true
+
+[Install]
+WantedBy=multi-user.target
