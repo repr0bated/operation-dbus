@@ -27,15 +27,10 @@ echo ""
 echo "✓ Downloaded to $OUTPUT_DIR/$ARCHIVE_NAME"
 echo ""
 
-# Extract
-echo "Extracting archive..."
-cd "$OUTPUT_DIR"
-tar xzf "$ARCHIVE_NAME"
-
 echo ""
-echo "✓ Extraction complete!"
+echo "✓ Download complete!"
 echo ""
-echo "Files:"
-ls -lh vm-100-disk-1.raw 2>/dev/null || ls -lh
+echo "Archive: $OUTPUT_DIR/$ARCHIVE_NAME ($(du -h "$OUTPUT_DIR/$ARCHIVE_NAME" | cut -f1))"
 echo ""
 echo "Next step: Run ./tools/deploy-proxmox-base.sh /dev/sda"
+echo "           (extraction will happen directly to target device)"

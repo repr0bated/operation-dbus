@@ -4,14 +4,14 @@
 set -euo pipefail
 
 DEVICE="${1:-}"
-IMAGE_FILE="${2:-deploy/vm-100-disk-1.raw}"
+ARCHIVE_FILE="${2:-deploy/proxmox-op-dbus.tar.gz}"
 
 if [ -z "$DEVICE" ]; then
-    echo "Usage: $0 <device> [image-file]"
+    echo "Usage: $0 <device> [archive-file]"
     echo ""
     echo "Example:"
     echo "  $0 /dev/sda"
-    echo "  $0 /dev/nvme0n1 custom-image.raw"
+    echo "  $0 /dev/nvme0n1 custom-archive.tar.gz"
     echo ""
     echo "⚠️  WARNING: This will DESTROY all data on the device!"
     echo ""
@@ -23,8 +23,8 @@ if [ ! -b "$DEVICE" ]; then
     exit 1
 fi
 
-if [ ! -f "$IMAGE_FILE" ]; then
-    echo "❌ Error: Image file not found: $IMAGE_FILE"
+if [ ! -f "$ARCHIVE_FILE" ]; then
+    echo "❌ Error: Archive file not found: $ARCHIVE_FILE"
     echo ""
     echo "Run ./tools/download-proxmox-base.sh first"
     exit 1
@@ -42,8 +42,8 @@ echo "  Proxmox Base Image Deployment"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "Device:     $DEVICE"
-echo "Image:      $IMAGE_FILE"
-echo "Method:     Rsync to @ subvolume"
+echo "Archive:    $ARCHIVE_FILE"
+echo "Method:     Direct extraction to @ subvolume"
 echo ""
 echo "⚠️  WARNING: ALL DATA ON $DEVICE WILL BE DESTROYED!"
 echo ""
@@ -151,39 +151,18 @@ mount "$ESP_PART" /mnt/target/boot/efi
 echo "✓ Mounted @ subvolume and ESP"
 
 echo ""
-echo "━━━ Step 5: Mounting Source Image ━━━"
+echo "━━━ Step 5: Extracting System (this will take several minutes) ━━━"
 echo ""
 
-# Mount source image
-mkdir -p /mnt/source
-mount -o loop,ro "$IMAGE_FILE" /mnt/source
+# Extract archive directly to target @ subvolume
+# Use tar with progress indication
+echo "Extracting $ARCHIVE_FILE to /mnt/target..."
+tar -xzf "$ARCHIVE_FILE" -C /mnt/target --exclude='boot/efi/*' --exclude='dev/*' --exclude='proc/*' --exclude='sys/*' --exclude='tmp/*' --exclude='run/*' --exclude='mnt/*' --exclude='media/*'
 
-echo "✓ Source image mounted"
-
-echo ""
-echo "━━━ Step 6: Copying System (this will take several minutes) ━━━"
-echo ""
-
-# Rsync from source to target @ subvolume
-rsync -aHAXv --info=progress2 \
-    --exclude='/boot/efi/*' \
-    --exclude='/dev/*' \
-    --exclude='/proc/*' \
-    --exclude='/sys/*' \
-    --exclude='/tmp/*' \
-    --exclude='/run/*' \
-    --exclude='/mnt/*' \
-    --exclude='/media/*' \
-    /mnt/source/ /mnt/target/
-
-echo "✓ System copied to @ subvolume"
-
-# Unmount source
-umount /mnt/source
-rmdir /mnt/source
+echo "✓ System extracted to @ subvolume"
 
 echo ""
-echo "━━━ Step 7: Installing netboot.xyz ━━━"
+echo "━━━ Step 6: Installing netboot.xyz ━━━"
 echo ""
 
 NETBOOT_DIR="/mnt/target/boot/efi/netboot.xyz"
@@ -202,7 +181,7 @@ else
 fi
 
 echo ""
-echo "━━━ Step 8: Installing systemd-boot ━━━"
+echo "━━━ Step 7: Installing systemd-boot ━━━"
 echo ""
 
 # Get partition UUIDs
@@ -262,7 +241,7 @@ umount /mnt/target/proc
 umount /mnt/target/sys
 
 echo ""
-echo "━━━ Step 9: Machine-Specific Configuration ━━━"
+echo "━━━ Step 8: Machine-Specific Configuration ━━━"
 echo ""
 
 # Force machine-id regeneration on first boot
@@ -311,10 +290,10 @@ umount /mnt/target/proc
 umount /mnt/target/sys
 
 echo ""
-echo "━━━ Step 10: Updating fstab ━━━"
+echo "━━━ Step 9: Updating fstab ━━━"
 echo ""
 
-# UUIDs already extracted in Step 8
+# UUIDs already extracted in Step 7
 # Create fstab
 cat > /mnt/target/etc/fstab <<EOF
 # <file system> <mount point> <type> <options> <dump> <pass>
@@ -325,7 +304,7 @@ EOF
 echo "✓ fstab updated"
 
 echo ""
-echo "━━━ Step 11: Expanding Filesystem ━━━"
+echo "━━━ Step 10: Expanding Filesystem ━━━"
 echo ""
 
 # Resize BTRFS to use full partition
