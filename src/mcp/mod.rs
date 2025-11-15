@@ -8,6 +8,7 @@ pub mod agents {
     pub mod file;
     pub mod monitor;
     pub mod network;
+    pub mod packagekit;
     pub mod systemd;
 }
 
@@ -15,9 +16,12 @@ pub mod agents {
 pub mod bridge;
 pub mod discovery;
 pub mod discovery_enhanced;
+pub mod hybrid_dbus_bridge;
+pub mod hybrid_scanner;
 pub mod introspection_parser;
 pub mod json_introspection;
 pub mod orchestrator;
+pub mod system_introspection;
 
 // Refactored modules for loose coupling
 pub mod agent_registry;
