@@ -158,16 +158,7 @@ echo "━━━ Step 4: Installing GRUB ━━━"
 echo ""
 
 # Install GRUB to ESP
-# In live environments, grub-install struggles with overlay filesystems
-# Use --no-nvram and --force to bypass device detection issues
-grub-install --target=x86_64-efi \
-    --efi-directory=/boot/efi \
-    --boot-directory=/boot/efi \
-    --bootloader-id=GRUB \
-    --removable \
-    --no-floppy \
-    --no-nvram \
-    --force
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --removable
 
 echo "✓ GRUB installed"
 
