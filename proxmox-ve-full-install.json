@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "plugins": {
+    "packagekit": {
+      "packages": {
+        "ifupdown2": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "postfix": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "open-iscsi": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "chrony": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "proxmox-ve": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "pve-manager": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "pve-kernel-helper": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "qemu-server": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "lxc-pve": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "corosync": {
+          "ensure": "installed",
+          "provider": "apt"
+        },
+        "pve-cluster": {
+          "ensure": "installed",
+          "provider": "apt"
+        }
+      }
+    }
+  }
+}
