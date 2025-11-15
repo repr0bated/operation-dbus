@@ -3,10 +3,10 @@
 
 set -euo pipefail
 
-VERSION="${1:-v1.0-proxmox}"
-RELEASE_URL="https://github.com/repr0bated/operation-dbus/releases/download/$VERSION/proxmox-opdbus.tar.gz"
+VERSION="${1:-proxmox-base}"
+RELEASE_URL="https://github.com/repr0bated/operation-dbus/releases/download/$VERSION/proxmox-op-dbus.tar.gz"
 OUTPUT_DIR="deploy"
-ARCHIVE_NAME="proxmox-opdbus.tar.gz"
+ARCHIVE_NAME="proxmox-op-dbus.tar.gz"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Proxmox Base Image Download"
