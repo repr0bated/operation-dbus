@@ -5,10 +5,10 @@
 # 1. Partitions the target drive
 # 2. Creates ESP (2GB) and root partition
 # 3. Formats partitions (FAT32 for ESP, BTRFS for root)
-# 4. Installs systemd-boot
+# 4. Installs GRUB
 # 5. Copies Proxmox installer ISO to ESP
 # 6. Copies netboot.xyz to ESP
-# 7. Creates boot entries
+# 7. Creates GRUB configuration
 # 8. Reboots into Proxmox installer
 
 set -euo pipefail
@@ -139,52 +139,23 @@ mount "$ROOT_PART" /mnt/proxmox
 echo "✓ Root mounted at /mnt/proxmox"
 
 echo ""
-echo "━━━ Step 4: Installing systemd-boot ━━━"
+echo "━━━ Step 4: Installing GRUB ━━━"
 echo ""
 
-# Install systemd-boot to ESP
-bootctl install --esp-path=/boot/efi
+# Install GRUB to ESP
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --removable
 
-echo "✓ systemd-boot installed"
+echo "✓ GRUB installed"
 
 echo ""
-echo "━━━ Step 5: Extracting Proxmox ISO to ESP ━━━"
+echo "━━━ Step 5: Copying Proxmox ISO to ESP ━━━"
 echo ""
 
-INSTALLER_DIR="/boot/efi/proxmox-installer"
-# Mount to the real disk, not live overlay
-MOUNT_DIR="/mnt/proxmox/iso-mount"
+# Copy ISO to ESP (GRUB will boot it directly)
+mkdir -p /boot/efi/iso
+cp "$ISO_FILE" /boot/efi/iso/proxmox-installer.iso
 
-mkdir -p "$MOUNT_DIR"
-mkdir -p "$INSTALLER_DIR"
-
-# Mount and extract ISO
-mount -o loop,ro "$ISO_FILE" "$MOUNT_DIR"
-echo "Extracting ISO (this may take a few minutes)..."
-# Use cp instead of rsync to avoid buffering in overlay
-cp -a "$MOUNT_DIR/"* "$INSTALLER_DIR/" 2>/dev/null || true
-cp -a "$MOUNT_DIR/".* "$INSTALLER_DIR/" 2>/dev/null || true
-sync
-umount "$MOUNT_DIR"
-rmdir "$MOUNT_DIR"
-
-echo "✓ Proxmox installer extracted to ESP"
-
-# Find kernel and initrd
-KERNEL=$(find "$INSTALLER_DIR" -type f \( -name "vmlinuz*" -o -name "linux*" \) | head -1)
-INITRD=$(find "$INSTALLER_DIR" -type f \( -name "initrd*" \) | head -1)
-
-if [ -z "$KERNEL" ] || [ -z "$INITRD" ]; then
-    echo "❌ Error: Could not find kernel or initrd in ISO"
-    exit 1
-fi
-
-# Convert to relative paths
-KERNEL_REL=${KERNEL#/boot/efi/}
-INITRD_REL=${INITRD#/boot/efi/}
-
-echo "  Kernel: /$KERNEL_REL"
-echo "  Initrd: /$INITRD_REL"
+echo "✓ Proxmox ISO copied to ESP"
 
 echo ""
 echo "━━━ Step 6: Installing netboot.xyz ━━━"
@@ -206,37 +177,27 @@ else
 fi
 
 echo ""
-echo "━━━ Step 7: Creating Boot Entries ━━━"
+echo "━━━ Step 7: Creating GRUB Configuration ━━━"
 echo ""
 
-ENTRIES_DIR="/boot/efi/loader/entries"
-mkdir -p "$ENTRIES_DIR"
+# Create GRUB config
+cat > /boot/efi/grub/grub.cfg <<'EOF'
+set timeout=10
+set default=0
 
-# Configure loader
-cat > /boot/efi/loader/loader.conf <<EOF
-default proxmox-installer.conf
-timeout 10
-console-mode max
-editor yes
+menuentry "Proxmox VE 9 Installer (PackageKit)" {
+    set isofile="/iso/proxmox-installer.iso"
+    loopback loop $isofile
+    linux (loop)/boot/linux26 boot=live noprompt noeject splash quiet vga=791 findiso=$isofile
+    initrd (loop)/boot/initrd.img
+}
+
+menuentry "netboot.xyz" {
+    chainloader /netboot.xyz/netboot.xyz.efi
+}
 EOF
 
-# Create Proxmox installer entry
-cat > "$ENTRIES_DIR/proxmox-installer.conf" <<EOF
-title      Proxmox VE 9 Installer (PackageKit)
-linux      /$KERNEL_REL
-initrd     /$INITRD_REL
-options    boot=live noprompt noeject splash quiet vga=791
-EOF
-
-# Create netboot.xyz entry
-cat > "$ENTRIES_DIR/netboot.xyz.conf" <<EOF
-title      netboot.xyz
-efi        /netboot.xyz/netboot.xyz.efi
-EOF
-
-echo "✓ Boot entries created:"
-echo "  - Proxmox VE 9 Installer (default)"
-echo "  - netboot.xyz"
+echo "✓ GRUB configuration created"
 
 # Sync to disk
 sync
@@ -250,7 +211,7 @@ echo "Summary:"
 echo "  Device:     $DEVICE"
 echo "  ESP:        $ESP_PART (2GB, FAT32)"
 echo "  Root:       $ROOT_PART (BTRFS)"
-echo "  Bootloader: systemd-boot"
+echo "  Bootloader: GRUB"
 echo "  Default:    Proxmox VE 9 Installer"
 echo ""
 echo "The system will now reboot into the Proxmox installer."
