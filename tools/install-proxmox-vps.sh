@@ -152,7 +152,8 @@ echo "━━━ Step 5: Extracting Proxmox ISO to ESP ━━━"
 echo ""
 
 INSTALLER_DIR="/boot/efi/proxmox-installer"
-MOUNT_DIR="/tmp/proxmox-iso-mount"
+# Mount to the real disk, not live overlay
+MOUNT_DIR="/mnt/proxmox/iso-mount"
 
 mkdir -p "$MOUNT_DIR"
 mkdir -p "$INSTALLER_DIR"
@@ -160,7 +161,10 @@ mkdir -p "$INSTALLER_DIR"
 # Mount and extract ISO
 mount -o loop,ro "$ISO_FILE" "$MOUNT_DIR"
 echo "Extracting ISO (this may take a few minutes)..."
-rsync -a --info=progress2 "$MOUNT_DIR/" "$INSTALLER_DIR/"
+# Use cp instead of rsync to avoid buffering in overlay
+cp -a "$MOUNT_DIR/"* "$INSTALLER_DIR/" 2>/dev/null || true
+cp -a "$MOUNT_DIR/".* "$INSTALLER_DIR/" 2>/dev/null || true
+sync
 umount "$MOUNT_DIR"
 rmdir "$MOUNT_DIR"
 
