@@ -43,30 +43,61 @@ cd tools/proxmox-extractor
 cargo build --release
 ```
 
-### Download Proxmox VE 9 ISO
+### Download Proxmox VE ISO
 
+**Proxmox VE 9 (Trixie/Debian 13) - Latest:**
 ```bash
-wget https://enterprise.proxmox.com/iso/proxmox-ve_9.0-1.iso
+./download-pve9.sh ./iso
 ```
+
+**Proxmox VE 8 (Bookworm/Debian 12) - Stable:**
+```bash
+wget -O ~/proxmox-ve_8.2-1.iso \
+    https://enterprise.proxmox.com/iso/proxmox-ve_8.2-1.iso
+```
+
+**Version compatibility:**
+- Debian Trixie (13) → Proxmox VE 9.x ✓ Latest
+- Debian Bookworm (12) → Proxmox VE 8.x ✓ Stable
 
 ---
 
 ## Quick Start
 
-```bash
-# 1. Extract package lists from ISO
-./extract-iso.sh proxmox-ve_9.0-1.iso ./extracted
+### Option A: Automated Scripts (Recommended)
 
-# 2. Generate manifest from packages
+**For Proxmox VE 9 (Trixie):**
+```bash
+cd ~/operation-dbus
+./tools/quick-test-pve9.sh
+```
+
+**For Proxmox VE 8 (Bookworm):**
+```bash
+cd ~/operation-dbus
+./tools/quick-test-pve8.sh
+```
+
+### Option B: Manual Steps
+
+```bash
+# 1. Download ISO (Proxmox VE 9)
+./download-pve9.sh ./iso
+
+# 2. Extract package lists from ISO
+./extract-iso.sh ./iso/proxmox-ve_9.0-1.iso ./extracted
+
+# 3. Generate manifest from packages
 cargo run --release --bin proxmox-manifest -- \
     --packages ./extracted/packages/Packages.txt \
-    --output ./manifest.json
+    --output ./manifest.json \
+    --version 9.0
 
-# 3. Install via PackageKit D-Bus (dry-run first)
+# 4. Install via PackageKit D-Bus (dry-run first)
 cargo run --release --bin proxmox-packagekit -- \
     ./manifest.json --dry-run
 
-# 4. Actually install
+# 5. Actually install
 sudo cargo run --release --bin proxmox-packagekit -- \
     ./manifest.json
 ```

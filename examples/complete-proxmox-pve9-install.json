@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "metadata": {
+    "name": "complete-proxmox-pve9-installation",
+    "description": "Full Proxmox VE 9 installation (Trixie-based) via op-dbus apply",
+    "author": "operation-dbus",
+    "created": "2025-11-15"
+  },
+  "bootstrap": {
+    "debian_version": "trixie",
+    "comment": "Proxmox VE 9 requires Debian Trixie (13)",
+    "hostname": "pve-node1",
+    "domain": "local",
+    "timezone": "America/New_York"
+  },
+  "plugins": {
+    "packagekit": {
+      "comment": "Install Proxmox VE 9 (Trixie-based) via PackageKit D-Bus",
+      "repositories": [
+        {
+          "name": "pve-no-subscription",
+          "url": "http://download.proxmox.com/debian/pve",
+          "distribution": "trixie",
+          "components": ["pve-no-subscription"],
+          "gpg_key": "https://enterprise.proxmox.com/debian/proxmox-release-bookworm.gpg",
+          "comment": "Proxmox VE 9 repository (note: still uses bookworm GPG key for now)"
+        }
+      ],
+      "manifest": "/root/proxmox-ve-9-manifest.json",
+      "comment_manifest": "Generate with: cd tools/proxmox-extractor && ./quick-test-pve9.sh",
+      "additional_packages": [
+        "vim",
+        "tmux",
+        "htop",
+        "iotop",
+        "ncdu",
+        "curl",
+        "wget",
+        "git",
+        "neovim",
+        "fish"
+      ]
+    },
+    "network": {
+      "comment": "Configure OVS bridges with OVSDB persistence",
+      "bridges": [
+        {
+          "name": "vmbr0",
+          "datapath_type": "system",
+          "ports": ["eth0"],
+          "internal_ports": ["vmbr0-if"],
+          "address": "192.168.1.100/24",
+          "openflow": {
+            "auto_apply_defaults": true,
+            "default_rules": [
+              "priority=100,dl_dst=ff:ff:ff:ff:ff:ff,actions=drop",
+              "priority=50,actions=normal"
+            ]
+          },
+          "comment": "Primary bridge for VMs/containers (with physical uplink)"
+        },
+        {
+          "name": "vmbr1",
+          "datapath_type": "system",
+          "internal_ports": ["vmbr1-if"],
+          "address": "10.0.0.1/24",
+          "dhcp": false,
+          "openflow": {
+            "auto_apply_defaults": true,
+            "default_rules": [
+              "priority=50,actions=normal"
+            ]
+          },
+          "comment": "Internal network for containers (isolated)"
+        }
+      ],
+      "ovsdb": {
+        "socket_path": "/var/run/openvswitch/db.sock",
+        "database_path": "/etc/openvswitch/conf.db",
+        "timeout_seconds": 30,
+        "persist": true,
+        "comment": "CRITICAL: persist=true ensures bridges survive reboots"
+      }
+    },
+    "systemd": {
+      "comment": "Enable Proxmox services",
+      "services": {
+        "pve-cluster": {
+          "state": "enabled",
+          "comment": "Proxmox cluster manager"
+        },
+        "pvedaemon": {
+          "state": "enabled",
+          "comment": "Proxmox API daemon"
+        },
+        "pveproxy": {
+          "state": "enabled",
+          "comment": "Proxmox web proxy"
+        },
+        "pvestatd": {
+          "state": "enabled",
+          "comment": "Proxmox status daemon"
+        },
+        "pve-firewall": {
+          "state": "enabled",
+          "comment": "Proxmox firewall"
+        },
+        "op-dbus": {
+          "state": "enabled",
+          "comment": "operation-dbus daemon"
+        }
+      }
+    },
+    "users": {
+      "comment": "Create admin account",
+      "accounts": {
+        "admin": {
+          "uid": 1000,
+          "gid": 1000,
+          "groups": ["sudo", "adm"],
+          "shell": "/bin/bash",
+          "comment": "System Administrator",
+          "ssh_authorized_keys": [
+            "# Add your SSH public key here",
+            "# ssh-ed25519 AAAA... user@host"
+          ]
+        }
+      }
+    },
+    "firewall": {
+      "comment": "Configure firewall rules",
+      "rules": [
+        {
+          "port": 22,
+          "proto": "tcp",
+          "action": "accept",
+          "comment": "SSH access"
+        },
+        {
+          "port": 8006,
+          "proto": "tcp",
+          "action": "accept",
+          "comment": "Proxmox Web UI"
+        },
+        {
+          "port": 8096,
+          "proto": "tcp",
+          "action": "accept",
+          "comment": "op-dbus MCP Web UI"
+        },
+        {
+          "port": 3128,
+          "proto": "tcp",
+          "action": "accept",
+          "comment": "Proxmox Spice Proxy"
+        }
+      ],
+      "default_policy": {
+        "input": "drop",
+        "forward": "accept",
+        "output": "accept"
+      }
+    }
+  }
+}

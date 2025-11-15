@@ -39,6 +39,102 @@ pub enum SnapshotInterval {
     Weekly,
 }
 
+/// Snapshot retention policy with rolling windows
+#[derive(Debug, Clone, Copy)]
+pub struct RetentionPolicy {
+    pub hourly: usize,     // Keep last N hourly snapshots
+    pub daily: usize,      // Keep last N daily snapshots
+    pub weekly: usize,     // Keep last N weekly snapshots
+    pub quarterly: usize,  // Keep last N quarterly snapshots
+}
+
+impl Default for RetentionPolicy {
+    fn default() -> Self {
+        Self {
+            hourly: 5,
+            daily: 5,
+            weekly: 5,
+            quarterly: 5,
+        }
+    }
+}
+
+impl RetentionPolicy {
+    /// Create a new retention policy with explicit values
+    pub fn new(hourly: usize, daily: usize, weekly: usize, quarterly: usize) -> Self {
+        Self {
+            hourly,
+            daily,
+            weekly,
+            quarterly,
+        }
+    }
+
+    /// Parse from environment variables or use defaults
+    pub fn from_env() -> Self {
+        Self {
+            hourly: std::env::var("OPDBUS_RETAIN_HOURLY")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
+            daily: std::env::var("OPDBUS_RETAIN_DAILY")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
+            weekly: std::env::var("OPDBUS_RETAIN_WEEKLY")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
+            quarterly: std::env::var("OPDBUS_RETAIN_QUARTERLY")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
+        }
+    }
+
+    /// Load from JSON value (for config files)
+    pub fn from_json(value: &serde_json::Value) -> Result<Self> {
+        Ok(Self {
+            hourly: value
+                .get("hourly")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5) as usize,
+            daily: value
+                .get("daily")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5) as usize,
+            weekly: value
+                .get("weekly")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5) as usize,
+            quarterly: value
+                .get("quarterly")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5) as usize,
+        })
+    }
+
+    /// Set hourly retention count
+    pub fn set_hourly(&mut self, count: usize) {
+        self.hourly = count;
+    }
+
+    /// Set daily retention count
+    pub fn set_daily(&mut self, count: usize) {
+        self.daily = count;
+    }
+
+    /// Set weekly retention count
+    pub fn set_weekly(&mut self, count: usize) {
+        self.weekly = count;
+    }
+
+    /// Set quarterly retention count
+    pub fn set_quarterly(&mut self, count: usize) {
+        self.quarterly = count;
+    }
+}
+
 impl SnapshotInterval {
     /// Parse from environment variable or string
     pub fn from_env() -> Self {
@@ -71,9 +167,11 @@ impl Default for SnapshotInterval {
 
 pub struct StreamingBlockchain {
     base_path: PathBuf,
-    timing_subvol: PathBuf,
-    vector_subvol: PathBuf,
+    timing_subvol: PathBuf,     // Audit trail (immutable history)
+    vector_subvol: PathBuf,     // ML embeddings
+    state_subvol: PathBuf,      // Current system state (for DR/reinstall)
     snapshot_interval: SnapshotInterval,
+    retention_policy: RetentionPolicy,
     last_snapshot_time: Arc<RwLock<Instant>>,
 }
 
@@ -89,16 +187,20 @@ impl StreamingBlockchain {
         let base_path = base_path.as_ref().to_path_buf();
         let timing_subvol = base_path.join("timing");
         let vector_subvol = base_path.join("vectors");
+        let state_subvol = base_path.join("state");
 
         tokio::fs::create_dir_all(&base_path).await?;
         Self::create_subvolume(&timing_subvol).await?;
         Self::create_subvolume(&vector_subvol).await?;
+        Self::create_subvolume(&state_subvol).await?;
 
         Ok(Self {
             base_path,
             timing_subvol,
             vector_subvol,
+            state_subvol,
             snapshot_interval,
+            retention_policy: RetentionPolicy::from_env(),
             last_snapshot_time: Arc::new(RwLock::new(Instant::now())),
         })
     }
@@ -188,6 +290,48 @@ impl StreamingBlockchain {
         }
 
         Ok(hashes)
+    }
+
+    /// Update current system state (for disaster recovery / reinstall)
+    /// This writes the CURRENT state to state/current.json
+    /// Called after every apply_state() to keep DR state up-to-date
+    pub async fn update_current_state(&self, state: &serde_json::Value) -> Result<()> {
+        let current_state_file = self.state_subvol.join("current.json");
+
+        // Write atomically: write to temp file, then rename
+        let temp_file = self.state_subvol.join(".current.json.tmp");
+        tokio::fs::write(&temp_file, serde_json::to_string_pretty(state)?).await?;
+        tokio::fs::rename(&temp_file, &current_state_file).await?;
+
+        debug!("Updated current state for disaster recovery");
+        Ok(())
+    }
+
+    /// Update per-plugin state (optional, for granular DR)
+    pub async fn update_plugin_state(&self, plugin_name: &str, state: &serde_json::Value) -> Result<()> {
+        let plugins_dir = self.state_subvol.join("plugins");
+        tokio::fs::create_dir_all(&plugins_dir).await?;
+
+        let plugin_file = plugins_dir.join(format!("{}.json", plugin_name));
+        let temp_file = plugins_dir.join(format!(".{}.json.tmp", plugin_name));
+
+        tokio::fs::write(&temp_file, serde_json::to_string_pretty(state)?).await?;
+        tokio::fs::rename(&temp_file, &plugin_file).await?;
+
+        debug!("Updated state for plugin: {}", plugin_name);
+        Ok(())
+    }
+
+    /// Read current system state (for DR recovery)
+    pub async fn read_current_state(&self) -> Result<serde_json::Value> {
+        let current_state_file = self.state_subvol.join("current.json");
+        let content = tokio::fs::read_to_string(&current_state_file).await?;
+        Ok(serde_json::from_str(&content)?)
+    }
+
+    /// Get path to state subvolume (for btrfs send/receive)
+    pub fn state_subvolume_path(&self) -> &Path {
+        &self.state_subvol
     }
 
     pub async fn start_footprint_receiver(
@@ -298,8 +442,12 @@ impl StreamingBlockchain {
         let snapshot_dir = self.base_path.join("snapshots");
         tokio::fs::create_dir_all(&snapshot_dir).await?;
 
+        // Create timestamp for state snapshots (more meaningful than block hash for DR)
+        let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+
+        // Snapshot timing (audit trail - indexed by block hash)
         let timing_snapshot = snapshot_dir.join(format!("timing-{}", block_hash));
-        Command::new("btrfs")
+        let timing_result = Command::new("btrfs")
             .args(["subvolume", "snapshot", "-r"])
             .arg(&self.timing_subvol)
             .arg(&timing_snapshot)
@@ -307,14 +455,53 @@ impl StreamingBlockchain {
             .await
             .context("Failed to create timing snapshot")?;
 
+        if !timing_result.status.success() {
+            warn!(
+                "Failed to create timing snapshot: {}",
+                String::from_utf8_lossy(&timing_result.stderr)
+            );
+        }
+
+        // Snapshot vectors (ML embeddings - indexed by block hash)
         let vector_snapshot = snapshot_dir.join(format!("vectors-{}", block_hash));
-        Command::new("btrfs")
+        let vector_result = Command::new("btrfs")
             .args(["subvolume", "snapshot", "-r"])
             .arg(&self.vector_subvol)
             .arg(&vector_snapshot)
             .output()
             .await
             .context("Failed to create vector snapshot")?;
+
+        if !vector_result.status.success() {
+            warn!(
+                "Failed to create vector snapshot: {}",
+                String::from_utf8_lossy(&vector_result.stderr)
+            );
+        }
+
+        // Snapshot state (current system state - indexed by timestamp for DR)
+        let state_snapshot = snapshot_dir.join(format!("state-{}", timestamp));
+        let state_result = Command::new("btrfs")
+            .args(["subvolume", "snapshot", "-r"])
+            .arg(&self.state_subvol)
+            .arg(&state_snapshot)
+            .output()
+            .await
+            .context("Failed to create state snapshot")?;
+
+        if !state_result.status.success() {
+            warn!(
+                "Failed to create state snapshot: {}",
+                String::from_utf8_lossy(&state_result.stderr)
+            );
+        } else {
+            debug!("Created state snapshot: state-{}", timestamp);
+
+            // Prune old state snapshots according to retention policy
+            if let Err(e) = self.prune_state_snapshots().await {
+                warn!("Failed to prune old snapshots: {}", e);
+            }
+        }
 
         debug!("Created snapshots for block: {}", block_hash);
         Ok(())
@@ -395,5 +582,214 @@ impl StreamingBlockchain {
     /// Set snapshot interval (for runtime configuration)
     pub fn set_snapshot_interval(&mut self, interval: SnapshotInterval) {
         self.snapshot_interval = interval;
+    }
+
+    /// Get current retention policy
+    pub fn retention_policy(&self) -> RetentionPolicy {
+        self.retention_policy
+    }
+
+    /// Set retention policy (for runtime configuration)
+    pub fn set_retention_policy(&mut self, policy: RetentionPolicy) {
+        info!(
+            "Updating retention policy: {}h/{}d/{}w/{}q",
+            policy.hourly, policy.daily, policy.weekly, policy.quarterly
+        );
+        self.retention_policy = policy;
+    }
+
+    /// Update retention policy from JSON config
+    pub fn update_retention_from_json(&mut self, value: &serde_json::Value) -> Result<()> {
+        let policy = RetentionPolicy::from_json(value)?;
+        self.set_retention_policy(policy);
+        Ok(())
+    }
+
+    /// Prune state snapshots according to retention policy (rolling windows)
+    async fn prune_state_snapshots(&self) -> Result<()> {
+        use chrono::{DateTime, Datelike, Duration, NaiveDateTime, Utc};
+        use std::collections::HashMap;
+
+        let snapshot_dir = self.base_path.join("snapshots");
+
+        // List all state snapshots
+        let mut entries = tokio::fs::read_dir(&snapshot_dir).await?;
+        let mut snapshots: Vec<(String, DateTime<Utc>)> = Vec::new();
+
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            // Only process state snapshots
+            if !name.starts_with("state-") {
+                continue;
+            }
+
+            // Parse timestamp from filename: state-20250106-143022
+            if let Some(timestamp_str) = name.strip_prefix("state-") {
+                if let Ok(dt) = NaiveDateTime::parse_from_str(timestamp_str, "%Y%m%d-%H%M%S") {
+                    let dt_utc = DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc);
+                    snapshots.push((name, dt_utc));
+                }
+            }
+        }
+
+        // Sort by timestamp (newest first)
+        snapshots.sort_by(|a, b| b.1.cmp(&a.1));
+
+        let now = Utc::now();
+
+        // Categorize snapshots into retention buckets
+        let mut hourly: Vec<String> = Vec::new();
+        let mut daily: HashMap<String, String> = HashMap::new(); // date -> snapshot name
+        let mut weekly: HashMap<u32, String> = HashMap::new(); // week number -> snapshot name
+        let mut quarterly: HashMap<String, String> = HashMap::new(); // quarter -> snapshot name
+
+        for (name, dt) in &snapshots {
+            let age = now.signed_duration_since(*dt);
+
+            // Hourly bucket: Last 24 hours, keep one per hour
+            if age <= Duration::hours(24) {
+                hourly.push(name.clone());
+            }
+            // Daily bucket: Keep one per day
+            else if age <= Duration::days(30) {
+                let date_key = dt.format("%Y%m%d").to_string();
+                daily.entry(date_key).or_insert_with(|| name.clone());
+            }
+            // Weekly bucket: Keep one per week
+            else if age <= Duration::weeks(12) {
+                let week_key = dt.iso_week().week();
+                weekly.entry(week_key).or_insert_with(|| name.clone());
+            }
+            // Quarterly bucket: Keep one per quarter
+            else {
+                let quarter = (dt.month() - 1) / 3 + 1;
+                let quarter_key = format!("{}-Q{}", dt.year(), quarter);
+                quarterly.entry(quarter_key).or_insert_with(|| name.clone());
+            }
+        }
+
+        // Apply retention limits
+        let mut keep_snapshots: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // Keep last N hourly snapshots
+        for snapshot in hourly.iter().take(self.retention_policy.hourly) {
+            keep_snapshots.insert(snapshot.clone());
+        }
+
+        // Keep last N daily snapshots
+        let mut daily_snapshots: Vec<_> = daily.into_values().collect();
+        daily_snapshots.sort();
+        daily_snapshots.reverse();
+        for snapshot in daily_snapshots.iter().take(self.retention_policy.daily) {
+            keep_snapshots.insert(snapshot.clone());
+        }
+
+        // Keep last N weekly snapshots
+        let mut weekly_snapshots: Vec<_> = weekly.into_values().collect();
+        weekly_snapshots.sort();
+        weekly_snapshots.reverse();
+        for snapshot in weekly_snapshots.iter().take(self.retention_policy.weekly) {
+            keep_snapshots.insert(snapshot.clone());
+        }
+
+        // Keep last N quarterly snapshots
+        let mut quarterly_snapshots: Vec<_> = quarterly.into_values().collect();
+        quarterly_snapshots.sort();
+        quarterly_snapshots.reverse();
+        for snapshot in quarterly_snapshots.iter().take(self.retention_policy.quarterly) {
+            keep_snapshots.insert(snapshot.clone());
+        }
+
+        // Delete snapshots not in keep set
+        let mut deleted_count = 0;
+        for (name, _dt) in &snapshots {
+            if !keep_snapshots.contains(name) {
+                let snapshot_path = snapshot_dir.join(name);
+                match Command::new("btrfs")
+                    .args(["subvolume", "delete"])
+                    .arg(&snapshot_path)
+                    .output()
+                    .await
+                {
+                    Ok(output) => {
+                        if output.status.success() {
+                            deleted_count += 1;
+                            debug!("Pruned old snapshot: {}", name);
+                        } else {
+                            warn!(
+                                "Failed to delete snapshot {}: {}",
+                                name,
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to execute btrfs delete for {}: {}", name, e);
+                    }
+                }
+            }
+        }
+
+        if deleted_count > 0 {
+            info!(
+                "Pruned {} old state snapshots (retention: {}h/{}d/{}w/{}q)",
+                deleted_count,
+                self.retention_policy.hourly,
+                self.retention_policy.daily,
+                self.retention_policy.weekly,
+                self.retention_policy.quarterly
+            );
+        }
+
+        Ok(())
+    }
+
+    /// List all available state snapshots for rollback
+    pub async fn list_state_snapshots(&self) -> Result<Vec<(String, String)>> {
+        use chrono::{DateTime, NaiveDateTime, Utc};
+
+        let snapshot_dir = self.base_path.join("snapshots");
+        let mut entries = tokio::fs::read_dir(&snapshot_dir).await?;
+        let mut snapshots = Vec::new();
+
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            if !name.starts_with("state-") {
+                continue;
+            }
+
+            if let Some(timestamp_str) = name.strip_prefix("state-") {
+                if let Ok(dt) = NaiveDateTime::parse_from_str(timestamp_str, "%Y%m%d-%H%M%S") {
+                    let dt_utc = DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc);
+                    let human_readable = dt_utc.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+                    snapshots.push((name, human_readable));
+                }
+            }
+        }
+
+        // Sort by timestamp (newest first)
+        snapshots.sort_by(|a, b| b.0.cmp(&a.0));
+
+        Ok(snapshots)
+    }
+
+    /// Rollback to a specific state snapshot
+    pub async fn rollback_to_snapshot(&self, snapshot_name: &str) -> Result<PathBuf> {
+        let snapshot_path = self.base_path.join("snapshots").join(snapshot_name);
+
+        if !snapshot_path.exists() {
+            anyhow::bail!("Snapshot not found: {}", snapshot_name);
+        }
+
+        // Read the state from the snapshot
+        let state_file = snapshot_path.join("current.json");
+        if !state_file.exists() {
+            anyhow::bail!("Snapshot does not contain current.json");
+        }
+
+        info!("Rolling back to snapshot: {}", snapshot_name);
+        Ok(state_file)
     }
 }

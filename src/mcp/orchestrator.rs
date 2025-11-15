@@ -1,6 +1,6 @@
 //! Refactored orchestrator using agent registry for loose coupling
 
-use crate::mcp::agent_registry::{load_default_specs, AgentRegistry};
+use op_dbus::mcp::agent_registry::{load_default_specs, AgentRegistry};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -140,6 +140,7 @@ impl Orchestrator {
 
         match self.registry.spawn_agent(&agent_type, config).await {
             Ok(agent_id) => {
+                let agent_id: String = agent_id;
                 // Notify listeners
                 self.notify_agent_spawned(&agent_id, &agent_type).await;
 

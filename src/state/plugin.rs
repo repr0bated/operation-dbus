@@ -14,6 +14,19 @@ pub trait StatePlugin: Send + Sync {
     #[allow(dead_code)]
     fn version(&self) -> &str;
 
+    /// Check if this plugin's dependencies are available on the system
+    /// Returns true if the plugin can operate, false if dependencies are missing
+    /// Default implementation returns true (plugin always available)
+    fn is_available(&self) -> bool {
+        true
+    }
+
+    /// Get a message explaining why the plugin is unavailable (if it is)
+    /// Only called if is_available() returns false
+    fn unavailable_reason(&self) -> String {
+        format!("Plugin '{}' is not available", self.name())
+    }
+
     /// Query current system state in this domain
     async fn query_current_state(&self) -> Result<Value>;
 

@@ -76,11 +76,20 @@ mount "${DEVICE}2" "$MOUNT_POINT"
 mkdir -p "$MOUNT_POINT/boot/efi"
 mount "${DEVICE}1" "$MOUNT_POINT/boot/efi"
 
+# Detect desired Debian version from state file (default: bookworm)
+DEBIAN_VERSION="bookworm"
+if command -v jq >/dev/null 2>&1; then
+    # Try to extract Debian version from state.json if it has bootstrap.debian_version
+    DEBIAN_VERSION=$(jq -r '.bootstrap.debian_version // "bookworm"' "$STATE_FILE" 2>/dev/null || echo "bookworm")
+fi
+
+echo "Using Debian version: $DEBIAN_VERSION"
+
 # Install ONLY the essentials needed to run op-dbus
 debootstrap \
     --variant=minbase \
     --include=systemd,systemd-sysv,udev,dbus,packagekit,packagekit-tools,curl,gnupg \
-    bookworm \
+    "$DEBIAN_VERSION" \
     "$MOUNT_POINT" \
     http://deb.debian.org/debian
 

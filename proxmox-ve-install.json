@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "plugins": {
+    "packagekit": {
+      "packages": {
+        "curl": {
+          "ensure": "installed"
+        },
+        "htop": {
+          "ensure": "installed"
+        },
+        "vim": {
+          "ensure": "installed"
+        }
+      }
+    }
+  }
+}

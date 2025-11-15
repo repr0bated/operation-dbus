@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "dbus-orchestrator": {
+      "command": "/git/operation-dbus/target/release/dbus-mcp",
+      "args": [],
+      "env": {
+        "RUST_LOG": "info"
+      },
+      "disabled": false
+    }
+  }
+}

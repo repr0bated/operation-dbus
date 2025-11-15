@@ -1,6 +1,11 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::process::Command;
+use uuid::Uuid;
 use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
+
+// Security configuration
+const FORBIDDEN_CHARS: &[char] = &['$', '`', ';', '&', '|', '>', '<', '(', ')', '{', '}', '\n', '\r', ' '];
+const MAX_SERVICE_LENGTH: usize = 256;
 
 #[derive(Debug, Deserialize)]
 struct SystemdTask {
@@ -35,6 +40,23 @@ impl SystemdAgent {
                 "Unknown task type: {}",
                 task.task_type
             )));
+        }
+
+        // Validate service name
+        if task.service.len() > MAX_SERVICE_LENGTH {
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "Service name exceeds maximum length of {} characters",
+                MAX_SERVICE_LENGTH
+            )));
+        }
+
+        for forbidden_char in FORBIDDEN_CHARS {
+            if task.service.contains(*forbidden_char) {
+                return Err(zbus::fdo::Error::InvalidArgs(format!(
+                    "Service name contains forbidden character: {:?}",
+                    forbidden_char
+                )));
+            }
         }
 
         // Validate action
@@ -108,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         format!(
             "systemd-{}",
-            uuid::Uuid::new_v4().to_string()[..8].to_string()
+            Uuid::new_v4().to_string()[..8].to_string()
         )
     };
 
@@ -121,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/Systemd/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.Systemd.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::session()?
+    let _conn = ConnectionBuilder::system()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()
