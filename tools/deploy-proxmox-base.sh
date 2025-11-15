@@ -274,10 +274,31 @@ echo "✓ Machine ID will regenerate on first boot"
 rm -f /mnt/target/etc/ssh/ssh_host_*
 echo "✓ SSH host keys will regenerate on first boot"
 
-# Re-bind mount for password setting
+# Set hostname
+echo "proxmox" > /mnt/target/etc/hostname
+
+# Update /etc/hosts
+cat > /mnt/target/etc/hosts <<EOF
+127.0.0.1       localhost
+127.0.1.1       proxmox
+
+# The following lines are desirable for IPv6 capable hosts
+::1             localhost ip6-localhost ip6-loopback
+ff02::1         ip6-allnodes
+ff02::2         ip6-allrouters
+EOF
+
+echo "✓ Hostname set to 'proxmox'"
+
+# Re-bind mount for user/password configuration
 mount --bind /dev /mnt/target/dev
 mount --bind /proc /mnt/target/proc
 mount --bind /sys /mnt/target/sys
+
+# Create ghostbridge user
+chroot /mnt/target useradd -m -s /bin/bash -G sudo ghostbridge
+echo "ghostbridge:ghostbridge" | chroot /mnt/target chpasswd
+echo "✓ Created user 'ghostbridge' with password 'ghostbridge'"
 
 # Set root password
 echo ""
@@ -325,7 +346,9 @@ echo "  Device:        $DEVICE"
 echo "  ESP:           $ESP_PART (UUID: $ESP_UUID)"
 echo "  Root:          $ROOT_PART (UUID: $ROOT_UUID)"
 echo "  Subvolume:     @"
-echo "  Bootloader:    GRUB"
+echo "  Bootloader:    systemd-boot"
+echo "  Hostname:      proxmox"
+echo "  User:          ghostbridge (password: ghostbridge)"
 echo ""
 echo "On first boot:"
 echo "  1. Machine ID will be regenerated"
