@@ -1,0 +1,7 @@
+# Ignore ISO files by default (too large for git without LFS)
+*.iso
+
+# To track with git-lfs, run:
+#   git lfs track "*.iso"
+#   git add .gitattributes
+#   git add -f proxmox-ve_9.0-1-packagekit.iso
