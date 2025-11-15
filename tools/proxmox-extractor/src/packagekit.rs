@@ -217,19 +217,23 @@ impl PackageKitInstaller {
             .build()
             .await?;
 
-        // Resolve package names to package-ids
-        // Note: For simplicity, we use package names directly
-        // In production, you'd want to resolve these properly
-        let package_ids: Vec<String> = package_names
-            .iter()
-            .map(|name| format!("{};latest;amd64;debian", name))
-            .collect();
+        // For Proxmox packages, we need to use pkcon directly since PackageKit
+        // may not properly resolve Proxmox repo packages via D-Bus
+        // This is a workaround until we implement proper repo resolution
 
-        // Transaction flags: none (0)
-        tx_proxy.install_packages(0, package_ids).await?;
+        // Use pkcon as fallback for actual installation
+        let package_list = package_names.join(" ");
+        let output = tokio::process::Command::new("pkcon")
+            .arg("install")
+            .arg("-y")
+            .args(package_names)
+            .output()
+            .await?;
 
-        // Wait for completion
-        sleep(Duration::from_secs(1)).await;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("pkcon install failed: {}", stderr));
+        }
 
         Ok(())
     }
