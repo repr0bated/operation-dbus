@@ -262,7 +262,35 @@ umount /mnt/target/proc
 umount /mnt/target/sys
 
 echo ""
-echo "━━━ Step 9: Updating fstab ━━━"
+echo "━━━ Step 9: Machine-Specific Configuration ━━━"
+echo ""
+
+# Force machine-id regeneration on first boot
+rm -f /mnt/target/etc/machine-id
+touch /mnt/target/etc/machine-id
+echo "✓ Machine ID will regenerate on first boot"
+
+# Force SSH host key regeneration
+rm -f /mnt/target/etc/ssh/ssh_host_*
+echo "✓ SSH host keys will regenerate on first boot"
+
+# Re-bind mount for password setting
+mount --bind /dev /mnt/target/dev
+mount --bind /proc /mnt/target/proc
+mount --bind /sys /mnt/target/sys
+
+# Set root password
+echo ""
+echo "Set root password for deployed system:"
+chroot /mnt/target passwd root
+
+# Unmount bind mounts
+umount /mnt/target/dev
+umount /mnt/target/proc
+umount /mnt/target/sys
+
+echo ""
+echo "━━━ Step 10: Updating fstab ━━━"
 echo ""
 
 # UUIDs already extracted in Step 8
@@ -276,7 +304,7 @@ EOF
 echo "✓ fstab updated"
 
 echo ""
-echo "━━━ Step 10: Expanding Filesystem ━━━"
+echo "━━━ Step 11: Expanding Filesystem ━━━"
 echo ""
 
 # Resize BTRFS to use full partition
