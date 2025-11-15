@@ -36,6 +36,18 @@ cd boot/netboot.xyz
 wget https://boot.netboot.xyz/ipxe/netboot.xyz.efi
 git add netboot.xyz.efi
 git commit -m "Add netboot.xyz EFI binary for offline installs"
+- `netboot.xyz.efi` - Download from https://boot.netboot.xyz/ipxe/netboot.xyz.efi
+
+## Installation
+
+```bash
+# Copy to ESP
+sudo cp boot/netboot.xyz/netboot.xyz.conf /boot/efi/loader/entries/
+sudo cp boot/netboot.xyz/netboot.xyz.efi /boot/efi/netboot.xyz/
+
+# Download latest netboot.xyz.efi
+wget -O /boot/efi/netboot.xyz/netboot.xyz.efi \
+    https://boot.netboot.xyz/ipxe/netboot.xyz.efi
 ```
 
 ## Integration
