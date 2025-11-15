@@ -172,11 +172,37 @@ fi
 
 echo "✓ Extracted: $(basename "$RAW_FILE")"
 
-# Mount the raw image
-mkdir -p /mnt/source
-mount -o loop,ro "$RAW_FILE" /mnt/source
+# Set up loop device with partition scanning
+echo "Setting up loop device..."
+LOOP_DEV=$(losetup -f -P --show "$RAW_FILE")
+echo "✓ Loop device: $LOOP_DEV"
 
-echo "✓ Source image mounted"
+# Wait for partition devices to appear
+sleep 2
+partprobe "$LOOP_DEV" 2>/dev/null || true
+
+# Find the root partition (should be the @ subvolume on BTRFS)
+# The raw image likely has the root filesystem on partition 2
+ROOT_LOOP="${LOOP_DEV}p2"
+
+if [ ! -b "$ROOT_LOOP" ]; then
+    # Try without 'p' separator (some systems use /dev/loop0p1, others /dev/loop01)
+    ROOT_LOOP="${LOOP_DEV}2"
+fi
+
+if [ ! -b "$ROOT_LOOP" ]; then
+    echo "❌ Error: Cannot find root partition on loop device"
+    losetup -d "$LOOP_DEV"
+    exit 1
+fi
+
+echo "✓ Found root partition: $ROOT_LOOP"
+
+# Mount the @ subvolume from the raw image
+mkdir -p /mnt/source
+mount -o ro,subvol=@ "$ROOT_LOOP" /mnt/source
+
+echo "✓ Source @ subvolume mounted"
 
 echo ""
 echo "━━━ Step 6: Copying System (this will take several minutes) ━━━"
@@ -200,6 +226,7 @@ echo "✓ System copied to @ subvolume"
 # Unmount and cleanup
 umount /mnt/source
 rmdir /mnt/source
+losetup -d "$LOOP_DEV"
 rm -rf "$TEMP_DIR"
 
 echo "✓ Cleanup complete"
