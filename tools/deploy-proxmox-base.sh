@@ -73,7 +73,6 @@ apt-get install -y \
     parted \
     dosfstools \
     btrfs-progs \
-    systemd-boot \
     rsync
 
 echo "✓ Dependencies installed"
