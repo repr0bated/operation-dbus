@@ -151,18 +151,61 @@ mount "$ESP_PART" /mnt/target/boot/efi
 echo "✓ Mounted @ subvolume and ESP"
 
 echo ""
-echo "━━━ Step 5: Extracting System (this will take several minutes) ━━━"
+echo "━━━ Step 5: Extracting Raw Image ━━━"
 echo ""
 
-# Extract archive directly to target @ subvolume
-# Use tar with progress indication
-echo "Extracting $ARCHIVE_FILE to /mnt/target..."
-tar -xzf "$ARCHIVE_FILE" -C /mnt/target --exclude='boot/efi/*' --exclude='dev/*' --exclude='proc/*' --exclude='sys/*' --exclude='tmp/*' --exclude='run/*' --exclude='mnt/*' --exclude='media/*'
+# Extract the raw image to a temporary location on the target disk
+# This avoids using live environment memory
+TEMP_DIR="/mnt/target/.deploy-temp"
+mkdir -p "$TEMP_DIR"
 
-echo "✓ System extracted to @ subvolume"
+echo "Extracting raw image from archive..."
+tar -xzf "$ARCHIVE_FILE" -C "$TEMP_DIR"
+
+# Find the extracted raw file
+RAW_FILE=$(find "$TEMP_DIR" -name "*.raw" -type f | head -n1)
+
+if [ -z "$RAW_FILE" ]; then
+    echo "❌ Error: No .raw file found in archive"
+    exit 1
+fi
+
+echo "✓ Extracted: $(basename "$RAW_FILE")"
+
+# Mount the raw image
+mkdir -p /mnt/source
+mount -o loop,ro "$RAW_FILE" /mnt/source
+
+echo "✓ Source image mounted"
 
 echo ""
-echo "━━━ Step 6: Installing netboot.xyz ━━━"
+echo "━━━ Step 6: Copying System (this will take several minutes) ━━━"
+echo ""
+
+# Rsync from mounted image to target @ subvolume
+rsync -aHAXv --info=progress2 \
+    --exclude='/boot/efi/*' \
+    --exclude='/dev/*' \
+    --exclude='/proc/*' \
+    --exclude='/sys/*' \
+    --exclude='/tmp/*' \
+    --exclude='/run/*' \
+    --exclude='/mnt/*' \
+    --exclude='/media/*' \
+    --exclude='/.deploy-temp/*' \
+    /mnt/source/ /mnt/target/
+
+echo "✓ System copied to @ subvolume"
+
+# Unmount and cleanup
+umount /mnt/source
+rmdir /mnt/source
+rm -rf "$TEMP_DIR"
+
+echo "✓ Cleanup complete"
+
+echo ""
+echo "━━━ Step 7: Installing netboot.xyz ━━━"
 echo ""
 
 NETBOOT_DIR="/mnt/target/boot/efi/netboot.xyz"
@@ -181,7 +224,7 @@ else
 fi
 
 echo ""
-echo "━━━ Step 7: Installing systemd-boot ━━━"
+echo "━━━ Step 8: Installing systemd-boot ━━━"
 echo ""
 
 # Get partition UUIDs
@@ -241,7 +284,7 @@ umount /mnt/target/proc
 umount /mnt/target/sys
 
 echo ""
-echo "━━━ Step 8: Machine-Specific Configuration ━━━"
+echo "━━━ Step 9: Machine-Specific Configuration ━━━"
 echo ""
 
 # Force machine-id regeneration on first boot
@@ -290,10 +333,10 @@ umount /mnt/target/proc
 umount /mnt/target/sys
 
 echo ""
-echo "━━━ Step 9: Updating fstab ━━━"
+echo "━━━ Step 10: Updating fstab ━━━"
 echo ""
 
-# UUIDs already extracted in Step 7
+# UUIDs already extracted in Step 8
 # Create fstab
 cat > /mnt/target/etc/fstab <<EOF
 # <file system> <mount point> <type> <options> <dump> <pass>
@@ -304,7 +347,7 @@ EOF
 echo "✓ fstab updated"
 
 echo ""
-echo "━━━ Step 10: Expanding Filesystem ━━━"
+echo "━━━ Step 11: Expanding Filesystem ━━━"
 echo ""
 
 # Resize BTRFS to use full partition
