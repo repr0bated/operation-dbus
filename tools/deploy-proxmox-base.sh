@@ -73,8 +73,7 @@ apt-get install -y \
     parted \
     dosfstools \
     btrfs-progs \
-    grub-efi-amd64 \
-    grub-efi-amd64-bin \
+    systemd-boot \
     rsync
 
 echo "✓ Dependencies installed"
@@ -203,47 +202,59 @@ else
 fi
 
 echo ""
-echo "━━━ Step 8: Installing GRUB ━━━"
+echo "━━━ Step 8: Installing systemd-boot ━━━"
 echo ""
+
+# Get partition UUIDs
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+ESP_UUID=$(blkid -s UUID -o value "$ESP_PART")
 
 # Bind mount necessary filesystems for chroot
 mount --bind /dev /mnt/target/dev
 mount --bind /proc /mnt/target/proc
 mount --bind /sys /mnt/target/sys
 
-# Get partition UUIDs
-ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
-ESP_UUID=$(blkid -s UUID -o value "$ESP_PART")
+# Install systemd-boot from chroot
+chroot /mnt/target bootctl install --esp-path=/boot/efi
 
-# Install GRUB from chroot
-chroot /mnt/target grub-install \
-    --target=x86_64-efi \
-    --efi-directory=/boot/efi \
-    --boot-directory=/boot \
-    --bootloader-id=Proxmox \
-    --removable \
-    --no-nvram
+echo "✓ systemd-boot installed"
 
-# Create GRUB config directly on ESP (not using chroot update-grub)
-# This allows booting into the deployed Proxmox OR netboot.xyz
-cat > /mnt/target/boot/efi/grub/grub.cfg <<EOF
-set timeout=10
-set default=0
-
-menuentry "Proxmox VE (Deployed Base Image)" {
-    insmod btrfs
-    insmod part_gpt
-    search --no-floppy --fs-uuid --set=root $ROOT_UUID
-    linux /@/boot/vmlinuz-* root=UUID=$ROOT_UUID rootflags=subvol=@ ro quiet
-    initrd /@/boot/initrd.img-*
-}
-
-menuentry "netboot.xyz" {
-    chainloader /netboot.xyz/netboot.xyz.efi
-}
+# Create loader configuration
+cat > /mnt/target/boot/efi/loader/loader.conf <<EOF
+default proxmox.conf
+timeout 10
+console-mode max
+editor yes
 EOF
 
-echo "✓ GRUB installed with Proxmox and netboot.xyz entries"
+# Find kernel and initrd versions
+KERNEL=$(ls /mnt/target/boot/vmlinuz-* 2>/dev/null | head -1)
+INITRD=$(ls /mnt/target/boot/initrd.img-* 2>/dev/null | head -1)
+
+if [ -n "$KERNEL" ] && [ -n "$INITRD" ]; then
+    KERNEL_FILE=$(basename "$KERNEL")
+    INITRD_FILE=$(basename "$INITRD")
+
+    # Create Proxmox boot entry
+    cat > /mnt/target/boot/efi/loader/entries/proxmox.conf <<EOF
+title      Proxmox VE (Base Image)
+linux      /@/boot/$KERNEL_FILE
+initrd     /@/boot/$INITRD_FILE
+options    root=UUID=$ROOT_UUID rootflags=subvol=@ rw quiet
+EOF
+
+    echo "✓ Created Proxmox boot entry"
+else
+    echo "⚠️  Warning: Could not find kernel/initrd, boot entry may need manual configuration"
+fi
+
+# Create netboot.xyz entry
+cat > /mnt/target/boot/efi/loader/entries/netboot.xyz.conf <<EOF
+title      netboot.xyz
+efi        /netboot.xyz/netboot.xyz.efi
+EOF
+
+echo "✓ Created netboot.xyz boot entry"
 
 # Unmount bind mounts
 umount /mnt/target/dev
