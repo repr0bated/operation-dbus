@@ -1,0 +1,62 @@
+[Unit]
+Description=Open vSwitch Forwarding Unit
+Documentation=man:ovs-vswitchd(8)
+After=ovsdb-server.service network-pre.target
+Requires=ovsdb-server.service
+BindsTo=ovsdb-server.service
+Before=network.target
+PartOf=openvswitch.service
+
+[Service]
+Type=forking
+PIDFile=/var/run/openvswitch/ovs-vswitchd.pid
+User=openvswitch
+Group=openvswitch
+
+# Ensure directories exist
+ExecStartPre=/bin/mkdir -p /var/run/openvswitch
+ExecStartPre=/bin/mkdir -p /var/log/openvswitch
+ExecStartPre=/bin/chown -R openvswitch:openvswitch /var/run/openvswitch
+ExecStartPre=/bin/chown -R openvswitch:openvswitch /var/log/openvswitch
+
+# Load kernel modules required for OVS
+ExecStartPre=-/sbin/modprobe openvswitch
+ExecStartPre=-/sbin/modprobe vport_vxlan
+ExecStartPre=-/sbin/modprobe vport_geneve
+
+# Start OVS switch daemon
+# This reads bridge configurations from the OVSDB database
+# and creates the corresponding kernel network interfaces
+ExecStart=/usr/sbin/ovs-vswitchd \
+    --pidfile=/var/run/openvswitch/ovs-vswitchd.pid \
+    --detach \
+    --monitor \
+    --log-file=/var/log/openvswitch/ovs-vswitchd.log \
+    unix:/var/run/openvswitch/db.sock
+
+# Graceful shutdown
+ExecStop=/bin/sh -c '/usr/bin/ovs-appctl -t /var/run/openvswitch/ovs-vswitchd.pid exit 2>/dev/null || true'
+ExecStopPost=/bin/rm -f /var/run/openvswitch/ovs-vswitchd.pid
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5s
+
+# Timeout settings
+TimeoutStartSec=30s
+TimeoutStopSec=10s
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/run/openvswitch /var/log/openvswitch
+
+# Required capabilities for network operations
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target
+WantedBy=openvswitch.service

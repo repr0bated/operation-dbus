@@ -1,0 +1,59 @@
+[Unit]
+Description=Open vSwitch Database Server with Persistent Storage
+Documentation=man:ovsdb-server(1)
+After=network-pre.target
+Before=network.target ovs-vswitchd.service
+PartOf=openvswitch.service
+
+[Service]
+Type=forking
+PIDFile=/var/run/openvswitch/ovsdb-server.pid
+User=openvswitch
+Group=openvswitch
+
+# CRITICAL: Ensure persistent database directory exists
+ExecStartPre=/bin/mkdir -p /etc/openvswitch
+ExecStartPre=/bin/mkdir -p /var/run/openvswitch
+ExecStartPre=/bin/mkdir -p /var/log/openvswitch
+ExecStartPre=/bin/chown -R openvswitch:openvswitch /etc/openvswitch
+ExecStartPre=/bin/chown -R openvswitch:openvswitch /var/run/openvswitch
+ExecStartPre=/bin/chown -R openvswitch:openvswitch /var/log/openvswitch
+
+# Create database from schema if it doesn't exist
+# This only runs on first boot or if database file is missing
+ExecStartPre=/bin/sh -c 'test -e /etc/openvswitch/conf.db || /usr/bin/ovsdb-tool create /etc/openvswitch/conf.db /usr/share/openvswitch/vswitch.ovsschema'
+
+# CRITICAL: Start OVSDB server with PERSISTENT database file
+# The database file /etc/openvswitch/conf.db MUST be on persistent storage
+# This ensures all bridge configurations survive reboots
+ExecStart=/usr/sbin/ovsdb-server \
+    --remote=punix:/var/run/openvswitch/db.sock \
+    --remote=db:Open_vSwitch,Open_vSwitch,manager_options \
+    --pidfile=/var/run/openvswitch/ovsdb-server.pid \
+    --detach \
+    --monitor \
+    --log-file=/var/log/openvswitch/ovsdb-server.log \
+    /etc/openvswitch/conf.db
+
+# Graceful shutdown
+ExecStop=/bin/sh -c '/usr/bin/ovs-appctl -t /var/run/openvswitch/ovsdb-server.pid exit 2>/dev/null || true'
+ExecStopPost=/bin/rm -f /var/run/openvswitch/ovsdb-server.pid
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5s
+
+# Timeout settings
+TimeoutStartSec=30s
+TimeoutStopSec=10s
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/openvswitch /var/run/openvswitch /var/log/openvswitch
+
+[Install]
+WantedBy=multi-user.target
+WantedBy=openvswitch.service

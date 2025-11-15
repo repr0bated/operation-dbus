@@ -1,32 +1,33 @@
 {
   "version": 1,
   "metadata": {
-    "name": "complete-proxmox-installation",
-    "description": "Full Proxmox VE 9 installation via op-dbus apply",
+    "name": "complete-proxmox-pve9-installation",
+    "description": "Full Proxmox VE 9 installation (Trixie-based) via op-dbus apply",
     "author": "operation-dbus",
     "created": "2025-11-15"
   },
   "bootstrap": {
-    "debian_version": "bookworm",
-    "comment": "Use 'bookworm' for PVE 8.x, 'trixie' for PVE 9.x",
+    "debian_version": "trixie",
+    "comment": "Proxmox VE 9 requires Debian Trixie (13)",
     "hostname": "pve-node1",
     "domain": "local",
     "timezone": "America/New_York"
   },
   "plugins": {
     "packagekit": {
-      "comment": "Install Proxmox VE 8.x (for Bookworm) via PackageKit D-Bus",
-      "comment_version": "Change to trixie/PVE 9 if using Trixie base",
+      "comment": "Install Proxmox VE 9 (Trixie-based) via PackageKit D-Bus",
       "repositories": [
         {
           "name": "pve-no-subscription",
           "url": "http://download.proxmox.com/debian/pve",
-          "distribution": "bookworm",
+          "distribution": "trixie",
           "components": ["pve-no-subscription"],
-          "gpg_key": "https://enterprise.proxmox.com/debian/proxmox-release-bookworm.gpg"
+          "gpg_key": "https://enterprise.proxmox.com/debian/proxmox-release-bookworm.gpg",
+          "comment": "Proxmox VE 9 repository (note: still uses bookworm GPG key for now)"
         }
       ],
-      "manifest": "/root/proxmox-ve-8-manifest.json",
+      "manifest": "/root/proxmox-ve-9-manifest.json",
+      "comment_manifest": "Generate with: cd tools/proxmox-extractor && ./quick-test-pve9.sh",
       "additional_packages": [
         "vim",
         "tmux",
@@ -35,7 +36,9 @@
         "ncdu",
         "curl",
         "wget",
-        "git"
+        "git",
+        "neovim",
+        "fish"
       ]
     },
     "network": {
