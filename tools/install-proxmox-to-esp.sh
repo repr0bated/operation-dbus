@@ -54,6 +54,50 @@ if ! mountpoint -q "$ESP_MOUNT"; then
     exit 1
 fi
 
+# Check ESP size and available space
+echo ""
+echo "━━━ Checking ESP Size ━━━"
+echo ""
+
+ISO_SIZE=$(stat -f "%z" "$ISO_FILE" 2>/dev/null || stat -c "%s" "$ISO_FILE" 2>/dev/null)
+ISO_SIZE_MB=$((ISO_SIZE / 1024 / 1024))
+ESP_AVAILABLE=$(df -BM "$ESP_MOUNT" | tail -1 | awk '{print $4}' | tr -d 'M')
+ESP_TOTAL=$(df -BM "$ESP_MOUNT" | tail -1 | awk '{print $2}' | tr -d 'M')
+
+echo "ISO size: ${ISO_SIZE_MB}MB"
+echo "ESP total: ${ESP_TOTAL}MB"
+echo "ESP available: ${ESP_AVAILABLE}MB"
+echo ""
+
+# Require at least 2GB total ESP (2048MB)
+if [ "$ESP_TOTAL" -lt 2048 ]; then
+    echo "❌ Error: ESP partition too small"
+    echo ""
+    echo "Required: 2GB (2048MB)"
+    echo "Current: ${ESP_TOTAL}MB"
+    echo ""
+    echo "Recreate ESP with at least 2GB:"
+    echo "  parted /dev/sda mkpart ESP fat32 1MiB 2049MiB"
+    echo "  parted /dev/sda set 1 esp on"
+    echo "  mkfs.vfat -F32 /dev/sda1"
+    echo ""
+    exit 1
+fi
+
+# Require at least ISO size + 200MB buffer
+REQUIRED_SPACE=$((ISO_SIZE_MB + 200))
+if [ "$ESP_AVAILABLE" -lt "$REQUIRED_SPACE" ]; then
+    echo "❌ Error: Insufficient space on ESP"
+    echo ""
+    echo "Required: ${REQUIRED_SPACE}MB (ISO + 200MB buffer)"
+    echo "Available: ${ESP_AVAILABLE}MB"
+    echo ""
+    echo "Free up space on ESP or expand the partition"
+    exit 1
+fi
+
+echo "✓ ESP size OK (${ESP_TOTAL}MB total, ${ESP_AVAILABLE}MB available)"
+
 # Step 1: Extract ISO to ESP
 echo ""
 echo "━━━ Step 1: Extracting ISO to ESP ━━━"
