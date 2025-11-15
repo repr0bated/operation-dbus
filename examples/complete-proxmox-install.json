@@ -7,13 +7,16 @@
     "created": "2025-11-15"
   },
   "bootstrap": {
+    "debian_version": "bookworm",
+    "comment": "Use 'bookworm' for PVE 8.x, 'trixie' for PVE 9.x",
     "hostname": "pve-node1",
     "domain": "local",
     "timezone": "America/New_York"
   },
   "plugins": {
     "packagekit": {
-      "comment": "Install Proxmox VE via PackageKit D-Bus",
+      "comment": "Install Proxmox VE 8.x (for Bookworm) via PackageKit D-Bus",
+      "comment_version": "Change to trixie/PVE 9 if using Trixie base",
       "repositories": [
         {
           "name": "pve-no-subscription",
@@ -23,7 +26,7 @@
           "gpg_key": "https://enterprise.proxmox.com/debian/proxmox-release-bookworm.gpg"
         }
       ],
-      "manifest": "/root/proxmox-ve-9-manifest.json",
+      "manifest": "/root/proxmox-ve-8-manifest.json",
       "additional_packages": [
         "vim",
         "tmux",
