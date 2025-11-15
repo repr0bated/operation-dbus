@@ -1,0 +1,6 @@
+# netboot.xyz GRUB Entry Reference
+# This shows how netboot.xyz is added to GRUB configuration
+
+menuentry "netboot.xyz" {
+    chainloader /netboot.xyz/netboot.xyz.efi
+}

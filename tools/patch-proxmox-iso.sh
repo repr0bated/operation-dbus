@@ -37,8 +37,8 @@ echo ""
 
 # Install dependencies
 echo "📦 Installing dependencies..."
-apt-get update -qq
-apt-get install -y -qq \
+apt-get update
+apt-get install -y \
     squashfs-tools \
     genisoimage \
     isolinux \
