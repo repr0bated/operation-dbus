@@ -1,4 +1,6 @@
 //! State management - declarative plugin system
+#[cfg(feature = "mcp")]
+pub mod auto_plugin;
 pub mod crypto;
 pub mod dbus_plugin_base;
 pub mod dbus_server;

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "op-dbus-introspection": {
+      "command": "/usr/local/bin/op-dbus",
+      "args": ["mcp", "serve"],
+      "env": {
+        "RUST_LOG": "info"
+      }
+    }
+  }
+}

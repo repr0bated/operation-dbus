@@ -53,6 +53,38 @@ pub struct ToolResult {
     pub metadata: Option<Value>,
 }
 
+impl ToolResult {
+    /// Create a success result with a single content item
+    pub fn success(content: ToolContent) -> Self {
+        Self {
+            content: vec![content],
+            metadata: None,
+        }
+    }
+
+    /// Create a success result with multiple content items
+    pub fn success_multi(content: Vec<ToolContent>) -> Self {
+        Self {
+            content,
+            metadata: None,
+        }
+    }
+
+    /// Create an error result
+    pub fn error(message: &str) -> Self {
+        Self {
+            content: vec![ToolContent::error(message)],
+            metadata: None,
+        }
+    }
+
+    /// Add metadata to the result
+    pub fn with_metadata(mut self, metadata: Value) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolContent {
     #[serde(rename = "type")]
@@ -394,11 +426,14 @@ impl_tool!(
 );
 
 /// Dynamic tool builder for runtime tool creation
+use std::pin::Pin;
+use std::future::Future;
+
 pub struct DynamicToolBuilder {
     name: String,
     description: String,
     schema: Value,
-    handler: Arc<dyn Fn(Value) -> Result<ToolResult> + Send + Sync>,
+    handler: Arc<dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<ToolResult>> + Send>> + Send + Sync>,
 }
 
 impl DynamicToolBuilder {
@@ -408,9 +443,11 @@ impl DynamicToolBuilder {
             description: String::new(),
             schema: json!({}),
             handler: Arc::new(|_| {
-                Ok(ToolResult {
-                    content: vec![ToolContent::text("Not implemented")],
-                    metadata: None,
+                Box::pin(async {
+                    Ok(ToolResult {
+                        content: vec![ToolContent::text("Not implemented")],
+                        metadata: None,
+                    })
                 })
             }),
         }
@@ -426,11 +463,12 @@ impl DynamicToolBuilder {
         self
     }
 
-    pub fn handler<F>(mut self, handler: F) -> Self
+    pub fn handler<F, Fut>(mut self, handler: F) -> Self
     where
-        F: Fn(Value) -> Result<ToolResult> + Send + Sync + 'static,
+        F: Fn(Value) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<ToolResult>> + Send + 'static,
     {
-        self.handler = Arc::new(handler);
+        self.handler = Arc::new(move |params| Box::pin(handler(params)));
         self
     }
 
@@ -448,7 +486,7 @@ pub struct DynamicTool {
     name: String,
     description: String,
     schema: Value,
-    handler: Arc<dyn Fn(Value) -> Result<ToolResult> + Send + Sync>,
+    handler: Arc<dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<ToolResult>> + Send>> + Send + Sync>,
 }
 
 #[async_trait]
@@ -466,6 +504,6 @@ impl Tool for DynamicTool {
     }
 
     async fn execute(&self, params: Value) -> Result<ToolResult> {
-        (self.handler)(params)
+        (self.handler)(params).await
     }
 }

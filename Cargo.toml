@@ -6,6 +6,10 @@ authors = ["GhostBridge Team"]
 description = "Operation D-Bus - Declarative system state management via native protocols"
 license = "MIT"
 
+[lib]
+name = "op_dbus"
+path = "src/lib.rs"
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "signal"] }
@@ -18,8 +22,10 @@ serde_json = "1"
 # D-Bus
 zbus = { version = " =3.14.1", features = ["tokio"] }
 
+# UUID for checksums and auto-plugins
+uuid = { version = "1.6", features = ["v4"] }
+
 # MCP dependencies
-uuid = { version = "1.6", features = ["v4"], optional = true }
 toml = { version = "0.8", optional = true }
 
 # Netlink (native kernel networking)
@@ -84,7 +90,7 @@ ml = ["ort", "tokenizers", "ndarray", "hf-hub", "indicatif"]
 # Enable web UI server
 web = ["axum", "tower", "tower-http", "mime_guess"]
 # Enable MCP (Model Context Protocol) features
-mcp = ["uuid", "toml"]
+mcp = ["toml"]
 # Minimal build that disables network DBus/system clients requiring OpenSSL
 minimal = []
 # Enable streaming blockchain with Btrfs snapshots
@@ -135,6 +141,46 @@ required-features = ["mcp"]
 [[bin]]
 name = "dbus-agent-network"
 path = "src/mcp/agents/network.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "dbus-agent-rust-pro"
+path = "src/mcp/agents/rust_pro.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "dbus-agent-c-pro"
+path = "src/mcp/agents/c_pro.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "dbus-agent-cpp-pro"
+path = "src/mcp/agents/cpp_pro.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "dbus-agent-golang-pro"
+path = "src/mcp/agents/golang_pro.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "dbus-agent-javascript-pro"
+path = "src/mcp/agents/javascript_pro.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "dbus-agent-php-pro"
+path = "src/mcp/agents/php_pro.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "dbus-agent-python-pro"
+path = "src/mcp/agents/python_pro.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "dbus-agent-sql-pro"
+path = "src/mcp/agents/sql_pro.rs"
 required-features = ["mcp"]
 
 [[bin]]

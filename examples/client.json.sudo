@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "op-dbus-introspection": {
+      "command": "sudo",
+      "args": ["/usr/local/bin/op-dbus", "mcp", "serve"],
+      "env": {
+        "RUST_LOG": "info"
+      }
+    }
+  }
+}
