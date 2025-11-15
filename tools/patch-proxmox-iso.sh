@@ -35,27 +35,15 @@ echo "  Working directory: $WORK_DIR"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Check for required tools
-echo "📦 Checking required tools..."
-MISSING_TOOLS=()
-
-for tool in unsquashfs mksquashfs genisoimage xorriso; do
-    if ! command -v "$tool" &>/dev/null; then
-        MISSING_TOOLS+=("$tool")
-    fi
-done
-
-if [ ${#MISSING_TOOLS[@]} -gt 0 ]; then
-    echo "❌ Error: Missing required tools: ${MISSING_TOOLS[*]}"
-    echo ""
-    echo "Please install them first:"
-    echo "  Debian/Ubuntu: sudo apt-get install squashfs-tools genisoimage xorriso syslinux-utils"
-    echo "  Fedora/RHEL:   sudo dnf install squashfs-tools genisoimage xorriso syslinux"
-    echo ""
-    exit 1
-fi
-
-echo "✓ All required tools present"
+# Install dependencies
+echo "📦 Installing dependencies..."
+apt-get update -qq
+apt-get install -y -qq \
+    squashfs-tools \
+    genisoimage \
+    isolinux \
+    syslinux-utils \
+    xorriso
 
 # Step 1: Extract ISO
 echo ""
