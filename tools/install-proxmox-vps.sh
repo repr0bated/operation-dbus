@@ -83,6 +83,21 @@ fi
 ESP_PART="${PART_PREFIX}1"
 ROOT_PART="${PART_PREFIX}2"
 
+# Install dependencies
+echo ""
+echo "━━━ Installing Dependencies ━━━"
+echo ""
+apt-get update
+apt-get install -y \
+    parted \
+    dosfstools \
+    btrfs-progs \
+    grub-efi-amd64 \
+    grub-efi-amd64-bin \
+    wget
+
+echo "✓ Dependencies installed"
+
 echo ""
 echo "━━━ Step 1: Partitioning $DEVICE ━━━"
 echo ""
