@@ -1,16 +1,19 @@
 //! D-Bus server for system bus integration
 
-use crate::state::StateManager;
+use crate::state::{
+    plugin::{StateAction, StateDiff},
+    StateManager,
+};
 use anyhow::Result;
 use std::sync::Arc;
-use zbus::{interface, ConnectionBuilder};
+use zbus::{dbus_interface, ConnectionBuilder};
 
 /// D-Bus interface for the state manager
 pub struct StateManagerDBus {
     state_manager: Arc<StateManager>,
 }
 
-#[interface(name = "org.opdbus.StateManager")]
+#[dbus_interface(name = "org.opdbus.StateManager")]
 impl StateManagerDBus {
     /// Apply state from JSON string
     async fn apply_state(&self, state_json: String) -> zbus::fdo::Result<String> {
@@ -53,7 +56,6 @@ impl StateManagerDBus {
         state_file_path: String,
         bridge_name: String,
     ) -> zbus::fdo::Result<String> {
-        use crate::state::StatePlugin;
         use std::path::PathBuf;
 
         // Handle default state file path
@@ -93,8 +95,7 @@ impl StateManagerDBus {
         };
 
         // Get the openflow plugin
-        let plugins = self.state_manager.plugins.read().await;
-        let openflow_plugin = match plugins.get("openflow") {
+        let openflow_plugin = match self.state_manager.get_plugin("openflow").await {
             Some(plugin) => plugin,
             None => {
                 return Err(zbus::fdo::Error::Failed(
@@ -129,15 +130,16 @@ impl StateManagerDBus {
         };
 
         // Filter for flow-only actions
-        let flow_actions: Vec<_> = diff
+        let flow_actions: Vec<StateAction> = diff
             .actions
             .iter()
             .filter(|action| match action {
-                crate::state::StateAction::Create { resource, .. } => {
+                StateAction::Create { resource, .. } => {
                     resource.contains("flow/") || resource.contains("flows")
                 }
                 _ => false,
             })
+            .cloned()
             .collect();
 
         if flow_actions.is_empty() {
@@ -145,11 +147,11 @@ impl StateManagerDBus {
         }
 
         // Filter by bridge if specified
-        let filtered_actions: Vec<_> = if !bridge_name.is_empty() {
+        let filtered_actions: Vec<StateAction> = if !bridge_name.is_empty() {
             flow_actions
-                .iter()
+                .into_iter()
                 .filter(|action| {
-                    if let crate::state::StateAction::Create { resource, .. } = action {
+                    if let StateAction::Create { resource, .. } = action {
                         resource.contains(&bridge_name)
                     } else {
                         false
@@ -157,7 +159,7 @@ impl StateManagerDBus {
                 })
                 .collect()
         } else {
-            flow_actions.iter().collect()
+            flow_actions
         };
 
         if filtered_actions.is_empty() {
@@ -168,17 +170,16 @@ impl StateManagerDBus {
         }
 
         // Create filtered diff
-        let filtered_diff = crate::state::StateDiff {
+        let flow_count = filtered_actions.len();
+        let filtered_diff = StateDiff {
             plugin: diff.plugin.clone(),
-            actions: filtered_actions.iter().map(|&action| action.clone()).collect(),
+            actions: filtered_actions.clone(),
+            metadata: diff.metadata.clone(),
         };
 
         // Apply the restoration
         match openflow_plugin.apply_state(&filtered_diff).await {
-            Ok(_) => Ok(format!(
-                "Successfully restored {} flows",
-                filtered_actions.len()
-            )),
+            Ok(_) => Ok(format!("Successfully restored {} flows", flow_count)),
             Err(e) => Err(zbus::fdo::Error::Failed(format!(
                 "Failed to restore flows: {}",
                 e

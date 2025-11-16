@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "plugins": {
+    "privacy": {
+      "wireguard_gateway_enabled": true,
+      "wireguard_gateway_container_id": 100,
+      "warp_tunnel_enabled": true,
+      "warp_tunnel_container_id": 101,
+      "warp_interface": "warp0",
+      "xray_client_enabled": true,
+      "xray_client_container_id": 102,
+      "xray_socks_port": 1080,
+      "vps_xray_server": "your-vps-ip-here",
+      "proxmox_bridge": "vmbr0"
+    },
+    "net": {
+      "interfaces": [
+        {
+          "name": "vmbr0",
+          "type": "ovs-bridge",
+          "ports": ["wg0", "warp0"],  // System service interfaces
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": ["10.0.0.1/24"],
+            "gateway": null
+          }
+        }
+      ]
+    },
+    "openflow": {
+      "bridges": [
+        {
+          "name": "vmbr0",
+          "socket_ports": [
+            {"name": "internal_102", "container_id": 102}  // XRay container socket
+          ]
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch.service": {
+          "enabled": true,
+          "active_state": "active"
+        }
+      }
+    }
+  }
+}

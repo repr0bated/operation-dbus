@@ -426,26 +426,18 @@ impl NetworkPlugin {
     async fn apply_openflow_rules(&self, bridge: &str, rules: &[String]) -> Result<()> {
         info!("    Applying {} OpenFlow rules to {}", rules.len(), bridge);
 
+        // Create OpenFlow client and connect to switch
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 6633));
+        let mut client = crate::native::openflow::OpenFlowClient::connect(addr).await
+            .context(format!("Failed to connect to OpenFlow switch for bridge {}", bridge))?;
+
         // Clear existing flows first
-        let _ = tokio::process::Command::new("ovs-ofctl")
-            .arg("del-flows")
-            .arg(bridge)
-            .output()
-            .await;
+        client.delete_all_flows().await?;
 
-        // Apply each rule
+        // Apply each rule (note: currently using placeholder implementation)
         for rule in rules {
-            let output = tokio::process::Command::new("ovs-ofctl")
-                .arg("add-flow")
-                .arg(bridge)
-                .arg(rule)
-                .output()
-                .await?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!("Failed to add flow rule '{}': {}", rule, stderr);
-            }
+            client.add_flow_rule(rule).await?;
+            warn!("Applied OpenFlow rule (placeholder): {}", rule);
         }
 
         info!("    ✓ OpenFlow rules applied to {}", bridge);

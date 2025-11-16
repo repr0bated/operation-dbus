@@ -30,6 +30,9 @@ pub mod tool_registry;
 // Chat interface
 pub mod chat_server;
 
+// Flow-based workflows
+pub mod workflows;
+
 #[cfg(feature = "mcp")]
 pub mod web_bridge;
 #[cfg(feature = "mcp")]
