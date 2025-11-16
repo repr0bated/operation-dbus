@@ -18,6 +18,8 @@ use std::sync::Arc;
 use tokio::fs;
 use tracing::info;
 
+use crate::state::plugin::StatePlugin;
+
 #[derive(Parser)]
 #[command(
     name = "op-dbus",
@@ -324,30 +326,41 @@ async fn main() -> Result<()> {
     let args = Cli::parse();
 
     let state_manager = Arc::new(state::StateManager::new());
-    state_manager
-        .register_plugin(Box::new(state::plugins::NetStatePlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::SystemdStatePlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::Login1Plugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::LxcPlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::SessDeclPlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::DnsResolverPlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::PciDeclPlugin::new()))
-        .await;
-    state_manager
-        .register_plugin(Box::new(state::plugins::PackageKitPlugin::new()))
-        .await;
+
+    // Register core plugins manually
+    let plugins = vec![
+        ("net", Arc::new(state::plugins::NetStatePlugin::new()) as Arc<dyn crate::state::plugin::StatePlugin>),
+        ("systemd", Arc::new(state::plugins::SystemdStatePlugin::new())),
+        ("login1", Arc::new(state::plugins::Login1Plugin::new())),
+        ("lxc", Arc::new(state::plugins::LxcPlugin::new())),
+        ("sessdecl", Arc::new(state::plugins::SessDeclPlugin::new())),
+        ("dns", Arc::new(state::plugins::DnsResolverPlugin::new())),
+        ("pcidecl", Arc::new(state::plugins::PciDeclPlugin::new())),
+        ("packagekit", Arc::new(state::plugins::PackageKitPlugin::new())),
+        #[cfg(feature = "openflow")]
+        ("privacy", Arc::new(state::plugins::PrivacyPlugin::new(Default::default()))),
+        #[cfg(feature = "openflow")]
+        ("netmaker", Arc::new(state::plugins::NetmakerPlugin::new(Default::default()))),
+    ];
+
+    for (name, plugin) in plugins {
+        state_manager.register_plugin(plugin.clone()).await;
+        // Also register as workflow node
+        state_manager.register_plugin_as_workflow_node(name, plugin);
+    }
+
+    // Discover and register auto-generated plugins
+    #[cfg(feature = "mcp")]
+    {
+        if let Err(e) = state_manager.discover_and_register_auto_plugins().await {
+            log::warn!("Failed to discover auto plugins: {}", e);
+        }
+    }
+
+    // Setup default workflows
+    if let Err(e) = state_manager.setup_default_workflows().await {
+        log::warn!("Failed to setup default workflows: {}", e);
+    }
 
     // Start org.opdbus on system D-Bus to accept ApplyState calls for net plugin
     {
@@ -619,9 +632,13 @@ async fn main() -> Result<()> {
         Commands::Init { introspect, output } => {
             info!("Initializing configuration");
             if introspect {
-                // Query current state
+                // Query current state and wrap with metadata so the result is a valid state file
                 let current = state_manager.query_current_state().await?;
-                let json = serde_json::to_string_pretty(&current)?;
+                let state_json = serde_json::json!({
+                    "version": 1,
+                    "plugins": current.plugins,
+                });
+                let json = serde_json::to_string_pretty(&state_json)?;
 
                 if let Some(out_path) = output {
                     fs::write(&out_path, json).await?;
@@ -815,7 +832,7 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
         CacheCommands::Stats => {
             println!("=== BTRFS Cache Statistics ===\n");
 
-            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let cache = crate::cache::BtrfsCache::new(cache_dir).await?;
             let stats = cache.stats()?;
 
             println!("Embeddings:");
@@ -870,7 +887,7 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
             blocks,
             all,
         } => {
-            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let cache = crate::cache::BtrfsCache::new(cache_dir).await?;
 
             if all || (!embeddings && !blocks) {
                 println!("Clearing all cache...");
@@ -897,7 +914,7 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
                 "Cleaning cache entries older than {} days...",
                 older_than_days
             );
-            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let cache = crate::cache::BtrfsCache::new(cache_dir).await?;
             let removed = cache.cleanup_old(older_than_days)?;
             println!("? Cleaned {} old entries", removed);
             Ok(())
@@ -905,14 +922,14 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
 
         CacheCommands::Snapshot => {
             println!("Creating cache snapshot...");
-            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let cache = crate::cache::BtrfsCache::new(cache_dir).await?;
             let snapshot_path = cache.create_snapshot().await?;
             println!("? Created snapshot: {}", snapshot_path.display());
             Ok(())
         }
 
         CacheCommands::Snapshots => {
-            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let cache = crate::cache::BtrfsCache::new(cache_dir).await?;
             let snapshots = cache.list_snapshots().await?;
 
             if snapshots.is_empty() {
@@ -929,7 +946,7 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
 
         CacheCommands::DeleteSnapshots => {
             println!("Deleting all cache snapshots...");
-            let cache = crate::cache::BtrfsCache::new(cache_dir)?;
+            let cache = crate::cache::BtrfsCache::new(cache_dir).await?;
             let count = cache.delete_all_snapshots().await?;
             println!("? Deleted {} snapshots", count);
             Ok(())

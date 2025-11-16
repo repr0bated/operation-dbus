@@ -146,12 +146,16 @@ check_directories() {
     if [ -d "$CACHE_DIR" ]; then
         check_pass "Cache directory exists: $CACHE_DIR"
 
-        # TODO: Check if it's a BTRFS subvolume
-        # if btrfs subvolume show "$CACHE_DIR" &>/dev/null; then
-        #     check_pass "Cache is BTRFS subvolume"
-        # else
-        #     check_info "Cache is regular directory (BTRFS subvolume not yet implemented)"
-        # fi
+        # Check if it's a BTRFS subvolume
+        if df -T /var/lib 2>/dev/null | grep -q btrfs; then
+            if btrfs subvolume show "$CACHE_DIR" &>/dev/null; then
+                check_pass "Cache is BTRFS subvolume"
+            else
+                check_warn "Cache exists but is not a BTRFS subvolume"
+            fi
+        else
+            check_warn "Cache exists but filesystem is not BTRFS"
+        fi
     else
         check_warn "Cache directory missing: $CACHE_DIR"
     fi

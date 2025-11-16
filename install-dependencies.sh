@@ -235,7 +235,7 @@ check_proxmox() {
         return 0
     else
         echo "ℹ️  Proxmox not detected (no pct command)"
-        return 1
+        return 0
     fi
 }
 

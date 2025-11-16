@@ -211,6 +211,15 @@ pub async fn list_routes_for_interface(_ifname: &str) -> Result<Vec<serde_json::
     Ok(Vec::new())
 }
 
+/// List all veth interfaces (simplified implementation)
+pub async fn list_veth_interfaces() -> Result<Vec<String>> {
+    // For now, return empty list - this would need more complex rtnetlink code
+    // to properly enumerate all interfaces and check their types
+    // The LXC plugin will fall back to other methods if this returns empty
+    Ok(Vec::new())
+}
+
+
 /// Rename network interface
 pub async fn link_set_name(old_name: &str, new_name: &str) -> Result<()> {
     let (connection, handle, _) = new_connection()?;

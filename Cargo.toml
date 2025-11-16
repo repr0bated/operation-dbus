@@ -19,6 +19,9 @@ futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Binary data handling (for OpenFlow)
+bytes = "1"
+
 # D-Bus
 zbus = { version = " =3.14.1", features = ["tokio"] }
 
@@ -27,6 +30,9 @@ uuid = { version = "1.6", features = ["v4"] }
 
 # MCP dependencies
 toml = { version = "0.8", optional = true }
+
+# Flow-based programming for MCP workflows
+pocketflow_rs = { version = "0.1.0", features = ["openai", "websearch"] }
 
 # Netlink (native kernel networking)
 rtnetlink = { version = "0.13.1", features = ["tokio_socket"] }
@@ -75,6 +81,9 @@ gethostname = "0.5"
 num_cpus = "1.16"
 base64ct = "=1.7.3"
 base64 = "0.22"
+
+# HTTP client for AI integration
+reqwest = { version = "0.11", features = ["json"] }
 
 # ML/Transformers (optional, for advanced vectorization)
 ort = { version = "2.0.0-rc.10", optional = true, features = ["download-binaries"] }
@@ -173,6 +182,14 @@ name = "dbus-agent-php-pro"
 path = "src/mcp/agents/php_pro.rs"
 required-features = ["mcp"]
 
+[[example]]
+name = "mcp-workflow"
+path = "examples/mcp_workflow_example.rs"
+
+[[example]]
+name = "plugin-workflow"
+path = "examples/plugin_workflow_example.rs"
+
 [[bin]]
 name = "dbus-agent-python-pro"
 path = "src/mcp/agents/python_pro.rs"
@@ -206,6 +223,11 @@ required-features = ["mcp"]
 [[bin]]
 name = "mcp-chat"
 path = "src/mcp/chat_main.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "deepseek-chat"
+path = "src/deepseek_chat.rs"
 required-features = ["mcp"]
 
 # NixOS Introspection Tool
