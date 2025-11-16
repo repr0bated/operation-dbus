@@ -158,7 +158,16 @@ echo "━━━ Step 4: Installing GRUB ━━━"
 echo ""
 
 # Install GRUB to ESP
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --removable
+# In live environments, grub-install struggles with overlay filesystems
+# Use --no-nvram and --force to bypass device detection issues
+grub-install --target=x86_64-efi \
+    --efi-directory=/boot/efi \
+    --boot-directory=/boot/efi \
+    --bootloader-id=GRUB \
+    --removable \
+    --no-floppy \
+    --no-nvram \
+    --force
 
 echo "✓ GRUB installed"
 
@@ -166,40 +175,11 @@ echo ""
 echo "━━━ Step 5: Copying Proxmox ISO to ESP ━━━"
 echo ""
 
-INSTALLER_DIR="/boot/efi/proxmox-installer"
-# Mount to the real disk, not live overlay
-MOUNT_DIR="/mnt/proxmox/iso-mount"
+# Copy ISO to ESP (GRUB will boot it directly)
+mkdir -p /boot/efi/iso
+cp "$ISO_FILE" /boot/efi/iso/proxmox-installer.iso
 
-mkdir -p "$MOUNT_DIR"
-mkdir -p "$INSTALLER_DIR"
-
-# Mount and extract ISO
-mount -o loop,ro "$ISO_FILE" "$MOUNT_DIR"
-echo "Extracting ISO (this may take a few minutes)..."
-# Use cp instead of rsync to avoid buffering in overlay
-cp -a "$MOUNT_DIR/"* "$INSTALLER_DIR/" 2>/dev/null || true
-cp -a "$MOUNT_DIR/".* "$INSTALLER_DIR/" 2>/dev/null || true
-sync
-umount "$MOUNT_DIR"
-rmdir "$MOUNT_DIR"
-
-echo "✓ Proxmox installer extracted to ESP"
-
-# Find kernel and initrd
-KERNEL=$(find "$INSTALLER_DIR" -name "vmlinuz*" -o -name "linux" | head -1)
-INITRD=$(find "$INSTALLER_DIR" -name "initrd*" -o -name "initrd.img*" | head -1)
-
-if [ -z "$KERNEL" ] || [ -z "$INITRD" ]; then
-    echo "❌ Error: Could not find kernel or initrd in ISO"
-    exit 1
-fi
-
-# Convert to relative paths
-KERNEL_REL=${KERNEL#/boot/efi/}
-INITRD_REL=${INITRD#/boot/efi/}
-
-echo "  Kernel: /$KERNEL_REL"
-echo "  Initrd: /$INITRD_REL"
+echo "✓ Proxmox ISO copied to ESP"
 
 echo ""
 echo "━━━ Step 6: Installing netboot.xyz ━━━"
