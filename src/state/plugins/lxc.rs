@@ -297,7 +297,8 @@ impl LxcPlugin {
         let hostname = props
             .and_then(|p| p.get("hostname"))
             .and_then(|v| v.as_str())
-            .unwrap_or(&format!("ct{}", container.id));
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("ct{}", container.id));
 
         // Memory (MB)
         let memory = props
@@ -378,7 +379,7 @@ impl LxcPlugin {
             &container.id,
             template,
             "--hostname",
-            hostname,
+            hostname.as_str(),
             "--memory",
             &memory.to_string(),
             "--swap",
@@ -563,7 +564,8 @@ impl LxcPlugin {
         let hostname = props
             .and_then(|p| p.get("hostname"))
             .and_then(|v| v.as_str())
-            .unwrap_or(&format!("ct{}", container.id));
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("ct{}", container.id));
 
         let memory = props
             .and_then(|p| p.get("memory"))

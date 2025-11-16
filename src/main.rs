@@ -325,28 +325,28 @@ async fn main() -> Result<()> {
 
     let state_manager = Arc::new(state::StateManager::new());
     state_manager
-        .register_plugin(Box::new(state::plugins::NetStatePlugin::new()))
+        .register_plugin(Arc::new(state::plugins::NetStatePlugin::new()))
         .await;
     state_manager
-        .register_plugin(Box::new(state::plugins::SystemdStatePlugin::new()))
+        .register_plugin(Arc::new(state::plugins::SystemdStatePlugin::new()))
         .await;
     state_manager
-        .register_plugin(Box::new(state::plugins::Login1Plugin::new()))
+        .register_plugin(Arc::new(state::plugins::Login1Plugin::new()))
         .await;
     state_manager
-        .register_plugin(Box::new(state::plugins::LxcPlugin::new()))
+        .register_plugin(Arc::new(state::plugins::LxcPlugin::new()))
         .await;
     state_manager
-        .register_plugin(Box::new(state::plugins::SessDeclPlugin::new()))
+        .register_plugin(Arc::new(state::plugins::SessDeclPlugin::new()))
         .await;
     state_manager
-        .register_plugin(Box::new(state::plugins::DnsResolverPlugin::new()))
+        .register_plugin(Arc::new(state::plugins::DnsResolverPlugin::new()))
         .await;
     state_manager
-        .register_plugin(Box::new(state::plugins::PciDeclPlugin::new()))
+        .register_plugin(Arc::new(state::plugins::PciDeclPlugin::new()))
         .await;
     state_manager
-        .register_plugin(Box::new(state::plugins::PackageKitPlugin::new()))
+        .register_plugin(Arc::new(state::plugins::PackageKitPlugin::new()))
         .await;
 
     // Start org.opdbus on system D-Bus to accept ApplyState calls for net plugin
@@ -619,9 +619,13 @@ async fn main() -> Result<()> {
         Commands::Init { introspect, output } => {
             info!("Initializing configuration");
             if introspect {
-                // Query current state
+                // Query current state and wrap with metadata so the result is a valid state file
                 let current = state_manager.query_current_state().await?;
-                let json = serde_json::to_string_pretty(&current)?;
+                let state_json = serde_json::json!({
+                    "version": 1,
+                    "plugins": current.plugins,
+                });
+                let json = serde_json::to_string_pretty(&state_json)?;
 
                 if let Some(out_path) = output {
                     fs::write(&out_path, json).await?;

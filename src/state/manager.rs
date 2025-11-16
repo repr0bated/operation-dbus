@@ -37,7 +37,7 @@ pub struct ApplyReport {
 
 /// State manager coordinates all plugins and provides atomic operations
 pub struct StateManager {
-    plugins: Arc<RwLock<HashMap<String, Box<dyn StatePlugin>>>>,
+    plugins: Arc<RwLock<HashMap<String, Arc<dyn StatePlugin>>>>,
     #[cfg(feature = "streaming-blockchain")]
     blockchain_sender: Option<FootprintSender>,
 }
@@ -81,11 +81,17 @@ impl StateManager {
     }
 
     /// Register a state plugin
-    pub async fn register_plugin(&self, plugin: Box<dyn StatePlugin>) {
+    pub async fn register_plugin(&self, plugin: Arc<dyn StatePlugin>) {
         let name = plugin.name().to_string();
         let mut plugins = self.plugins.write().await;
         plugins.insert(name.clone(), plugin);
         log::info!("Registered state plugin: {}", name);
+    }
+
+    /// Retrieve a registered plugin by name
+    pub async fn get_plugin(&self, plugin_name: &str) -> Option<Arc<dyn StatePlugin>> {
+        let plugins = self.plugins.read().await;
+        plugins.get(plugin_name).cloned()
     }
 
     /// Load desired state from JSON file
