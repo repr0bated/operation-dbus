@@ -56,6 +56,7 @@ impl SystemIntrospector {
             .into_iter()
             .filter(|name| !name.starts_with(':'))
             .filter(|name| name.contains('.')) // Must be well-formed
+            .map(|name| name.to_string())
             .collect();
 
         Ok(services)
@@ -67,7 +68,7 @@ impl SystemIntrospector {
 
         let names = proxy.list_activatable_names().await?;
 
-        Ok(names.into_iter().collect())
+        Ok(names.into_iter().map(|name| name.to_string()).collect())
     }
 
     /// Introspect a specific service at a given path
@@ -97,53 +98,54 @@ impl SystemIntrospector {
     }
 
     /// Discover object paths for a service by introspecting recursively
-    pub async fn discover_object_paths(
-        &self,
-        service_name: &str,
-        start_path: &str,
-    ) -> Result<Vec<String>> {
-        let mut paths = vec![start_path.to_string()];
-        let mut discovered = vec![start_path.to_string()];
+    pub fn discover_object_paths<'a>(
+        &'a self,
+        service_name: &'a str,
+        start_path: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut discovered = vec![start_path.to_string()];
 
-        // Try to introspect the starting path
-        match self.introspect_service_at_path(service_name, start_path).await {
-            Ok(xml) => {
-                // Extract child nodes from XML
-                let children = self.extract_child_nodes(&xml);
+            // Try to introspect the starting path
+            match self.introspect_service_at_path(service_name, start_path).await {
+                Ok(xml) => {
+                    // Extract child nodes from XML
+                    let children = self.extract_child_nodes(&xml);
 
-                for child in children {
-                    let child_path = if start_path == "/" {
-                        format!("/{}", child)
-                    } else {
-                        format!("{}/{}", start_path, child)
-                    };
+                    for child in children {
+                        let child_path = if start_path == "/" {
+                            format!("/{}", child)
+                        } else {
+                            format!("{}/{}", start_path, child)
+                        };
 
-                    discovered.push(child_path.clone());
+                        discovered.push(child_path.clone());
 
-                    // Recursively discover children (limited depth)
-                    if discovered.len() < 100 {
-                        // Safety limit
-                        match self.discover_object_paths(service_name, &child_path).await {
-                            Ok(sub_paths) => {
-                                for sub_path in sub_paths {
-                                    if !discovered.contains(&sub_path) {
-                                        discovered.push(sub_path);
+                        // Recursively discover children (limited depth)
+                        if discovered.len() < 100 {
+                            // Safety limit
+                            match self.discover_object_paths(service_name, &child_path).await {
+                                Ok(sub_paths) => {
+                                    for sub_path in sub_paths {
+                                        if !discovered.contains(&sub_path) {
+                                            discovered.push(sub_path);
+                                        }
                                     }
                                 }
-                            }
-                            Err(_) => {
-                                // Continue on error
+                                Err(_) => {
+                                    // Continue on error
+                                }
                             }
                         }
                     }
                 }
+                Err(_) => {
+                    // If introspection fails, return just the start path
+                }
             }
-            Err(_) => {
-                // If introspection fails, return just the start path
-            }
-        }
 
-        Ok(discovered)
+            Ok(discovered)
+        })
     }
 
     /// Extract child node names from introspection XML

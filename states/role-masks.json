@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "roles": {
+    "privacy-vps": {
+      "description": "Privacy VPS server - minimal XRay endpoint",
+      "mask": {
+        "blockchain": {
+          "enabled": false,
+          "remove_dirs": [
+            "/var/lib/op-dbus/blockchain"
+          ],
+          "disable_in_config": true
+        },
+        "mcp": {
+          "enabled": false,
+          "systemd_mask": [
+            "dbus-mcp-web.service",
+            "dbus-agent-*.service"
+          ],
+          "remove_binaries": false
+        },
+        "plugins": {
+          "disabled": ["lxc"],
+          "enabled": ["net", "openflow", "systemd"]
+        },
+        "containers": {
+          "allowed_ids": [100],
+          "max_containers": 1
+        }
+      }
+    },
+    "privacy-client": {
+      "description": "Privacy client workstation - full privacy stack",
+      "mask": {
+        "blockchain": {
+          "enabled": false,
+          "remove_dirs": [
+            "/var/lib/op-dbus/blockchain"
+          ]
+        },
+        "mcp": {
+          "enabled": true,
+          "systemd_mask": [],
+          "agents": ["systemd", "file", "network"]
+        },
+        "plugins": {
+          "disabled": [],
+          "enabled": ["net", "openflow", "systemd", "lxc"]
+        },
+        "containers": {
+          "allowed_ids": [100, 101, 102],
+          "profiles": ["privacy-client"]
+        }
+      }
+    },
+    "full": {
+      "description": "Full Proxmox deployment - all features enabled",
+      "mask": {
+        "blockchain": {
+          "enabled": true,
+          "streaming": true,
+          "retention_days": 30
+        },
+        "mcp": {
+          "enabled": true,
+          "all_agents": true
+        },
+        "plugins": {
+          "disabled": [],
+          "enabled": ["net", "openflow", "systemd", "lxc", "packagekit", "netmaker"]
+        },
+        "containers": {
+          "allowed_ids": [],
+          "unlimited": true
+        }
+      }
+    },
+    "standalone": {
+      "description": "Standalone OVS bridge only - no containers",
+      "mask": {
+        "blockchain": {
+          "enabled": false,
+          "remove_dirs": [
+            "/var/lib/op-dbus/blockchain"
+          ]
+        },
+        "mcp": {
+          "enabled": false,
+          "systemd_mask": [
+            "dbus-mcp-web.service"
+          ]
+        },
+        "plugins": {
+          "disabled": ["lxc", "netmaker"],
+          "enabled": ["net", "openflow", "systemd"]
+        },
+        "containers": {
+          "allowed_ids": [],
+          "deny_all": true
+        }
+      }
+    }
+  },
+  "mask_operations": {
+    "systemd_mask": {
+      "command": "systemctl mask",
+      "chroot_safe": true
+    },
+    "remove_dirs": {
+      "command": "rm -rf",
+      "verify_empty": true
+    },
+    "disable_plugin": {
+      "config_file": "/etc/op-dbus/state.json",
+      "set_enabled": false
+    },
+    "remove_binaries": {
+      "optional": true,
+      "reclaim_space": true
+    }
+  }
+}

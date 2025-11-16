@@ -89,7 +89,7 @@ impl PackageKitAgent {
         let search_terms = vec![query];
 
         proxy
-            .call::<_, ()>("SearchNames", &(filter, search_terms))
+            .call::<_, _, ()>("SearchNames", &(filter, search_terms))
             .await
             .context("Failed to call SearchNames")?;
 
@@ -114,7 +114,7 @@ impl PackageKitAgent {
         let names: Vec<&str> = package_names.iter().map(|s| s.as_str()).collect();
 
         proxy
-            .call::<_, ()>("Resolve", &(filter, names.clone()))
+            .call::<_, _, ()>("Resolve", &(filter, names.clone()))
             .await
             .context("Failed to resolve package names")?;
 
@@ -142,7 +142,7 @@ impl PackageKitAgent {
         let names: Vec<&str> = package_names.iter().map(|s| s.as_str()).collect();
 
         proxy
-            .call::<_, ()>("Resolve", &(filter, names.clone()))
+            .call::<_, _, ()>("Resolve", &(filter, names.clone()))
             .await
             .context("Failed to resolve package names")?;
 
@@ -167,7 +167,7 @@ impl PackageKitAgent {
         let filter: u64 = 1 << 2; // FILTER_INSTALLED bit
 
         proxy
-            .call::<_, ()>("GetPackages", &(filter,))
+            .call::<_, _, ()>("GetPackages", &(filter,))
             .await
             .context("Failed to call GetPackages")?;
 
@@ -188,7 +188,7 @@ impl PackageKitAgent {
         let filter: u64 = 0; // No filter
 
         proxy
-            .call::<_, ()>("GetUpdates", &(filter,))
+            .call::<_, _, ()>("GetUpdates", &(filter,))
             .await
             .context("Failed to call GetUpdates")?;
 
@@ -209,7 +209,7 @@ impl PackageKitAgent {
         let force: bool = true;
 
         proxy
-            .call::<_, ()>("RefreshCache", &(force,))
+            .call::<_, _, ()>("RefreshCache", &(force,))
             .await
             .context("Failed to call RefreshCache")?;
 
@@ -232,7 +232,7 @@ impl PackageKitAgent {
         let names: Vec<&str> = package_names.iter().map(|s| s.as_str()).collect();
 
         proxy
-            .call::<_, ()>("Resolve", &(filter, names.clone()))
+            .call::<_, _, ()>("Resolve", &(filter, names.clone()))
             .await
             .context("Failed to resolve package names")?;
 
