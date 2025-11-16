@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "workflow": {
+    "name": "network-setup",
+    "description": "Complete network infrastructure setup workflow",
+    "nodes": [
+      {
+        "id": "ovs-bridge-create",
+        "plugin": "net",
+        "inputs": [],
+        "outputs": ["bridge_created", "bridge_name"],
+        "config": {
+          "interfaces": [
+            {
+              "name": "ovsbr0",
+              "type": "ovs-bridge",
+              "ipv4": {
+                "enabled": true,
+                "dhcp": false,
+                "address": [{"ip": "10.0.0.1", "prefix": 24}]
+              },
+              "ports": []
+            }
+          ]
+        }
+      },
+      {
+        "id": "openflow-configure",
+        "plugin": "openflow",
+        "inputs": ["bridge_name"],
+        "outputs": ["flows_configured"],
+        "depends_on": ["ovs-bridge-create"],
+        "condition": "bridge_created == true",
+        "config": {
+          "bridges": [
+            {
+              "name": "ovsbr0",
+              "enable_security_flows": true,
+              "flows": []
+            }
+          ]
+        }
+      },
+      {
+        "id": "network-verify",
+        "plugin": "net",
+        "inputs": ["bridge_name", "flows_configured"],
+        "outputs": ["network_ready"],
+        "depends_on": ["openflow-configure"],
+        "config": {
+          "verify_only": true
+        }
+      }
+    ],
+    "error_handling": {
+      "on_failure": "rollback",
+      "rollback_steps": ["network-verify", "openflow-configure", "ovs-bridge-create"]
+    }
+  }
+}
