@@ -592,16 +592,12 @@ impl StatePlugin for NetStatePlugin {
     }
 
     fn is_available(&self) -> bool {
-        // Check if ovs-vsctl is available
-        std::process::Command::new("ovs-vsctl")
-            .arg("--version")
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
+        // Check if OVSDB socket is available
+        std::path::Path::new("/var/run/openvswitch/db.sock").exists()
     }
 
     fn unavailable_reason(&self) -> String {
-        "OpenVSwitch (ovs-vsctl) not found - install with: apt install openvswitch-switch".to_string()
+        "OpenVSwitch OVSDB socket not found at /var/run/openvswitch/db.sock - install with: apt install openvswitch-switch".to_string()
     }
 
     async fn query_current_state(&self) -> Result<Value> {

@@ -19,6 +19,25 @@ impl OvsdbClient {
         }
     }
 
+    /// Ensure OVSDB database is initialized (similar to ovs-vsctl init)
+    /// This ensures the Open_vSwitch table exists and is properly set up
+    pub async fn ensure_initialized(&self) -> Result<()> {
+        // Check if we can list databases - this verifies the connection works
+        let _ = self.list_dbs().await?;
+
+        // Try to get the schema - this verifies the database is properly initialized
+        let _ = self.get_schema().await?;
+
+        // Check if Open_vSwitch table exists and has basic structure
+        let dump = self.dump_open_vswitch().await?;
+        if dump.as_array().map_or(true, |arr| arr.is_empty()) {
+            log::warn!("OVSDB Open_vSwitch table appears empty - database may need initialization");
+            // Note: We don't auto-initialize here as it should be done by systemd/ovs-vsctl init
+        }
+
+        Ok(())
+    }
+
     /// Send JSON-RPC request and get response
     async fn rpc_call(&self, method: &str, params: Value) -> Result<Value> {
         let mut stream = UnixStream::connect(&self.socket_path)
@@ -119,6 +138,15 @@ impl OvsdbClient {
 
     /// Create OVS bridge
     pub async fn create_bridge(&self, bridge_name: &str) -> Result<()> {
+        // Ensure database is initialized before creating bridges
+        self.ensure_initialized().await?;
+
+        // Check if bridge already exists
+        if self.bridge_exists(bridge_name).await? {
+            log::info!("Bridge {} already exists, skipping creation", bridge_name);
+            return Ok(());
+        }
+
         // Generate UUIDs for bridge, port, and interface
         let bridge_uuid = format!("bridge-{}", bridge_name);
         let port_uuid = format!("port-{}", bridge_name);
@@ -132,7 +160,9 @@ impl OvsdbClient {
                     "name": bridge_name,
                     "datapath_type": "system",      // CRITICAL: Enables kernel interface and persistence
                     "stp_enable": false,            // Disable Spanning Tree Protocol
-                    "ports": ["named-uuid", port_uuid]
+                    "ports": ["named-uuid", port_uuid],
+                    "other_config": {},             // Ensure other_config exists for future settings
+                    "external_ids": {}              // Ensure external_ids exists for future settings
                 },
                 "uuid-name": bridge_uuid
             },
@@ -165,7 +195,14 @@ impl OvsdbClient {
         ]);
 
         self.transact(operations).await?;
-        Ok(())
+
+        // Verify bridge was created and persisted
+        if self.bridge_exists(bridge_name).await? {
+            log::info!("Bridge {} successfully created and persisted", bridge_name);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Bridge {} creation failed - not found after creation", bridge_name))
+        }
     }
 
     /// Add port to bridge
@@ -357,6 +394,32 @@ impl OvsdbClient {
 
         let result = self.transact(operations).await?;
         Ok(serde_json::to_string_pretty(&result[0]["rows"][0])?)
+    }
+
+    /// Set interface type
+    pub async fn set_interface_type(&self, interface_name: &str, interface_type: &str) -> Result<()> {
+        let operations = json!([
+            {
+                "op": "update",
+                "table": "Interface",
+                "where": [["name", "==", interface_name]],
+                "row": {
+                    "type": interface_type
+                }
+            }
+        ]);
+
+        let result = self.transact(operations).await?;
+        // Check for errors in the response
+        if let Some(errors) = result.as_array() {
+            for error in errors {
+                if error.get("error").is_some() {
+                    return Err(anyhow::anyhow!("OVSDB transaction failed: {:?}", error));
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
