@@ -82,6 +82,9 @@ num_cpus = "1.16"
 base64ct = "=1.7.3"
 base64 = "0.22"
 
+# HTTP client for AI integration
+reqwest = { version = "0.11", features = ["json"] }
+
 # ML/Transformers (optional, for advanced vectorization)
 ort = { version = "2.0.0-rc.10", optional = true, features = ["download-binaries"] }
 tokenizers = { version = "0.20", optional = true }
@@ -220,6 +223,11 @@ required-features = ["mcp"]
 [[bin]]
 name = "mcp-chat"
 path = "src/mcp/chat_main.rs"
+required-features = ["mcp"]
+
+[[bin]]
+name = "deepseek-chat"
+path = "src/deepseek_chat.rs"
 required-features = ["mcp"]
 
 # NixOS Introspection Tool

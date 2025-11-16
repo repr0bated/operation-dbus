@@ -11,6 +11,7 @@ use tower_http::cors::CorsLayer;
 
 use super::agent_registry::AgentRegistry;
 use super::tool_registry::ToolRegistry;
+use super::ollama::OllamaClient;
 
 // Chat message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +53,7 @@ pub enum CommandIntent {
     ListTools,
     ListAgents,
     GetHelp { topic: Option<String> },
+    AIChat { message: String },
     Unknown,
 }
 
@@ -186,8 +188,25 @@ impl NaturalLanguageProcessor {
                 CommandIntent::ExecuteTool {
                     tool_name: "compare_hardware".to_string(),
                 }
+            } else if lower.starts_with("ai ") || lower.starts_with("ask ") {
+                // Explicit AI chat request
+                let query = if lower.starts_with("ai ") {
+                    input[3..].to_string()
+                } else {
+                    input[4..].to_string()
+                };
+                CommandIntent::AIChat { message: query }
             } else {
-                CommandIntent::Unknown
+                // Check if this looks like AI chat (general conversation)
+                let ai_keywords = ["tell me", "what is", "how do", "explain", "why", "when", "where", "who", "can you", "should i", "recommend"];
+                let is_ai_chat = ai_keywords.iter().any(|&keyword| lower.contains(keyword))
+                    || (!lower.contains("list") && !lower.contains("status") && !lower.contains("help") && lower.split_whitespace().count() > 3);
+
+                if is_ai_chat {
+                    CommandIntent::AIChat { message: input.to_string() }
+                } else {
+                    CommandIntent::Unknown
+                }
             }
         };
 
@@ -200,6 +219,7 @@ impl NaturalLanguageProcessor {
 
     pub fn generate_suggestions(partial_input: &str) -> Vec<String> {
         let suggestions = vec![
+            // Tool execution
             "run discover_system",
             "run analyze_cpu_features",
             "run analyze_isp",
@@ -211,11 +231,23 @@ impl NaturalLanguageProcessor {
             "run file read path=",
             "run network list",
             "run process list",
+            // Agent management
             "start agent executor",
             "list tools",
             "list agents",
             "status",
             "help",
+            // AI queries
+            "ai explain my hardware capabilities",
+            "ai what can you do?",
+            "ai how do I enable virtualization?",
+            "ai recommend a hosting provider",
+            "ai analyze my CPU features",
+            "ask what tools are available",
+            "tell me about IOMMU support",
+            "explain nested virtualization",
+            "what is my CPU capable of",
+            "should i migrate providers",
         ];
 
         suggestions
@@ -243,6 +275,7 @@ pub struct ChatServerState {
     pub agent_registry: Arc<AgentRegistry>,
     pub conversations: Arc<RwLock<HashMap<String, ConversationContext>>>,
     pub broadcast_tx: broadcast::Sender<ChatMessage>,
+    pub ollama_client: Option<Arc<OllamaClient>>,
 }
 
 impl ChatServerState {
@@ -254,7 +287,13 @@ impl ChatServerState {
             agent_registry,
             conversations: Arc::new(RwLock::new(HashMap::new())),
             broadcast_tx,
+            ollama_client: None,
         }
+    }
+
+    pub fn with_ollama_client(mut self, client: OllamaClient) -> Self {
+        self.ollama_client = Some(Arc::new(client));
+        self
     }
 
     pub async fn process_message(&self, conversation_id: &str, message: &str) -> ChatMessage {
@@ -284,6 +323,7 @@ impl ChatServerState {
             CommandIntent::ListTools => self.list_tools().await,
             CommandIntent::ListAgents => self.list_agents().await,
             CommandIntent::GetHelp { topic } => self.get_help(topic.as_deref()).await,
+            CommandIntent::AIChat { message } => self.handle_ai_chat(&message).await,
             CommandIntent::Unknown => ChatMessage::Assistant {
                 content: format!(
                     "I didn't understand '{}'. Try:\n\
@@ -420,6 +460,165 @@ impl ChatServerState {
         }
     }
 
+    async fn handle_ai_chat(&self, message: &str) -> ChatMessage {
+        // Check if Ollama client is available
+        if let Some(ollama_client) = &self.ollama_client {
+            // Build comprehensive system context
+            let system_context = self.build_system_context().await;
+
+            // Build available tools description
+            let tools_description = self.build_tools_description().await;
+
+            // Get conversation history (last 10 messages for context)
+            // For now using empty history, but could be enhanced to pull from conversations
+            let history: Vec<super::ollama::ChatMessage> = vec![];
+
+            match ollama_client.deepseek_chat_with_tools(
+                message,
+                &system_context,
+                &history,
+                &tools_description,
+            ).await {
+                Ok(response) => {
+                    // Check if the response suggests using a tool
+                    let suggested_tools = self.extract_tool_suggestions(&response).await;
+
+                    ChatMessage::Assistant {
+                        content: response,
+                        timestamp: SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                        tools_used: if suggested_tools.is_empty() {
+                            vec!["deepseek".to_string()]
+                        } else {
+                            let mut tools = vec!["deepseek".to_string()];
+                            tools.extend(suggested_tools);
+                            tools
+                        },
+                    }
+                },
+                Err(e) => ChatMessage::Error {
+                    content: format!("AI chat failed: {}", e),
+                    timestamp: SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                },
+            }
+        } else {
+            ChatMessage::Error {
+                content: "AI chat is not available. Ollama client not configured.".to_string(),
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            }
+        }
+    }
+
+    /// Build comprehensive system context for AI
+    async fn build_system_context(&self) -> String {
+        // Try to gather actual system context
+        let context_provider = super::ai_context_provider::AiContextProvider::new();
+        let context_result = context_provider.gather_context().await;
+
+        let mut system_info = String::new();
+
+        if let Ok(context) = context_result {
+            system_info = context_provider.generate_summary(&context);
+        }
+
+        format!(
+            "You are an AI assistant integrated into an advanced MCP (Model Context Protocol) system running on Linux.\n\
+            \n\
+            {}\n\
+            SYSTEM CAPABILITIES:\n\
+            - Full D-Bus introspection and control\n\
+            - Hardware introspection (CPU features, BIOS locks, IOMMU, virtualization)\n\
+            - ISP/Provider analysis and migration planning\n\
+            - SystemD service management\n\
+            - Network configuration and analysis\n\
+            - LXC container management\n\
+            - PackageKit integration\n\
+            - File system operations\n\
+            - Agent orchestration and workflow execution\n\
+            \n\
+            YOUR ROLE:\n\
+            - Help users understand their system capabilities\n\
+            - Suggest appropriate tools for their needs\n\
+            - Explain complex system configurations\n\
+            - Recommend solutions for hardware limitations\n\
+            - Guide ISP migration decisions\n\
+            - Assist with system optimization\n\
+            - When asked about hardware, refer to the system overview above\n\
+            - When users ask 'what can you do', explain the available tools and your capabilities\n\
+            \n\
+            You can reference any of the available tools below and suggest when to use them.",
+            system_info
+        )
+    }
+
+    /// Build description of all available tools
+    async fn build_tools_description(&self) -> String {
+        let tools = self.tool_registry.list_tools().await;
+
+        let mut description = String::from("AVAILABLE MCP TOOLS:\n\n");
+
+        for (idx, tool) in tools.iter().enumerate() {
+            description.push_str(&format!(
+                "{}. {} - {}\n",
+                idx + 1,
+                tool.name,
+                tool.description
+            ));
+        }
+
+        // Add special introspection tools
+        description.push_str("\nSPECIAL CAPABILITIES:\n");
+        description.push_str("• discover_system - Full hardware and system introspection\n");
+        description.push_str("• analyze_cpu_features - Detect VT-x, IOMMU, SGX, Turbo Boost, and BIOS locks\n");
+        description.push_str("• analyze_isp - Analyze current ISP restrictions and recommend alternatives\n");
+        description.push_str("• compare_hardware - Compare hardware configurations\n");
+        description.push_str("• generate_isp_request - Generate unlock request for restricted features\n");
+        description.push_str("\nSYSTEM TOOLS:\n");
+        description.push_str("• systemd - Query and manage systemd services\n");
+        description.push_str("• file - Read, write, and manipulate files\n");
+        description.push_str("• network - Network interface management\n");
+        description.push_str("• lxc - LXC container management\n");
+        description.push_str("• packagekit - Package management via PackageKit\n");
+
+        description
+    }
+
+    /// Extract tool suggestions from AI response
+    async fn extract_tool_suggestions(&self, response: &str) -> Vec<String> {
+        let mut suggested_tools = Vec::new();
+        let lower_response = response.to_lowercase();
+
+        // Check for tool name mentions
+        let tools = self.tool_registry.list_tools().await;
+        for tool in tools {
+            if lower_response.contains(&tool.name.to_lowercase()) {
+                suggested_tools.push(tool.name);
+            }
+        }
+
+        // Check for special tool mentions
+        let special_tools = vec![
+            "discover_system", "analyze_cpu_features", "analyze_isp",
+            "compare_hardware", "generate_isp_request"
+        ];
+
+        for tool in special_tools {
+            if lower_response.contains(tool) {
+                suggested_tools.push(tool.to_string());
+            }
+        }
+
+        suggested_tools
+    }
+
     async fn list_agents(&self) -> ChatMessage {
         let agent_types = self.agent_registry.list_agent_types().await;
         let instances = self.agent_registry.list_instances().await;
@@ -499,6 +698,37 @@ impl ChatServerState {
                 • compare hardware - Compare two configurations\n\
                 • run compare_hardware config1_path=/path1 config2_path=/path2"
             }
+            Some("ai") => {
+                "🤖 AI Assistant (DeepSeek) Capabilities:\n\
+                \n\
+                The AI assistant has deep knowledge of:\n\
+                • Your system's hardware and capabilities\n\
+                • All available MCP tools and when to use them\n\
+                • Hardware virtualization (VT-x, AMD-V, IOMMU)\n\
+                • BIOS locks and how to unlock features\n\
+                • ISP/provider restrictions and migration options\n\
+                • System optimization strategies\n\
+                \n\
+                How to Use:\n\
+                1. Ask questions naturally:\n\
+                   'what is my CPU capable of?'\n\
+                   'tell me about IOMMU support'\n\
+                \n\
+                2. Use 'ai' prefix for explicit AI queries:\n\
+                   'ai what can you do?'\n\
+                   'ai explain my hardware'\n\
+                \n\
+                3. Request tool suggestions:\n\
+                   'ai which tool should I use to check virtualization?'\n\
+                   'ai recommend a tool for analyzing my ISP'\n\
+                \n\
+                4. Get migration advice:\n\
+                   'ai should I migrate providers?'\n\
+                   'ai recommend a hosting provider for GPU passthrough'\n\
+                \n\
+                The AI will reference actual system data and suggest\n\
+                appropriate tools to run for deeper analysis."
+            }
             _ => {
                 "📚 MCP Chat Help\n\
                 ══════════════\n\
@@ -514,9 +744,19 @@ impl ChatServerState {
                 • help tools - Tool usage\n\
                 • help agents - Agent management\n\
                 • help introspection - System introspection tools\n\
+                • help ai - AI assistant capabilities\n\
                 \n\
-                Natural Language:\n\
-                You can also use natural language:\n\
+                AI Assistant (DeepSeek):\n\
+                Ask questions naturally or use 'ai <question>':\n\
+                • 'ai what can you do?'\n\
+                • 'ai explain my hardware capabilities'\n\
+                • 'ai how do I enable virtualization?'\n\
+                • 'ai recommend a hosting provider'\n\
+                • 'tell me about IOMMU support'\n\
+                • 'what is my CPU capable of'\n\
+                • 'should I migrate providers'\n\
+                \n\
+                Natural Language Commands:\n\
                 • 'discover hardware'\n\
                 • 'show cpu features'\n\
                 • 'check bios locks'\n\

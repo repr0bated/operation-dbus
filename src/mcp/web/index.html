@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MCP Control Center</title>
-    <link rel="stylesheet" href="/static/styles.css">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 </head>
 <body>
     <div id="app">
@@ -24,7 +24,9 @@
                     <a href="#dashboard" class="nav-link active">Dashboard</a>
                     <a href="#tools" class="nav-link">Tools</a>
                     <a href="#agents" class="nav-link">Agents</a>
+                    <a href="#chat" class="nav-link">Chat</a>
                     <a href="#discovery" class="nav-link">Discovery</a>
+                    <a href="#workflow" class="nav-link">Workflow</a>
                     <a href="#logs" class="nav-link">Logs</a>
                 </nav>
                 <div class="header-actions">
@@ -222,6 +224,67 @@
                 </div>
             </section>
 
+            <!-- Chat Section -->
+            <section id="chat" class="section">
+                <div class="section-header">
+                    <h2>🤖 DeepSeek AI Chat</h2>
+                    <div class="chat-controls">
+                        <button class="btn btn-sm" onclick="clearChat()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M2 4H14M5 4V2C5 1.4 5.4 1 6 1H10C10.6 1 11 1.4 11 2V4M7 7V11M10 7V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            Clear Chat
+                        </button>
+                    </div>
+                </div>
+
+                <div class="chat-container">
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="chat-message assistant">
+                            <div class="message-avatar">🤖</div>
+                            <div class="message-content">
+                                <div class="message-text">
+                                    <strong>Welcome to MCP + DeepSeek AI!</strong><br><br>
+                                    I'm your intelligent assistant with deep knowledge of your system. I can help you with:<br>
+                                    <ul style="margin: 8px 0; padding-left: 20px;">
+                                        <li>🔍 <strong>Hardware Analysis</strong> - CPU features, BIOS locks, virtualization capabilities</li>
+                                        <li>🌐 <strong>ISP Analysis</strong> - Provider restrictions, migration recommendations</li>
+                                        <li>🛠️ <strong>System Tools</strong> - D-Bus, SystemD, network, containers</li>
+                                        <li>💡 <strong>Expert Advice</strong> - Optimization, troubleshooting, best practices</li>
+                                    </ul>
+                                    <br>
+                                    <strong>Try asking:</strong><br>
+                                    • "What can you do?"<br>
+                                    • "Explain my hardware capabilities"<br>
+                                    • "How do I enable virtualization?"<br>
+                                    • "Should I migrate providers?"<br>
+                                    • "Run discover_system" (to analyze hardware)<br>
+                                    <br>
+                                    Type 'help' for more commands or just ask me anything!
+                                </div>
+                                <div class="message-time">Just now</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chat-input-area">
+                        <div class="chat-input-group">
+                            <input type="text" id="chat-input" placeholder="Ask DeepSeek anything..." class="chat-input">
+                            <button class="btn btn-primary chat-send-btn" onclick="sendChatMessage()" id="chat-send-btn">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <path d="M3 8L13 3L8 13L6 9L3 8Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="typing-indicator" id="typing-indicator" style="display:none;">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Discovery Section -->
             <section id="discovery" class="section">
                 <div class="section-header">
@@ -237,7 +300,80 @@
 
                 <div class="discovery-results" id="discovery-results">
                     <div class="discovery-categories">
-                        <!-- Categories will be dynamically added here -->
+                        <div class="category-section">
+                            <h3>Getting Started</h3>
+                            <div class="service-list">
+                                <div class="service-item">
+                                    <span class="service-name">Click "Run Discovery" to scan your system</span>
+                                    <span class="service-path">for services and interfaces</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Workflow Section -->
+            <section id="workflow" class="section">
+                <div class="section-header">
+                    <h2>🔗 System Workflow</h2>
+                    <div class="workflow-controls">
+                        <button class="btn btn-sm" onclick="generateWorkflow()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Generate Workflow
+                        </button>
+                        <button class="btn btn-sm" onclick="resetWorkflowView()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M14 8C14 11.3 11.3 14 8 14C5.5 14 3.3 12.6 2.3 10.5M2 8C2 4.7 4.7 2 8 2C10.5 2 12.7 3.4 13.7 5.5M11 5H14V2M2 14V11H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            Reset View
+                        </button>
+                        <select id="workflow-layout" class="form-select form-select-sm" onchange="changeLayout()">
+                            <option value="force">Force Directed</option>
+                            <option value="hierarchical">Hierarchical</option>
+                            <option value="circular">Circular</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="workflow-container">
+                    <div id="workflow-canvas" class="workflow-canvas">
+                        <div class="workflow-placeholder">
+                            <div class="placeholder-icon">🔗</div>
+                            <div class="placeholder-text">
+                                <h3>System Workflow Visualization</h3>
+                                <p>Click "Generate Workflow" to create a visual representation of your system's services, dependencies, and relationships.</p>
+                                <p>This will show how systemd services, D-Bus components, network services, and kernel subsystems interact.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="workflow-legend">
+                        <h4>Legend</h4>
+                        <div class="legend-items">
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #3b82f6;"></div>
+                                <span>D-Bus Services</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #10b981;"></div>
+                                <span>Systemd Services</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #f59e0b;"></div>
+                                <span>Network Services</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #8b5cf6;"></div>
+                                <span>Kernel Components</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #ef4444;"></div>
+                                <span>Container Services</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -286,6 +422,6 @@
     <div id="toast-container" class="toast-container"></div>
 
     <!-- Scripts -->
-    <script src="/static/app.js"></script>
+    <script src="/app.js"></script>
 </body>
 </html>
