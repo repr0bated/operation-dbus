@@ -192,27 +192,12 @@ impl LxcPlugin {
                 if line.contains("link-netnsid") || line.contains("@if") {
                     // Parse the peer interface name from the host side
                     // Format: "veth<random>@if<index>"
-                    let host_side = tokio::process::Command::new("ip")
-                        .args(["link", "show", "type", "veth"])
-                        .output()
-                        .await?;
+                    let veth_interfaces = crate::native::rtnetlink_helpers::list_veth_interfaces().await?;
 
-                    if host_side.status.success() {
-                        let host_stdout = String::from_utf8_lossy(&host_side.stdout);
-                        // Find veth that matches this container's namespace
-                        for host_line in host_stdout.lines() {
-                            if host_line.contains("@") {
-                                // Extract interface name
-                                if let Some(col_pos) = host_line.find(':') {
-                                    let name_part = &host_line[col_pos + 1..];
-                                    if let Some(name_end) = name_part.find('@') {
-                                        let veth_name = name_part[..name_end].trim();
-                                        if !veth_name.is_empty() {
-                                            return Ok(veth_name.to_string());
-                                        }
-                                    }
-                                }
-                            }
+                    // Find veth that matches this container's namespace
+                    for veth_name in veth_interfaces {
+                        if !veth_name.is_empty() {
+                            return Ok(veth_name);
                         }
                     }
                 }
@@ -220,27 +205,12 @@ impl LxcPlugin {
         }
 
         // Fallback: try to find veth by checking all veth pairs
-        let output = tokio::process::Command::new("ip")
-            .args(["link", "show", "type", "veth"])
-            .output()
-            .await?;
-
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            // Look for any veth interface (first one found)
-            for line in stdout.lines() {
-                if line.contains("@if") {
-                    if let Some(col_pos) = line.find(':') {
-                        let name_part = &line[col_pos + 1..];
-                        if let Some(name_end) = name_part.find('@') {
-                            let veth_name = name_part[..name_end].trim();
-                            if !veth_name.is_empty() && veth_name.starts_with("veth") {
-                                log::info!("Found veth interface: {}", veth_name);
-                                return Ok(veth_name.to_string());
-                            }
-                        }
-                    }
-                }
+        let veth_interfaces = crate::native::rtnetlink_helpers::list_veth_interfaces().await?;
+        // Look for any veth interface (first one found)
+        for veth_name in veth_interfaces {
+            if !veth_name.is_empty() && veth_name.starts_with("veth") {
+                log::info!("Found veth interface: {}", veth_name);
+                return Ok(veth_name);
             }
         }
 

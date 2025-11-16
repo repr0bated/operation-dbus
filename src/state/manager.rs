@@ -38,6 +38,7 @@ pub struct ApplyReport {
 /// State manager coordinates all plugins and provides atomic operations
 pub struct StateManager {
     plugins: Arc<RwLock<HashMap<String, Arc<dyn StatePlugin>>>>,
+    workflows: std::sync::Mutex<crate::state::plugin_workflow::PluginWorkflowManager>,
     #[cfg(feature = "streaming-blockchain")]
     blockchain_sender: Option<FootprintSender>,
 }
@@ -53,10 +54,12 @@ impl StateManager {
     pub fn new() -> Self {
         Self {
             plugins: Arc::new(RwLock::new(HashMap::new())),
+            workflows: std::sync::Mutex::new(crate::state::plugin_workflow::PluginWorkflowManager::new()),
             #[cfg(feature = "streaming-blockchain")]
             blockchain_sender: None,
         }
     }
+
 
     /// Enable blockchain footprints by providing a sender to a StreamingBlockchain receiver
     #[cfg(feature = "streaming-blockchain")]
@@ -92,6 +95,62 @@ impl StateManager {
     pub async fn get_plugin(&self, plugin_name: &str) -> Option<Arc<dyn StatePlugin>> {
         let plugins = self.plugins.read().await;
         plugins.get(plugin_name).cloned()
+    }
+
+    /// Register a plugin as a workflow node
+    pub fn register_plugin_as_workflow_node(&self, name: &str, plugin: Arc<dyn StatePlugin>) {
+        let mut workflows = self.workflows.lock().unwrap();
+        workflows.register_plugin(name, plugin);
+    }
+
+    /// Execute a workflow
+    pub async fn execute_workflow(&self, workflow_name: &str, context: pocketflow_rs::Context) -> Result<Value> {
+        let workflows = self.workflows.lock().unwrap();
+        workflows.execute_workflow(workflow_name, context).await
+    }
+
+    /// Create predefined workflows
+    pub async fn setup_default_workflows(&self) -> Result<()> {
+        let mut workflows = self.workflows.lock().unwrap();
+
+        // Create a system administration workflow
+        workflows.create_system_admin_workflow()?;
+        log::info!("System administration workflow created");
+
+        // Create a development workflow
+        workflows.create_development_workflow()?;
+        log::info!("Development workflow created");
+
+        // Create privacy network workflow
+        #[cfg(feature = "openflow")]
+        {
+            workflows.create_privacy_network_workflow()?;
+            log::info!("Privacy network workflow created");
+        }
+
+        // Create container networking workflow
+        #[cfg(feature = "openflow")]
+        {
+            workflows.create_container_networking_workflow()?;
+            log::info!("Container networking workflow created");
+        }
+
+        Ok(())
+    }
+
+    /// Create auto-generated plugins for discovered D-Bus services
+    #[cfg(feature = "mcp")]
+    pub async fn discover_and_register_auto_plugins(&self) -> Result<()> {
+        log::info!("Discovering D-Bus services for auto plugin creation...");
+
+        let auto_plugins = crate::state::auto_plugin::PluginDiscovery::create_plugins().await?;
+
+        for plugin in auto_plugins {
+            self.register_plugin(plugin).await;
+        }
+
+        log::info!("Auto plugin discovery completed");
+        Ok(())
     }
 
     /// Load desired state from JSON file
