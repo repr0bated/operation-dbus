@@ -1,0 +1,19 @@
+{
+  "interfaces": [
+    {
+      "name": "ovsbr0",
+      "type": "ovs-bridge",
+      "ipv4": {
+        "enabled": true,
+        "dhcp": false,
+        "address": [
+          {
+            "ip": "10.0.0.1",
+            "prefix": 24
+          }
+        ]
+      },
+      "ports": []
+    }
+  ]
+}
