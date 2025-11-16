@@ -55,12 +55,31 @@
         }
       },
       {
-        "id": "apply-host-specific-state",
-        "plugin": "net",
-        "inputs": ["snapshot_transferred", "host_config"],
-        "outputs": ["host_configured"],
+        "id": "apply-role-mask",
+        "plugin": "systemd",
+        "inputs": ["snapshot_transferred", "target_role"],
+        "outputs": ["role_masked"],
         "depends_on": ["send-snapshot"],
         "condition": "snapshot_transferred == true",
+        "config": {
+          "remote_operations": true,
+          "chroot": "/mnt/@",
+          "role_config": "states/role-masks.json",
+          "role": "${target_role}",
+          "operations": [
+            {"type": "mask_services"},
+            {"type": "remove_dirs"},
+            {"type": "update_state_file"}
+          ]
+        }
+      },
+      {
+        "id": "apply-host-specific-state",
+        "plugin": "net",
+        "inputs": ["role_masked", "host_config"],
+        "outputs": ["host_configured"],
+        "depends_on": ["apply-role-mask"],
+        "condition": "role_masked == true",
         "config": {
           "remote_operations": true,
           "chroot": "/mnt/@",
@@ -141,7 +160,8 @@
         "target_host",
         "target_device",
         "target_hostname",
-        "target_ip"
+        "target_ip",
+        "target_role"
       ],
       "optional": [
         "ssh_key_path",
@@ -166,13 +186,29 @@
       "target_host": "vps.example.com",
       "target_device": "/dev/sda",
       "target_hostname": "privacy-vps-01",
-      "target_ip": "192.168.1.100/24"
+      "target_ip": "192.168.1.100/24",
+      "target_role": "privacy-vps"
     },
-    "deploy_to_local": {
-      "target_host": "localhost",
+    "deploy_to_workstation": {
+      "target_host": "workstation.local",
       "target_device": "/dev/nvme0n1",
+      "target_hostname": "privacy-client-01",
+      "target_ip": "10.0.0.10/24",
+      "target_role": "privacy-client"
+    },
+    "deploy_to_proxmox_node": {
+      "target_host": "192.168.1.20",
+      "target_device": "/dev/sda",
       "target_hostname": "proxmox-node-02",
-      "target_ip": "10.0.0.2/24"
+      "target_ip": "10.0.0.2/24",
+      "target_role": "full"
+    },
+    "deploy_standalone_bridge": {
+      "target_host": "localhost",
+      "target_device": "/dev/sda",
+      "target_hostname": "ovs-bridge-01",
+      "target_ip": "10.0.0.50/24",
+      "target_role": "standalone"
     }
   }
 }
