@@ -8,8 +8,6 @@ pub mod netmaker;
 #[cfg(feature = "openflow")]
 pub mod openflow;
 pub mod packagekit;
-#[cfg(feature = "openflow")]
-pub mod privacy;
 pub mod sessdecl;
 pub mod systemd;
 
