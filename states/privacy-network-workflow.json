@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "workflow": {
+    "name": "privacy-network-deployment",
+    "description": "Deploy complete privacy network with WireGuard + WARP + XRay",
+    "nodes": [
+      {
+        "id": "create-bridge",
+        "plugin": "net",
+        "inputs": [],
+        "outputs": ["ovsbr0_created", "bridge_uuid"],
+        "config": {
+          "interfaces": [
+            {
+              "name": "ovsbr0",
+              "type": "ovs-bridge",
+              "ipv4": {
+                "enabled": true,
+                "address": [{"ip": "10.0.0.1", "prefix": 24}]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "create-wireguard-container",
+        "plugin": "lxc",
+        "inputs": ["bridge_uuid"],
+        "outputs": ["wg_container_id", "wg_port_name"],
+        "depends_on": ["create-bridge"],
+        "condition": "ovsbr0_created == true",
+        "config": {
+          "containers": [
+            {
+              "id": 100,
+              "name": "wireguard-gateway",
+              "template": "debian-12",
+              "network": {
+                "bridge": "ovsbr0",
+                "socket_networking": true,
+                "port_name": "internal_100",
+                "ipv4": "10.0.0.100/24"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "create-warp-container",
+        "plugin": "lxc",
+        "inputs": ["bridge_uuid"],
+        "outputs": ["warp_container_id", "warp_port_name"],
+        "depends_on": ["create-bridge"],
+        "condition": "ovsbr0_created == true",
+        "config": {
+          "containers": [
+            {
+              "id": 101,
+              "name": "warp-tunnel",
+              "template": "debian-12",
+              "network": {
+                "bridge": "ovsbr0",
+                "wg_tunnel": true,
+                "port_name": "wg-warp",
+                "ipv4": "10.0.0.101/24"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "create-xray-container",
+        "plugin": "lxc",
+        "inputs": ["bridge_uuid"],
+        "outputs": ["xray_container_id", "xray_port_name"],
+        "depends_on": ["create-bridge"],
+        "condition": "ovsbr0_created == true",
+        "config": {
+          "containers": [
+            {
+              "id": 102,
+              "name": "xray-client",
+              "template": "debian-12",
+              "network": {
+                "bridge": "ovsbr0",
+                "socket_networking": true,
+                "port_name": "internal_102",
+                "ipv4": "10.0.0.102/24"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "configure-flows",
+        "plugin": "openflow",
+        "inputs": ["wg_port_name", "warp_port_name", "xray_port_name"],
+        "outputs": ["flows_active"],
+        "depends_on": ["create-wireguard-container", "create-warp-container", "create-xray-container"],
+        "parallel": false,
+        "config": {
+          "enable_security_flows": true,
+          "obfuscation_level": 3,
+          "flow_policies": [
+            {
+              "name": "wireguard-to-warp",
+              "selector": "container:100",
+              "template": {
+                "table": 10,
+                "priority": 1000,
+                "actions": [{"type": "output", "port": "wg-warp"}]
+              }
+            },
+            {
+              "name": "warp-to-xray",
+              "selector": "container:101",
+              "template": {
+                "table": 10,
+                "priority": 1000,
+                "actions": [{"type": "output", "port": "internal_102"}]
+              }
+            }
+          ],
+          "bridges": [
+            {
+              "name": "ovsbr0",
+              "socket_ports": [
+                {"name": "internal_100", "container_id": "100"},
+                {"name": "wg-warp", "container_id": "101"},
+                {"name": "internal_102", "container_id": "102"}
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "execution": {
+      "mode": "sequential_with_parallel",
+      "parallel_groups": [
+        ["create-wireguard-container", "create-warp-container", "create-xray-container"]
+      ]
+    },
+    "error_handling": {
+      "on_failure": "rollback",
+      "checkpoints": ["create-bridge", "configure-flows"]
+    }
+  }
+}

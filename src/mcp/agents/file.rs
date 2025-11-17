@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
-use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
+use zbus::{interface, connection::Builder, object_server::SignalEmitter};
 
 // Security configuration
 const ALLOWED_DIRECTORIES: &[&str] = &["/home", "/tmp", "/var/log", "/opt"];
@@ -289,7 +289,7 @@ impl FileAgent {
     }
 }
 
-#[dbus_interface(name = "org.dbusmcp.Agent.File")]
+#[interface(name = "org.dbusmcp.Agent.File")]
 impl FileAgent {
     /// Execute a file operation task safely
     async fn execute(&self, task_json: String) -> zbus::fdo::Result<String> {
@@ -361,8 +361,8 @@ impl FileAgent {
     }
 
     /// Signal emitted when task completes
-    #[dbus_interface(signal)]
-    async fn task_completed(signal_ctx: &SignalContext<'_>, result: String) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn task_completed(signal_emitter: &SignalEmitter<'_>, result: String) -> zbus::Result<()>;
 }
 
 #[tokio::main]
@@ -385,7 +385,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/File/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.File.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::system()?
+    let _conn = Builder::system()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()

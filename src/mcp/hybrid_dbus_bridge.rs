@@ -7,7 +7,7 @@ use crate::mcp::hybrid_scanner::{
 };
 use anyhow::Result;
 use serde_json::Value;
-use zbus::{dbus_interface, ConnectionBuilder};
+use zbus::{interface, connection::Builder};
 
 /// D-Bus service that exposes hybrid system resources
 pub struct HybridSystemBridge {
@@ -22,7 +22,7 @@ impl HybridSystemBridge {
     }
 }
 
-#[dbus_interface(name = "org.opdbus.HybridSystem")]
+#[interface(name = "org.opdbus.HybridSystem")]
 impl HybridSystemBridge {
     /// Scan all system resources (D-Bus + non-D-Bus)
     async fn scan_all(&self) -> zbus::fdo::Result<String> {
@@ -187,7 +187,7 @@ impl HybridSystemBridge {
 pub async fn start_hybrid_bridge() -> Result<()> {
     let bridge = HybridSystemBridge::new().await?;
 
-    let _connection = ConnectionBuilder::system()?
+    let _connection = Builder::system()?
         .name("org.opdbus.HybridSystem")?
         .serve_at("/org/opdbus/HybridSystem", bridge)?
         .build()

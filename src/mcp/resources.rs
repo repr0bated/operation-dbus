@@ -1,241 +1,385 @@
-//! MCP Resources and Agent loading implementation
+//! Embedded MCP resources - documentation and agent definitions
 //!
-//! This module provides MCP resource functionality and loads embedded
-//! markdown files as executable agents/tools from the agents and commands repositories.
+//! This module embeds markdown documentation files directly into the MCP server binary,
+//! making them available via the MCP resources protocol without requiring external files.
 
-use anyhow::{Context, Result};
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-
-// Include the auto-generated embedded markdown content
-include!(concat!(env!("OUT_DIR"), "/embedded_markdown.rs"));
-
-/// Agent specification parsed from markdown frontmatter
-#[derive(Debug, Clone, Deserialize)]
-pub struct AgentSpec {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub model: Option<String>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
-impl AgentSpec {
-    /// Parse agent spec from markdown content
-    pub fn from_markdown(content: &str) -> Result<Self> {
-        // Check if content starts with YAML frontmatter
-        if !content.trim_start().starts_with("---") {
-            return Ok(Self {
-                name: None,
-                description: None,
-                model: None,
-                extra: HashMap::new(),
-            });
-        }
-
-        // Extract frontmatter (between --- markers)
-        let content_str = content.trim_start();
-        let frontmatter_end = content_str[3..].find("---").map(|pos| pos + 3);
-
-        if let Some(end_pos) = frontmatter_end {
-            let yaml_content = &content_str[3..end_pos];
-            let spec: AgentSpec = serde_yaml::from_str(yaml_content)?;
-            Ok(spec)
-        } else {
-            Ok(Self {
-                name: None,
-                description: None,
-                model: None,
-                extra: HashMap::new(),
-            })
-        }
-    }
-}
-
-/// Resource trait that all MCP resources must implement
-#[async_trait]
-pub trait Resource: Send + Sync {
-    /// Get the resource URI
-    fn uri(&self) -> &str;
-
-    /// Get resource name for display
-    fn name(&self) -> &str;
-
-    /// Get resource description
-    fn description(&self) -> &str;
-
-    /// Get MIME type
-    fn mime_type(&self) -> &str;
-
-    /// Read the resource content
-    async fn read(&self) -> Result<ResourceContent>;
-
-    /// Get resource metadata
-    fn metadata(&self) -> ResourceMetadata {
-        ResourceMetadata {
-            name: self.name().to_string(),
-            description: self.description().to_string(),
-            mime_type: self.mime_type().to_string(),
-            size: None,
-            last_modified: None,
-        }
-    }
-}
-
-/// Content returned from reading a resource
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceContent {
-    pub contents: Vec<ResourceContentItem>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceContentItem {
+pub struct Resource {
     pub uri: String,
-    pub mime_type: String,
-    pub text: Option<String>,
-    pub blob: Option<String>, // base64 encoded binary data
-}
-
-impl ResourceContent {
-    pub fn text(uri: String, mime_type: String, text: String) -> Self {
-        Self {
-            contents: vec![ResourceContentItem {
-                uri,
-                mime_type,
-                text: Some(text),
-                blob: None,
-            }],
-        }
-    }
-}
-
-/// Resource metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceMetadata {
     pub name: String,
     pub description: String,
     pub mime_type: String,
-    pub size: Option<u64>,
-    pub last_modified: Option<String>,
+    pub content: String,
 }
 
-/// Embedded markdown file resource implementation
-pub struct MarkdownFileResource {
-    uri: String,
-    name: String,
-    description: String,
-}
-
-impl MarkdownFileResource {
-    pub fn new(uri: String, content: &str) -> Self {
-        let name = uri.clone();
-
-        // Extract description from first line
-        let description = content
-            .lines()
-            .next()
-            .filter(|line| line.starts_with('#'))
-            .map(|line| line.trim_start_matches('#').trim().to_string())
-            .unwrap_or_else(|| format!("Markdown file: {}", name));
-
-        Self {
-            uri,
-            name,
-            description,
-        }
-    }
-}
-
-#[async_trait]
-impl Resource for MarkdownFileResource {
-    fn uri(&self) -> &str {
-        &self.uri
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn description(&self) -> &str {
-        &self.description
-    }
-
-    fn mime_type(&self) -> &str {
-        "text/markdown"
-    }
-
-    async fn read(&self) -> Result<ResourceContent> {
-        let content = get_embedded_markdown(&self.uri)
-            .ok_or_else(|| anyhow::anyhow!("Embedded content not found for URI: {}", self.uri))?;
-
-        Ok(ResourceContent::text(
-            self.uri.clone(),
-            self.mime_type().to_string(),
-            content.to_string(),
-        ))
-    }
-}
-
-/// Resource registry for managing MCP resources
-#[derive(Clone)]
+/// Registry of embedded resources
 pub struct ResourceRegistry {
-    resources: Arc<RwLock<HashMap<String, Box<dyn Resource>>>>,
+    resources: HashMap<String, Resource>,
 }
 
 impl ResourceRegistry {
     pub fn new() -> Self {
-        Self {
-            resources: Arc::new(RwLock::new(HashMap::new())),
-        }
+        let mut resources = HashMap::new();
+
+        // Embed agent documentation and specifications
+        resources.insert(
+            "agent://agents/overview".to_string(),
+            Resource {
+                uri: "agent://agents/overview".to_string(),
+                name: "Agent System Overview".to_string(),
+                description: "Complete overview of the agent-based architecture and guidelines"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../AGENTS.md").to_string(),
+            },
+        );
+
+        // Individual agent specifications
+        resources.insert(
+            "agent://spec/executor".to_string(),
+            Resource {
+                uri: "agent://spec/executor".to_string(),
+                name: "Executor Agent Specification".to_string(),
+                description: "Secure command execution agent with whitelist-based security"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-EXECUTOR.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/systemd".to_string(),
+            Resource {
+                uri: "agent://spec/systemd".to_string(),
+                name: "Systemd Agent Specification".to_string(),
+                description: "systemd service management agent via systemctl".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-SYSTEMD.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/network".to_string(),
+            Resource {
+                uri: "agent://spec/network".to_string(),
+                name: "Network Agent Specification".to_string(),
+                description: "Network diagnostics and information gathering agent".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-NETWORK.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/file".to_string(),
+            Resource {
+                uri: "agent://spec/file".to_string(),
+                name: "File Agent Specification".to_string(),
+                description: "Secure file operations agent with path validation".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-FILE.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/monitor".to_string(),
+            Resource {
+                uri: "agent://spec/monitor".to_string(),
+                name: "Monitor Agent Specification".to_string(),
+                description: "System monitoring and metrics collection agent".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-MONITOR.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/packagekit".to_string(),
+            Resource {
+                uri: "agent://spec/packagekit".to_string(),
+                name: "PackageKit Agent Specification".to_string(),
+                description: "Package management agent via D-Bus PackageKit interface".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-PACKAGEKIT.md").to_string(),
+            },
+        );
+
+        // Memory and context management agents
+        resources.insert(
+            "agent://spec/memory-graph".to_string(),
+            Resource {
+                uri: "agent://spec/memory-graph".to_string(),
+                name: "Knowledge Graph Memory Agent".to_string(),
+                description: "Persistent memory using knowledge graph with entities, relations, and observations"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-MEMORY-GRAPH.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/memory-vector".to_string(),
+            Resource {
+                uri: "agent://spec/memory-vector".to_string(),
+                name: "Vector Memory Agent".to_string(),
+                description: "Semantic memory storage and retrieval using vector embeddings and Qdrant"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-MEMORY-VECTOR.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/memory-buffer".to_string(),
+            Resource {
+                uri: "agent://spec/memory-buffer".to_string(),
+                name: "Conversation Buffer Memory Agent".to_string(),
+                description: "Multiple conversation memory strategies: buffer, window, summary, and hybrid modes"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-MEMORY-BUFFER.md").to_string(),
+            },
+        );
+
+        // Utility agents
+        resources.insert(
+            "agent://spec/code-sandbox".to_string(),
+            Resource {
+                uri: "agent://spec/code-sandbox".to_string(),
+                name: "Code Sandbox Agent".to_string(),
+                description: "Secure sandboxed code execution for Python and JavaScript with resource limits"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-CODE-SANDBOX.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/web-scraper".to_string(),
+            Resource {
+                uri: "agent://spec/web-scraper".to_string(),
+                name: "Web Scraper Agent".to_string(),
+                description: "Browser automation and web scraping with structured data extraction via Playwright"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-WEB-SCRAPER.md").to_string(),
+            },
+        );
+
+        // Embed MCP documentation
+        resources.insert(
+            "mcp://docs/complete-guide".to_string(),
+            Resource {
+                uri: "mcp://docs/complete-guide".to_string(),
+                name: "MCP Complete Guide".to_string(),
+                description: "Complete guide to the Model Context Protocol integration".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/MCP-COMPLETE-GUIDE.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "mcp://docs/developer-guide".to_string(),
+            Resource {
+                uri: "mcp://docs/developer-guide".to_string(),
+                name: "MCP Developer Guide".to_string(),
+                description: "Developer guide for extending the MCP server".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/MCP-DEVELOPER-GUIDE.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "mcp://docs/api-reference".to_string(),
+            Resource {
+                uri: "mcp://docs/api-reference".to_string(),
+                name: "MCP API Reference".to_string(),
+                description: "Complete API reference for MCP tools and resources".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/MCP-API-REFERENCE.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "mcp://docs/chat-console".to_string(),
+            Resource {
+                uri: "mcp://docs/chat-console".to_string(),
+                name: "MCP Chat Console Guide".to_string(),
+                description: "Guide to using the interactive MCP chat console".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/MCP-CHAT-CONSOLE.md").to_string(),
+            },
+        );
+
+        // Embed hierarchical D-Bus design
+        resources.insert(
+            "dbus://design/hierarchical".to_string(),
+            Resource {
+                uri: "dbus://design/hierarchical".to_string(),
+                name: "Hierarchical D-Bus Design".to_string(),
+                description: "Design document for the hierarchical D-Bus abstraction layer"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../HIERARCHICAL_DBUS_DESIGN.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "dbus://guide/introspection".to_string(),
+            Resource {
+                uri: "dbus://guide/introspection".to_string(),
+                name: "D-Bus Introspection with zbus".to_string(),
+                description: "Comprehensive guide to D-Bus introspection using Rust zbus".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../d_bus_introspection_with_zbus.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "dbus://guide/indexer-implementation".to_string(),
+            Resource {
+                uri: "dbus://guide/indexer-implementation".to_string(),
+                name: "D-Bus Indexer Implementation Guide".to_string(),
+                description: "Implementation guide for the D-Bus indexer based on zbus patterns"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../DBUS_INDEXER_IMPLEMENTATION_GUIDE.md").to_string(),
+            },
+        );
+
+        // Embed snapshot automation
+        resources.insert(
+            "snapshot://automation".to_string(),
+            Resource {
+                uri: "snapshot://automation".to_string(),
+                name: "Snapshot Automation Guide".to_string(),
+                description: "Guide to BTRFS snapshot automation for D-Bus index".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../SNAPSHOT_AUTOMATION.md").to_string(),
+            },
+        );
+
+        // Embed plugin development guide
+        resources.insert(
+            "plugin://development-guide".to_string(),
+            Resource {
+                uri: "plugin://development-guide".to_string(),
+                name: "Plugin Development Guide".to_string(),
+                description: "Complete guide to developing plugins for op-dbus".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../PLUGIN-DEVELOPMENT-GUIDE.md").to_string(),
+            },
+        );
+
+        // Embed architecture documentation
+        resources.insert(
+            "architecture://correct".to_string(),
+            Resource {
+                uri: "architecture://correct".to_string(),
+                name: "Correct Architecture".to_string(),
+                description: "The correct architecture for op-dbus system".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/CORRECT-ARCHITECTURE.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "architecture://final".to_string(),
+            Resource {
+                uri: "architecture://final".to_string(),
+                name: "Final Architecture".to_string(),
+                description: "Final architecture design for the distributed system".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/FINAL-ARCHITECTURE.md").to_string(),
+            },
+        );
+
+        // Embed AI memory and context patterns
+        resources.insert(
+            "ai://prompt-templates".to_string(),
+            Resource {
+                uri: "ai://prompt-templates".to_string(),
+                name: "Prompt Templates and Context Patterns".to_string(),
+                description: "Prompt templates, RAG patterns, and context management strategies for AI"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/PROMPT-TEMPLATES.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "ai://memory-patterns".to_string(),
+            Resource {
+                uri: "ai://memory-patterns".to_string(),
+                name: "AI Memory and Context Management".to_string(),
+                description:
+                    "Memory hierarchy, context management, and knowledge retrieval patterns"
+                        .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/MEMORY-PATTERNS.md").to_string(),
+            },
+        );
+
+        // Embed public D-Bus and MCP specifications
+        resources.insert(
+            "spec://dbus/common-interfaces".to_string(),
+            Resource {
+                uri: "spec://dbus/common-interfaces".to_string(),
+                name: "Common D-Bus Interfaces Reference".to_string(),
+                description:
+                    "Public D-Bus interface specifications for systemd, NetworkManager, BlueZ, etc."
+                        .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/DBUS-COMMON-INTERFACES.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "spec://mcp/protocol".to_string(),
+            Resource {
+                uri: "spec://mcp/protocol".to_string(),
+                name: "MCP Protocol Specification".to_string(),
+                description:
+                    "Model Context Protocol (MCP) 2024-11-05 specification reference".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/MCP-PROTOCOL-SPEC.md").to_string(),
+            },
+        );
+
+        Self { resources }
     }
 
-    /// Register a resource
-    pub async fn register_resource(&self, resource: Box<dyn Resource>) -> Result<()> {
-        let uri = resource.uri().to_string();
-        let mut resources = self.resources.write().await;
-        resources.insert(uri, resource);
-        Ok(())
+    /// List all available resources
+    pub fn list_resources(&self) -> Vec<&Resource> {
+        self.resources.values().collect()
     }
 
-    /// Check if a resource exists by URI
-    pub async fn has_resource(&self, uri: &str) -> bool {
-        let resources = self.resources.read().await;
-        resources.contains_key(uri)
+    /// Get a specific resource by URI
+    pub fn get_resource(&self, uri: &str) -> Option<&Resource> {
+        self.resources.get(uri)
     }
 
-    /// List all resources
-    pub async fn list_resources(&self) -> Vec<Value> {
-        let resources = self.resources.read().await;
-        resources.values().map(|resource| {
-            json!({
-                "uri": resource.uri(),
-                "name": resource.name(),
-                "description": resource.description(),
-                "mimeType": resource.mime_type()
+    /// Search resources by keyword
+    pub fn search(&self, query: &str) -> Vec<&Resource> {
+        let query_lower = query.to_lowercase();
+        self.resources
+            .values()
+            .filter(|r| {
+                r.name.to_lowercase().contains(&query_lower)
+                    || r.description.to_lowercase().contains(&query_lower)
+                    || r.content.to_lowercase().contains(&query_lower)
             })
-        }).collect()
+            .collect()
     }
 
-    /// Read a resource by URI
-    pub async fn read_resource(&self, uri: &str) -> Result<ResourceContent> {
-        if !self.has_resource(uri).await {
-            anyhow::bail!("Resource not found: {}", uri);
-        }
-
-        // Get content directly from embedded data
-        let content = get_embedded_markdown(uri)
-            .ok_or_else(|| anyhow::anyhow!("Embedded content not found for URI: {}", uri))?;
-
-        Ok(ResourceContent::text(
-            uri.to_string(),
-            "text/markdown".to_string(),
-            content.to_string(),
-        ))
+    /// Get resources by category (extracted from URI scheme)
+    pub fn get_by_category(&self, category: &str) -> Vec<&Resource> {
+        let scheme = format!("{}://", category);
+        self.resources
+            .values()
+            .filter(|r| r.uri.starts_with(&scheme))
+            .collect()
     }
 }
 
@@ -245,62 +389,28 @@ impl Default for ResourceRegistry {
     }
 }
 
-/// Register embedded markdown URIs in the resource registry
-pub async fn register_embedded_markdown_resources(registry: &ResourceRegistry) -> Result<()> {
-    let uris = get_embedded_markdown_uris();
-    eprintln!("Registering {} embedded markdown resources", uris.len());
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    for uri in uris {
-        if let Some(content) = get_embedded_markdown(uri) {
-            let resource = MarkdownFileResource::new(uri.to_string(), content);
-            registry.register_resource(Box::new(resource)).await?;
-        } else {
-            eprintln!("Warning: No content found for URI: {}", uri);
-        }
+    #[test]
+    fn test_resource_registry() {
+        let registry = ResourceRegistry::new();
+
+        // Test listing
+        let resources = registry.list_resources();
+        assert!(!resources.is_empty(), "Should have embedded resources");
+
+        // Test get by URI
+        let agent_overview = registry.get_resource("agent://agents/overview");
+        assert!(agent_overview.is_some(), "Should find agent overview");
+
+        // Test search
+        let mcp_resources = registry.search("MCP");
+        assert!(!mcp_resources.is_empty(), "Should find MCP resources");
+
+        // Test category
+        let dbus_docs = registry.get_by_category("dbus");
+        assert!(!dbus_docs.is_empty(), "Should find D-Bus documentation");
     }
-
-    Ok(())
-}
-
-/// Load embedded agents as MCP tools
-pub fn load_embedded_agents() -> Result<Vec<EmbeddedAgent>> {
-    let uris = get_embedded_markdown_uris();
-    let mut agents = Vec::new();
-
-    eprintln!("Loading {} embedded agents/tools", uris.len());
-
-    for uri in uris {
-        if let Some(content) = get_embedded_markdown(uri) {
-            match AgentSpec::from_markdown(content) {
-                Ok(spec) => {
-                    // Only load as agent if it has a name (indicating it's an agent spec)
-                    if spec.name.is_some() {
-                        let agent = EmbeddedAgent {
-                            uri: uri.to_string(),
-                            spec,
-                            content: content.to_string(),
-                        };
-                        if let Some(name) = &agent.spec.name {
-                            eprintln!("Loaded agent: {} ({})", name, uri);
-                        }
-                        agents.push(agent);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Warning: Failed to parse agent spec for {}: {}", uri, e);
-                }
-            }
-        }
-    }
-
-    eprintln!("Successfully loaded {} agents", agents.len());
-    Ok(agents)
-}
-
-/// Embedded agent with parsed specification
-#[derive(Debug, Clone)]
-pub struct EmbeddedAgent {
-    pub uri: String,
-    pub spec: AgentSpec,
-    pub content: String,
 }

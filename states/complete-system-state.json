@@ -1,0 +1,395 @@
+{
+  "version": 2,
+  "metadata": {
+    "description": "Complete op-dbus system state - Golden Master Configuration",
+    "created": "2025-11-16",
+    "purpose": "Full system deployment with all modules configured",
+    "deployment_method": "btrfs_snapshot",
+    "snapshot_name": "golden-master-full"
+  },
+
+  "system": {
+    "hostname": "op-dbus-master",
+    "timezone": "UTC",
+    "locale": "en_US.UTF-8"
+  },
+
+  "packages": {
+    "required": [
+      "openvswitch-switch",
+      "lxc",
+      "lxc-templates",
+      "bridge-utils",
+      "wireguard-tools",
+      "iptables",
+      "nftables",
+      "btrfs-progs",
+      "systemd",
+      "dbus",
+      "rsync"
+    ],
+    "optional": [
+      "curl",
+      "wget",
+      "htop",
+      "vim"
+    ]
+  },
+
+  "network": {
+    "bridges": [
+      {
+        "name": "ovsbr0",
+        "type": "ovs-bridge",
+        "protocol": "ovsdb-jsonrpc",
+        "socket": "/var/run/openvswitch/db.sock",
+        "ipv4": {
+          "enabled": true,
+          "addresses": [
+            {
+              "ip": "10.0.0.1",
+              "prefix": 24,
+              "label": "primary"
+            }
+          ],
+          "gateway": null,
+          "dns": ["1.1.1.1", "1.0.0.1"]
+        },
+        "ipv6": {
+          "enabled": false
+        },
+        "ports": [],
+        "openflow": {
+          "version": "1.3",
+          "controller": null,
+          "fail_mode": "standalone"
+        }
+      }
+    ],
+    "interfaces": [],
+    "routing": {
+      "ipv4_forwarding": true,
+      "ipv6_forwarding": false
+    }
+  },
+
+  "containers": {
+    "lxc": {
+      "enabled": true,
+      "default_template": "debian-12",
+      "storage_backend": "btrfs",
+      "network_bridge": "ovsbr0",
+      "containers": []
+    }
+  },
+
+  "openflow": {
+    "enabled": true,
+    "protocol": "openflow_1.3",
+    "bridges": [
+      {
+        "name": "ovsbr0",
+        "flows": [
+          {
+            "priority": 100,
+            "table": 0,
+            "match": {
+              "in_port": "LOCAL"
+            },
+            "actions": [
+              {"type": "normal"}
+            ],
+            "description": "Allow traffic from bridge itself"
+          },
+          {
+            "priority": 50,
+            "table": 0,
+            "match": {},
+            "actions": [
+              {"type": "normal"}
+            ],
+            "description": "Default L2 learning"
+          }
+        ],
+        "security_flows": {
+          "enabled": false,
+          "drop_invalid_packets": false,
+          "arp_protection": false
+        }
+      }
+    ]
+  },
+
+  "mcp": {
+    "enabled": true,
+    "server": {
+      "binary": "/usr/local/bin/op-dbus",
+      "command": "serve",
+      "bind_addr": "0.0.0.0",
+      "port": 8080,
+      "features": ["mcp", "web"],
+      "systemd_unit": "dbus-mcp-web.service"
+    },
+    "agents": {
+      "systemd": {
+        "enabled": true,
+        "capabilities": [
+          "list_units",
+          "start_unit",
+          "stop_unit",
+          "restart_unit",
+          "enable_unit",
+          "disable_unit",
+          "mask_unit",
+          "get_unit_properties"
+        ]
+      },
+      "file": {
+        "enabled": true,
+        "capabilities": [
+          "read",
+          "write",
+          "list",
+          "delete",
+          "permissions"
+        ],
+        "restrictions": {
+          "allowed_paths": [
+            "/etc/op-dbus",
+            "/var/lib/op-dbus",
+            "/tmp"
+          ],
+          "deny_paths": [
+            "/etc/shadow",
+            "/etc/passwd",
+            "/root/.ssh"
+          ]
+        }
+      },
+      "network": {
+        "enabled": true,
+        "capabilities": [
+          "list_interfaces",
+          "configure_bridge",
+          "add_port",
+          "remove_port",
+          "set_ip"
+        ]
+      },
+      "packagekit": {
+        "enabled": true,
+        "capabilities": [
+          "search",
+          "install",
+          "remove",
+          "update",
+          "list_installed"
+        ]
+      },
+      "openflow": {
+        "enabled": true,
+        "capabilities": [
+          "add_flow",
+          "delete_flow",
+          "list_flows",
+          "modify_flow"
+        ]
+      },
+      "lxc": {
+        "enabled": true,
+        "capabilities": [
+          "create_container",
+          "start_container",
+          "stop_container",
+          "destroy_container",
+          "list_containers"
+        ]
+      }
+    },
+    "security": {
+      "authentication": "none",
+      "whitelist_mode": false,
+      "allowed_ips": ["127.0.0.1", "10.0.0.0/24"],
+      "rate_limiting": {
+        "enabled": false,
+        "requests_per_minute": 60
+      }
+    },
+    "chat_interface": {
+      "enabled": true,
+      "context_aware": true,
+      "state_generation": {
+        "enabled": true,
+        "templates_dir": "/etc/op-dbus/templates",
+        "output_dir": "/var/lib/op-dbus/generated-states"
+      }
+    }
+  },
+
+  "blockchain": {
+    "enabled": false,
+    "streaming": false,
+    "storage": {
+      "path": "/var/lib/op-dbus/blockchain",
+      "retention_days": 30,
+      "compression": "zstd"
+    },
+    "events": {
+      "capture_network_changes": false,
+      "capture_container_events": false,
+      "capture_systemd_events": false
+    }
+  },
+
+  "plugins": {
+    "net": {
+      "enabled": true,
+      "protocol": "rtnetlink",
+      "socket": "/var/run/openvswitch/db.sock",
+      "auto_configure": true
+    },
+    "openflow": {
+      "enabled": true,
+      "protocol": "openflow_native",
+      "security_mode": false
+    },
+    "systemd": {
+      "enabled": true,
+      "protocol": "dbus",
+      "bus": "system"
+    },
+    "lxc": {
+      "enabled": true,
+      "socket_networking": true
+    },
+    "packagekit": {
+      "enabled": true,
+      "protocol": "dbus",
+      "bus": "system",
+      "auto_update": false
+    },
+    "netmaker": {
+      "enabled": false
+    }
+  },
+
+  "systemd": {
+    "units": {
+      "openvswitch-switch.service": {
+        "enabled": true,
+        "wanted_by": ["multi-user.target"]
+      },
+      "lxc.service": {
+        "enabled": true,
+        "wanted_by": ["multi-user.target"]
+      },
+      "op-dbus.service": {
+        "enabled": true,
+        "wanted_by": ["multi-user.target"],
+        "unit": {
+          "Description": "Op-DBus State Management Daemon",
+          "After": ["network.target", "openvswitch-switch.service"]
+        },
+        "service": {
+          "Type": "simple",
+          "ExecStart": "/usr/local/bin/op-dbus run",
+          "Restart": "on-failure",
+          "RestartSec": "10s"
+        }
+      },
+      "dbus-mcp-web.service": {
+        "enabled": true,
+        "wanted_by": ["multi-user.target"],
+        "unit": {
+          "Description": "DBus MCP Web Interface",
+          "After": ["network.target", "op-dbus.service"]
+        },
+        "service": {
+          "Type": "simple",
+          "ExecStart": "/usr/local/bin/op-dbus serve --bind 0.0.0.0 --port 8080",
+          "Restart": "on-failure",
+          "RestartSec": "10s",
+          "Environment": "RUST_LOG=info"
+        }
+      }
+    }
+  },
+
+  "state_management": {
+    "footprint_file": "/var/lib/op-dbus/state.json",
+    "auto_verify": true,
+    "auto_apply": false,
+    "snapshots": {
+      "enabled": true,
+      "backend": "btrfs",
+      "subvolume": "@",
+      "snapshot_dir": "/snapshots",
+      "checkpoints": [
+        "after_packages",
+        "after_network",
+        "after_services",
+        "after_containers",
+        "full_deployment"
+      ]
+    }
+  },
+
+  "security": {
+    "firewall": {
+      "enabled": false,
+      "backend": "nftables",
+      "default_policy": "drop",
+      "rules": []
+    },
+    "apparmor": {
+      "enabled": false
+    },
+    "selinux": {
+      "enabled": false
+    }
+  },
+
+  "deployment": {
+    "method": "snapshot",
+    "source": {
+      "type": "btrfs_snapshot",
+      "snapshot_path": "/snapshots/golden-master-full",
+      "subvolume": "@"
+    },
+    "target_customization": {
+      "hostname": "${target_hostname}",
+      "network": {
+        "ovsbr0": {
+          "ipv4": {
+            "addresses": [
+              {
+                "ip": "${target_ip}",
+                "prefix": 24
+              }
+            ]
+          }
+        }
+      },
+      "machine_id": "regenerate",
+      "ssh_host_keys": "regenerate"
+    },
+    "role_masking": {
+      "enabled": true,
+      "role_config": "states/role-masks.json",
+      "role": "${deployment_role}"
+    }
+  },
+
+  "monitoring": {
+    "enabled": false,
+    "metrics": {
+      "collect_system": false,
+      "collect_network": false,
+      "collect_containers": false
+    },
+    "logging": {
+      "level": "info",
+      "destination": "journald"
+    }
+  }
+}

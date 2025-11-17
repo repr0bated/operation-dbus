@@ -2,16 +2,15 @@
 //! Flow-based programming for complex MCP agent interactions
 
 use anyhow::Result;
-use pocketflow_rs::{Context, Flow, Node, ProcessState};
+use pocketflow_rs::{Context, Flow, Node, ProcessResult, ProcessState};
 use serde_json::Value;
 use std::sync::Arc;
 use async_trait::async_trait;
 
 /// Workflow states for MCP operations
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum McpWorkflowState {
     /// Initial state
-    #[default]
     Start,
     /// Code analysis completed
     CodeAnalyzed,
@@ -27,6 +26,12 @@ pub enum McpWorkflowState {
     Failure,
     /// Awaiting user input
     AwaitingInput,
+}
+
+impl Default for McpWorkflowState {
+    fn default() -> Self {
+        McpWorkflowState::Start
+    }
 }
 
 impl ProcessState for McpWorkflowState {
@@ -85,35 +90,27 @@ impl Node for CodeReviewNode {
         // In real implementation, this would call actual MCP agents
         // like rust_pro, python_pro, etc.
 
-        Ok(serde_json::json!({
-            "state": "CodeAnalyzed",
-            "analysis": {
-                "language": self.language,
-                "lines": code.lines().count(),
-                "issues": []
-            }
-        }))
+        Ok(Value::String("code_analyzed".to_string()))
     }
 
-    async fn post_process(&self, context: &mut Context, result: &Result<Value, anyhow::Error>) -> Result<pocketflow_rs::ProcessResult<McpWorkflowState>> {
+    async fn post_process(&self, context: &mut Context, result: &Result<Value>) -> Result<ProcessResult<Self::State>> {
         match result {
-            Ok(value) => {
-                if let Some(state) = value.get("state").and_then(|s| s.as_str()) {
-                    if state == "CodeAnalyzed" {
-                        context.set("analysis_complete", Value::Bool(true));
-                        log::info!("✅ Code analysis completed");
-                    }
-                }
+            Ok(value) if value.as_str() == Some("code_analyzed") => {
+                context.set("analysis_complete", Value::Bool(true));
+                log::info!("✅ Code analysis completed");
+                Ok(ProcessResult::new(McpWorkflowState::CodeAnalyzed, "Code review completed successfully".to_string()))
+            }
+            Ok(_) => {
+                log::warn!("⚠️  Unexpected result from code review");
+                Ok(ProcessResult::new(McpWorkflowState::Failure, "Unexpected result".to_string()))
             }
             Err(e) => {
-                log::warn!("⚠️  Code review failed: {}", e);
+                log::error!("❌ Code review failed: {}", e);
+                Ok(ProcessResult::new(McpWorkflowState::Failure, format!("Code review failed: {}", e)))
             }
         }
-        Ok(pocketflow_rs::ProcessResult::new(McpWorkflowState::CodeAnalyzed, "Code analysis completed".to_string()))
     }
 }
-
-use pocketflow_rs::ProcessResult;
 
 /// Test Generation Node
 pub struct TestGenerationNode;
@@ -137,47 +134,32 @@ impl Node for TestGenerationNode {
 
         if !analysis_done {
             log::warn!("⚠️  Cannot generate tests without code analysis");
-            return Ok(serde_json::json!({
-                "state": "Failure",
-                "error": "Code analysis not completed"
-            }));
+            return Ok(Value::String("failed".to_string()));
         }
 
         // In real implementation, call test generation agents
         log::info!("📝 Generating comprehensive test suite");
 
-        Ok(serde_json::json!({
-            "state": "TestsGenerated",
-            "tests": {
-                "unit_tests": 15,
-                "integration_tests": 5,
-                "coverage_estimate": "85%"
-            }
-        }))
+        Ok(Value::String("tests_generated".to_string()))
     }
 
-    async fn post_process(&self, context: &mut Context, result: &Result<Value, anyhow::Error>) -> Result<pocketflow_rs::ProcessResult<McpWorkflowState>> {
+    async fn post_process(&self, context: &mut Context, result: &Result<Value>) -> Result<ProcessResult<Self::State>> {
         match result {
-            Ok(value) => {
-                if let Some(state) = value.get("state").and_then(|s| s.as_str()) {
-                    match state {
-                        "TestsGenerated" => {
-                            context.set("tests_generated", Value::Bool(true));
-                            log::info!("✅ Tests generated successfully");
-                        }
-                        "Failure" => {
-                            log::error!("❌ Test generation failed");
-                        }
-                        _ => {}
-                    }
-                }
+            Ok(value) if value.as_str() == Some("tests_generated") => {
+                context.set("tests_generated", Value::Bool(true));
+                log::info!("✅ Tests generated successfully");
+                Ok(ProcessResult::new(McpWorkflowState::TestsGenerated, "Tests generated successfully".to_string()))
             }
+            Ok(value) if value.as_str() == Some("failed") => {
+                log::error!("❌ Test generation failed");
+                Ok(ProcessResult::new(McpWorkflowState::Failure, "Test generation failed".to_string()))
+            }
+            Ok(_) => Ok(ProcessResult::new(McpWorkflowState::Failure, "Unexpected result".to_string())),
             Err(e) => {
                 log::error!("❌ Test generation error: {}", e);
-                return Ok(ProcessResult::new(McpWorkflowState::Failure, "Test generation failed".to_string()));
+                Ok(ProcessResult::new(McpWorkflowState::Failure, format!("Test generation error: {}", e)))
             }
         }
-        Ok(ProcessResult::new(McpWorkflowState::TestsGenerated, "Tests generated successfully".to_string()))
     }
 }
 
@@ -202,47 +184,32 @@ impl Node for DocumentationNode {
 
         if !tests_done {
             log::info!("⏳ Awaiting test completion before updating docs");
-            return Ok(serde_json::json!({
-                "state": "AwaitingInput",
-                "waiting_for": "test_completion"
-            }));
+            return Ok(Value::String("awaiting_input".to_string()));
         }
 
         // Update documentation
         log::info!("📝 Updating README, API docs, and inline documentation");
 
-        Ok(serde_json::json!({
-            "state": "DocsUpdated",
-            "docs": {
-                "readme": true,
-                "api_docs": true,
-                "inline_docs": true
-            }
-        }))
+        Ok(Value::String("docs_updated".to_string()))
     }
 
-    async fn post_process(&self, context: &mut Context, result: &Result<Value, anyhow::Error>) -> Result<pocketflow_rs::ProcessResult<McpWorkflowState>> {
+    async fn post_process(&self, context: &mut Context, result: &Result<Value>) -> Result<ProcessResult<Self::State>> {
         match result {
-            Ok(value) => {
-                if let Some(state) = value.get("state").and_then(|s| s.as_str()) {
-                    match state {
-                        "DocsUpdated" => {
-                            context.set("docs_updated", Value::Bool(true));
-                            log::info!("✅ Documentation updated");
-                        }
-                        "AwaitingInput" => {
-                            log::info!("⏳ Documentation update paused - awaiting test completion");
-                        }
-                        _ => {}
-                    }
-                }
+            Ok(value) if value.as_str() == Some("docs_updated") => {
+                context.set("docs_updated", Value::Bool(true));
+                log::info!("✅ Documentation updated");
+                Ok(ProcessResult::new(McpWorkflowState::DocsUpdated, "Documentation updated".to_string()))
             }
+            Ok(value) if value.as_str() == Some("awaiting_input") => {
+                log::info!("⏳ Documentation update paused - awaiting test completion");
+                Ok(ProcessResult::new(McpWorkflowState::AwaitingInput, "Awaiting test completion".to_string()))
+            }
+            Ok(_) => Ok(ProcessResult::new(McpWorkflowState::Failure, "Unexpected result".to_string())),
             Err(e) => {
                 log::error!("❌ Documentation update error: {}", e);
-                return Ok(ProcessResult::new(McpWorkflowState::Failure, "Documentation update failed".to_string()));
+                Ok(ProcessResult::new(McpWorkflowState::Failure, format!("Documentation update error: {}", e)))
             }
         }
-        Ok(ProcessResult::new(McpWorkflowState::DocsUpdated, "Documentation updated successfully".to_string()))
     }
 }
 
@@ -272,33 +239,22 @@ impl Node for DeploymentNode {
         // Prepare deployment artifacts
         log::info!("📦 Creating deployment package with tests and docs");
 
-        Ok(serde_json::json!({
-            "state": "ReadyToDeploy",
-            "artifacts": {
-                "binary": true,
-                "tests": true,
-                "docs": docs_done,
-                "config": true
-            }
-        }))
+        Ok(Value::String("ready_to_deploy".to_string()))
     }
 
-    async fn post_process(&self, context: &mut Context, result: &Result<Value, anyhow::Error>) -> Result<pocketflow_rs::ProcessResult<McpWorkflowState>> {
+    async fn post_process(&self, context: &mut Context, result: &Result<Value>) -> Result<ProcessResult<Self::State>> {
         match result {
-            Ok(value) => {
-                if let Some(state) = value.get("state").and_then(|s| s.as_str()) {
-                    if state == "ReadyToDeploy" {
-                        context.set("deployment_ready", Value::Bool(true));
-                        log::info!("✅ Deployment package ready");
-                    }
-                }
+            Ok(value) if value.as_str() == Some("ready_to_deploy") => {
+                context.set("deployment_ready", Value::Bool(true));
+                log::info!("✅ Deployment package ready");
+                Ok(ProcessResult::new(McpWorkflowState::ReadyToDeploy, "Deployment package ready".to_string()))
             }
+            Ok(_) => Ok(ProcessResult::new(McpWorkflowState::Failure, "Unexpected result".to_string())),
             Err(e) => {
                 log::error!("❌ Deployment preparation error: {}", e);
-                return Ok(ProcessResult::new(McpWorkflowState::Failure, "Deployment preparation failed".to_string()));
+                Ok(ProcessResult::new(McpWorkflowState::Failure, format!("Deployment preparation error: {}", e)))
             }
         }
-        Ok(ProcessResult::new(McpWorkflowState::ReadyToDeploy, "Deployment package ready".to_string()))
     }
 }
 
@@ -371,7 +327,7 @@ mod tests {
 
         // Create test context
         let mut context = Context::new();
-        context.insert("code".to_string(), Value::String("fn main() { println!(\"Hello\"); }".to_string()));
+        context.set("code", Value::String("fn main() { println!(\"Hello\"); }".to_string()));
 
         // This would run the full workflow in a real test
         // let result = manager.run_workflow("code_review_rust", context).await;

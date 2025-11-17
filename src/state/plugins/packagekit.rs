@@ -9,14 +9,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::process::Command;
-use zbus::dbus_proxy;
+use zbus::proxy;
 
 use crate::state::plugin::{
     ApplyResult, Checkpoint, PluginCapabilities, StateAction, StateDiff, StatePlugin, DiffMetadata
 };
 
 // PackageKit D-Bus interface
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.PackageKit",
     default_service = "org.freedesktop.PackageKit",
     default_path = "/org/freedesktop/PackageKit"
@@ -30,7 +30,7 @@ trait PackageKit {
 }
 
 // Transaction interface
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.PackageKit.Transaction",
     default_service = "org.freedesktop.PackageKit"
 )]

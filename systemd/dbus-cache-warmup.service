@@ -1,0 +1,27 @@
+[Unit]
+Description=D-Bus Introspection Cache Warmup
+Documentation=https://github.com/repr0bated/operation-dbus
+After=dbus.service network.target
+Wants=dbus.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/warm-dbus-cache.sh
+RemainAfterExit=no
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/cache /var/log
+
+# Resource limits
+TimeoutStartSec=60
+CPUQuota=50%
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

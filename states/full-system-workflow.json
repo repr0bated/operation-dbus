@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "workflow": {
+    "name": "full-system-deployment",
+    "description": "Complete system deployment with all modules",
+    "nodes": [
+      {
+        "id": "install-packages",
+        "plugin": "packagekit",
+        "inputs": [],
+        "outputs": ["packages_installed", "package_list"],
+        "config": {
+          "packages": [
+            "openvswitch-switch",
+            "lxc",
+            "bridge-utils",
+            "wireguard-tools"
+          ],
+          "operation": "install"
+        }
+      },
+      {
+        "id": "enable-services",
+        "plugin": "systemd",
+        "inputs": ["packages_installed"],
+        "outputs": ["services_active"],
+        "depends_on": ["install-packages"],
+        "condition": "packages_installed == true",
+        "config": {
+          "units": {
+            "openvswitch-switch.service": {
+              "enabled": true,
+              "active_state": "active"
+            },
+            "lxc.service": {
+              "enabled": true,
+              "active_state": "active"
+            }
+          }
+        }
+      },
+      {
+        "id": "create-network",
+        "plugin": "net",
+        "inputs": ["services_active"],
+        "outputs": ["network_ready", "bridges"],
+        "depends_on": ["enable-services"],
+        "config": {
+          "interfaces": [
+            {
+              "name": "ovsbr0",
+              "type": "ovs-bridge",
+              "ipv4": {
+                "enabled": true,
+                "address": [{"ip": "10.0.0.1", "prefix": 24}]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "setup-mcp",
+        "plugin": "mcp",
+        "inputs": [],
+        "outputs": ["mcp_ready"],
+        "parallel_with": ["create-network"],
+        "config": {
+          "enabled": true,
+          "server": {
+            "binary": "/usr/local/bin/dbus-mcp-web",
+            "port": 8080
+          },
+          "agents": {
+            "systemd": {"enabled": true},
+            "file": {"enabled": true},
+            "network": {"enabled": true},
+            "packagekit": {"enabled": true}
+          }
+        }
+      },
+      {
+        "id": "deploy-containers",
+        "plugin": "lxc",
+        "inputs": ["network_ready", "bridges"],
+        "outputs": ["containers_deployed"],
+        "depends_on": ["create-network"],
+        "config": {
+          "containers": []
+        }
+      },
+      {
+        "id": "configure-openflow",
+        "plugin": "openflow",
+        "inputs": ["containers_deployed", "bridges"],
+        "outputs": ["flows_active"],
+        "depends_on": ["deploy-containers"],
+        "config": {
+          "enable_security_flows": true,
+          "auto_discover_containers": true,
+          "bridges": [
+            {
+              "name": "ovsbr0",
+              "flows": []
+            }
+          ]
+        }
+      },
+      {
+        "id": "verify-deployment",
+        "plugin": "systemd",
+        "inputs": ["mcp_ready", "flows_active"],
+        "outputs": ["deployment_verified"],
+        "depends_on": ["setup-mcp", "configure-openflow"],
+        "config": {
+          "verify_units": [
+            "openvswitch-switch.service",
+            "lxc.service"
+          ]
+        }
+      }
+    ],
+    "execution": {
+      "mode": "dag",
+      "parallel_groups": [
+        ["create-network", "setup-mcp"]
+      ]
+    },
+    "error_handling": {
+      "on_failure": "rollback",
+      "checkpoints": [
+        "install-packages",
+        "enable-services",
+        "create-network",
+        "deploy-containers",
+        "configure-openflow"
+      ],
+      "rollback_order": "reverse"
+    },
+    "snapshots": {
+      "enabled": true,
+      "points": [
+        {
+          "after_node": "enable-services",
+          "name": "base-system",
+          "description": "Base system with packages and services"
+        },
+        {
+          "after_node": "create-network",
+          "name": "network-configured",
+          "description": "System with network infrastructure"
+        },
+        {
+          "after_node": "verify-deployment",
+          "name": "full-deployment",
+          "description": "Complete system deployment"
+        }
+      ],
+      "btrfs": {
+        "subvolume": "@",
+        "snapshot_dir": "/snapshots"
+      }
+    }
+  }
+}

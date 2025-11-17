@@ -258,7 +258,7 @@ pub mod conversion {
     #[allow(dead_code)]
     pub fn zvariant_to_json(value: &zvariant::Value) -> Result<Value, anyhow::Error> {
         // Simplified - full implementation would handle all zvariant types
-        match value.value_signature().as_str() {
+        match value.value_signature().to_string().as_str() {
             "s" => {
                 if let Ok(s) = <&str>::try_from(value) {
                     Ok(Value::String(s.to_string()))

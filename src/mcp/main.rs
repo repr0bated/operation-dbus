@@ -2,13 +2,9 @@
 
 #[path = "../mcp/tool_registry.rs"]
 mod tool_registry;
-#[path = "../mcp/introspection_tools.rs"]
-mod introspection_tools;
-
+#[path = "../mcp/resources.rs"]
 mod resources;
-mod llm_agents;
-mod executors;
-mod commands;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -18,10 +14,7 @@ use tool_registry::{
     AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,
     ToolResult,
 };
-use llm_agents::{AgentRegistry, AgentRequest};
-use commands::CommandRegistry;
-use executors::ExecutorFactory;
-use resources::register_embedded_markdown_resources;
+use resources::ResourceRegistry;
 use zbus::Connection;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,12 +43,10 @@ struct McpError {
     data: Option<Value>,
 }
 
-/// Refactored MCP server with tool, resource, agent, and command registries
+/// Refactored MCP server with tool registry and embedded resources
 struct McpServer {
-    tool_registry: Arc<ToolRegistry>,
-    resource_registry: Arc<resources::ResourceRegistry>,
-    agent_registry: Arc<AgentRegistry>,
-    command_registry: Arc<CommandRegistry>,
+    registry: Arc<ToolRegistry>,
+    resources: Arc<ResourceRegistry>,
     orchestrator: Option<zbus::Proxy<'static>>,
 }
 
@@ -64,44 +55,20 @@ struct McpServer {
 impl McpServer {
     async fn new() -> Result<Self> {
         // Create tool registry
-        let tool_registry = Arc::new(ToolRegistry::new());
+        let registry = Arc::new(ToolRegistry::new());
 
         // Add middleware
-        tool_registry.add_middleware(Box::new(LoggingMiddleware)).await;
-        tool_registry
+        registry.add_middleware(Box::new(LoggingMiddleware)).await;
+        registry
             .add_middleware(Box::new(AuditMiddleware::new()))
             .await;
 
-        // Create agent registry and load agents from filesystem
-        let agent_registry = Arc::new(AgentRegistry::new());
-        let agents_loaded = agent_registry.load_agents(std::path::Path::new("/git/agents")).await?;
-        eprintln!("Loaded {} agents from filesystem", agents_loaded);
-
-        // Create command registry and load commands from filesystem
-        let command_registry = Arc::new(CommandRegistry::new());
-        let commands_loaded = command_registry.load_commands(std::path::Path::new("/git/commands")).await?;
-        eprintln!("Loaded {} commands from filesystem", commands_loaded);
-
-        // Register LLM executors
-        let executors = ExecutorFactory::create_executors();
-        for executor in executors {
-            agent_registry.register_executor(executor).await?;
-        }
-
         // Register default tools
-        Self::register_default_tools(&tool_registry).await?;
+        Self::register_default_tools(&registry).await?;
 
-        // Register agent execution tools
-        Self::register_agent_tools(&tool_registry, &agent_registry).await?;
-
-        // Register command execution tools
-        Self::register_command_tools(&tool_registry, &command_registry, &agent_registry).await?;
-
-        // Create resource registry
-        let resource_registry = Arc::new(resources::ResourceRegistry::new());
-
-        // Register embedded markdown resources
-        register_embedded_markdown_resources(&resource_registry).await?;
+        // Create resource registry with embedded documentation
+        let resources = Arc::new(ResourceRegistry::new());
+        eprintln!("Loaded {} embedded resources", resources.list_resources().len());
 
         // Try to connect to orchestrator
         let orchestrator = match Connection::session().await {
@@ -129,10 +96,8 @@ impl McpServer {
         };
 
         Ok(Self {
-            tool_registry,
-            resource_registry,
-            agent_registry,
-            command_registry,
+            registry,
+            resources,
             orchestrator,
         })
     }
@@ -152,7 +117,7 @@ impl McpServer {
                 },
                 "required": ["service"]
             }))
-            .handler(|params| async move {
+            .handler(|params| {
                 let service = params["service"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing service parameter"))?;
@@ -180,7 +145,7 @@ impl McpServer {
                 },
                 "required": ["path"]
             }))
-            .handler(|params| async move {
+            .handler(|params| {
                 let path = params["path"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing path parameter"))?;
@@ -202,7 +167,7 @@ impl McpServer {
                 "type": "object",
                 "properties": {}
             }))
-            .handler(|_params| async move {
+            .handler(|_params| {
                 Ok(ToolResult {
                     content: vec![ToolContent::json(json!({
                         "interfaces": [
@@ -229,7 +194,7 @@ impl McpServer {
                     }
                 }
             }))
-            .handler(|params| async move {
+            .handler(|params| {
                 let filter = params["filter"].as_str();
 
                 Ok(ToolResult {
@@ -264,7 +229,7 @@ impl McpServer {
                 },
                 "required": ["command"]
             }))
-            .handler(|params| async move {
+            .handler(|params| {
                 let command = params["command"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing command"))?;
@@ -282,189 +247,13 @@ impl McpServer {
         Ok(())
     }
 
-    /// Register agent execution tools
-    async fn register_agent_tools(registry: &ToolRegistry, agent_registry: &AgentRegistry) -> Result<()> {
-        // Add a tool to execute agents
-        let execute_agent_tool = DynamicToolBuilder::new("execute_agent")
-            .description("Execute any of the 299 available AI agents with specialized capabilities")
-            .schema(json!({
-                "type": "object",
-                "properties": {
-                    "agent_name": {
-                        "type": "string",
-                        "description": "Name of the agent to execute (e.g., 'backend-architect', 'ui-visual-validator')"
-                    },
-                    "task": {
-                        "type": "string",
-                        "description": "The task or request for the agent"
-                    },
-                    "context": {
-                        "type": "object",
-                        "description": "Optional context information"
-                    }
-                },
-                "required": ["agent_name", "task"]
-            }))
-            .handler(|params| async move {
-                // This will be implemented when we have access to agent_registry
-                // For now, return a placeholder response
-                let agent_name = params["agent_name"].as_str().unwrap_or("unknown");
-                let task = params["task"].as_str().unwrap_or("no task");
-
-                Ok(ToolResult::success(ToolContent::text(format!(
-                    "Agent execution requested: {} with task: {}", agent_name, task
-                ))))
-            })
-            .build();
-
-        registry.register_tool(Box::new(execute_agent_tool)).await?;
-
-        // Add a tool to list available agents
-        let list_agents_tool = DynamicToolBuilder::new("list_agents")
-            .description("List all available AI agents and their specializations")
-            .schema(json!({
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "description": "Optional category filter (e.g., 'backend-development', 'frontend-mobile')"
-                    },
-                    "model": {
-                        "type": "string",
-                        "enum": ["sonnet", "haiku"],
-                        "description": "Optional model filter"
-                    }
-                }
-            }))
-            .handler(|params| async move {
-                // This will be implemented when we have access to agent_registry
-                Ok(ToolResult::success(ToolContent::text(
-                    "Agent listing functionality - 299 agents available across multiple categories".to_string()
-                )))
-            })
-            .build();
-
-        registry.register_tool(Box::new(list_agents_tool)).await?;
-
-        Ok(())
-    }
-
-    /// Register command execution tools
-    async fn register_command_tools(
-        registry: &ToolRegistry,
-        command_registry: &CommandRegistry,
-        agent_registry: &AgentRegistry,
-    ) -> Result<()> {
-        // Add a tool to execute commands
-        let execute_command_tool = DynamicToolBuilder::new("execute_command")
-            .description("Execute any of the 61 available development commands with specialized functionality")
-            .schema(json!({
-                "type": "object",
-                "properties": {
-                    "command_name": {
-                        "type": "string",
-                        "description": "Name of the command to execute (e.g., 'api-scaffold', 'code-explain', 'ai-review')"
-                    },
-                    "task": {
-                        "type": "string",
-                        "description": "The task or request for the command"
-                    },
-                    "context": {
-                        "type": "object",
-                        "description": "Optional context information"
-                    }
-                },
-                "required": ["command_name", "task"]
-            }))
-            .handler(move |params| async move {
-                // This will be implemented when we have access to registries
-                let command_name = params["command_name"].as_str().unwrap_or("unknown");
-                let task = params["task"].as_str().unwrap_or("no task");
-
-                Ok(ToolResult::success(ToolContent::text(format!(
-                    "Command execution requested: {} with task: {}", command_name, task
-                ))))
-            })
-            .build();
-
-        registry.register_tool(Box::new(execute_command_tool)).await?;
-
-        // Add a tool to list available commands
-        let list_commands_tool = DynamicToolBuilder::new("list_commands")
-            .description("List all available development commands and their specializations")
-            .schema(json!({
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "description": "Optional category filter (e.g., 'tools', 'workflows')"
-                    }
-                }
-            }))
-            .handler(|params| async move {
-                Ok(ToolResult::success(ToolContent::text(
-                    "Command listing functionality - 61 commands available across tools and workflows".to_string()
-                )))
-            })
-            .build();
-
-        registry.register_tool(Box::new(list_commands_tool)).await?;
-
-        // Register comprehensive introspection tools (with hierarchical D-Bus discovery)
-        use op_dbus::mcp::tools::introspection;
-        for mcptool in introspection::register_introspection_tools() {
-            // Convert McpTool to Tool trait using DynamicToolBuilder
-            let tool_name = mcptool.name().to_string();
-            let description = mcptool.description().to_string();
-            let parameters = mcptool.parameters().to_vec();
-
-            let tool = DynamicToolBuilder::new(&tool_name)
-                .description(&description)
-                .schema({
-                    let mut schema = json!({
-                        "type": "object",
-                        "properties": {}
-                    });
-                    for param in &parameters {
-                        schema["properties"][&param.name] = json!({
-                            "type": param.type_,
-                            "description": param.description
-                        });
-                        if !param.required {
-                            if let Some(req) = schema.get_mut("required") {
-                                if let Some(arr) = req.as_array_mut() {
-                                    arr.retain(|x| x != &param.name);
-                                }
-                            }
-                        }
-                    }
-                    schema
-                })
-                .handler(move |params| {
-                    let tool_name_clone = tool_name.clone();
-                    Box::pin(async move {
-                        // For now, just return a placeholder - the real hierarchical tools need more work
-                        Ok(ToolResult::success(ToolContent::text(format!(
-                            "Hierarchical D-Bus introspection tool '{}' is available but needs implementation integration",
-                            tool_name_clone
-                        ))))
-                    })
-                })
-                .build();
-
-            registry.register_tool(Box::new(tool)).await?;
-        }
-
-        Ok(())
-    }
-
     async fn handle_request(&self, request: McpRequest) -> McpResponse {
         match request.method.as_str() {
             "initialize" => self.handle_initialize(request.id),
             "tools/list" => self.handle_tools_list(request.id).await,
             "tools/call" => self.handle_tools_call(request.id, request.params).await,
-            "resources/list" => self.handle_resources_list(request.id).await,
-            "resources/read" => self.handle_resources_read(request.id, request.params).await,
+            "resources/list" => self.handle_resources_list(request.id),
+            "resources/read" => self.handle_resources_read(request.id, request.params),
             _ => McpResponse {
                 jsonrpc: "2.0".to_string(),
                 id: request.id,
@@ -497,7 +286,7 @@ impl McpServer {
                 "serverInfo": {
                     "name": "dbus-mcp-refactored",
                     "version": "2.0.0",
-                    "description": "Refactored MCP server with loose coupling and markdown resources"
+                    "description": "Refactored MCP server with loose coupling and embedded documentation"
                 }
             })),
             error: None,
@@ -505,7 +294,7 @@ impl McpServer {
     }
 
     async fn handle_tools_list(&self, id: Option<Value>) -> McpResponse {
-        let tools = self.tool_registry.list_tools().await;
+        let tools = self.registry.list_tools().await;
 
         let tool_list: Vec<Value> = tools
             .into_iter()
@@ -575,28 +364,8 @@ impl McpServer {
             };
         }
 
-        // Check if this is an agent execution request
-        if tool_name == "execute_agent" {
-            return self.handle_agent_execution(id, arguments).await;
-        }
-
-        // Check if this is a command execution request
-        if tool_name == "execute_command" {
-            return self.handle_command_execution(id, arguments).await;
-        }
-
-        // Check if this is a direct agent call (agent name used as tool name)
-        if self.agent_registry.get_agent(tool_name).await.is_some() {
-            return self.handle_direct_agent_execution(id, tool_name, arguments).await;
-        }
-
-        // Check if this is a direct command call (command name used as tool name)
-        if self.command_registry.get_command(tool_name).await.is_some() {
-            return self.handle_direct_command_execution(id, tool_name, arguments).await;
-        }
-
-        // Execute regular tool through registry
-        match self.tool_registry.execute_tool(tool_name, arguments).await {
+        // Execute tool through registry
+        match self.registry.execute_tool(tool_name, arguments).await {
             Ok(result) => McpResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
@@ -616,256 +385,32 @@ impl McpServer {
         }
     }
 
-    async fn handle_agent_execution(&self, id: Option<Value>, arguments: Value) -> McpResponse {
-        let agent_name = match arguments["agent_name"].as_str() {
-            Some(name) => name,
-            None => {
-                return McpResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: None,
-                    error: Some(McpError {
-                        code: -32602,
-                        message: "Missing agent_name parameter".to_string(),
-                        data: None,
-                    }),
-                };
-            }
-        };
+    fn handle_resources_list(&self, id: Option<Value>) -> McpResponse {
+        let resources = self.resources.list_resources();
 
-        let task = match arguments["task"].as_str() {
-            Some(task) => task,
-            None => {
-                return McpResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: None,
-                    error: Some(McpError {
-                        code: -32602,
-                        message: "Missing task parameter".to_string(),
-                        data: None,
-                    }),
-                };
-            }
-        };
-
-        let request = AgentRequest {
-            task: task.to_string(),
-            context: arguments["context"].as_object().cloned().map(Value::Object),
-            parameters: arguments["parameters"].as_object().cloned().map(|m| {
-                m.into_iter().map(|(k, v)| (k, v)).collect()
-            }),
-        };
-
-        match self.agent_registry.execute_agent(agent_name, request).await {
-            Ok(response) => McpResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": response.result
-                    }],
-                    "metadata": response.metadata
-                })),
-                error: None,
-            },
-            Err(e) => McpResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: None,
-                error: Some(McpError {
-                    code: -32603,
-                    message: format!("Agent execution failed: {}", e),
-                    data: None,
-                }),
-            },
-        }
-    }
-
-    async fn handle_direct_agent_execution(&self, id: Option<Value>, agent_name: &str, arguments: Value) -> McpResponse {
-        let task = match arguments["task"].as_str() {
-            Some(task) => task,
-            None => {
-                return McpResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: None,
-                    error: Some(McpError {
-                        code: -32602,
-                        message: "Missing task parameter".to_string(),
-                        data: None,
-                    }),
-                };
-            }
-        };
-
-        let request = AgentRequest {
-            task: task.to_string(),
-            context: arguments["context"].as_object().cloned().map(Value::Object),
-            parameters: arguments["parameters"].as_object().cloned().map(|m| {
-                m.into_iter().map(|(k, v)| (k, v)).collect()
-            }),
-        };
-
-        match self.agent_registry.execute_agent(agent_name, request).await {
-            Ok(response) => McpResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": response.result
-                    }],
-                    "metadata": response.metadata
-                })),
-                error: None,
-            },
-            Err(e) => McpResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: None,
-                error: Some(McpError {
-                    code: -32603,
-                    message: format!("Agent execution failed: {}", e),
-                    data: None,
-                }),
-            },
-        }
-    }
-
-    async fn handle_command_execution(&self, id: Option<Value>, arguments: Value) -> McpResponse {
-        let command_name = match arguments["command_name"].as_str() {
-            Some(name) => name,
-            None => {
-                return McpResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: None,
-                    error: Some(McpError {
-                        code: -32602,
-                        message: "Missing command_name parameter".to_string(),
-                        data: None,
-                    }),
-                };
-            }
-        };
-
-        let task = match arguments["task"].as_str() {
-            Some(task) => task,
-            None => {
-                return McpResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: None,
-                    error: Some(McpError {
-                        code: -32602,
-                        message: "Missing task parameter".to_string(),
-                        data: None,
-                    }),
-                };
-            }
-        };
-
-        let request = AgentRequest {
-            task: task.to_string(),
-            context: arguments["context"].as_object().cloned().map(Value::Object),
-            parameters: arguments["parameters"].as_object().cloned().map(|m| {
-                m.into_iter().map(|(k, v)| (k, v)).collect()
-            }),
-        };
-
-        match self.command_registry.execute_command(command_name, request, &self.agent_registry).await {
-            Ok(response) => McpResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": response.result
-                    }],
-                    "metadata": response.metadata
-                })),
-                error: None,
-            },
-            Err(e) => McpResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: None,
-                error: Some(McpError {
-                    code: -32603,
-                    message: format!("Command execution failed: {}", e),
-                    data: None,
-                }),
-            },
-        }
-    }
-
-    async fn handle_direct_command_execution(&self, id: Option<Value>, command_name: &str, arguments: Value) -> McpResponse {
-        let task = match arguments["task"].as_str() {
-            Some(task) => task,
-            None => {
-                return McpResponse {
-                    jsonrpc: "2.0".to_string(),
-                    id,
-                    result: None,
-                    error: Some(McpError {
-                        code: -32602,
-                        message: "Missing task parameter".to_string(),
-                        data: None,
-                    }),
-                };
-            }
-        };
-
-        let request = AgentRequest {
-            task: task.to_string(),
-            context: arguments["context"].as_object().cloned().map(Value::Object),
-            parameters: arguments["parameters"].as_object().cloned().map(|m| {
-                m.into_iter().map(|(k, v)| (k, v)).collect()
-            }),
-        };
-
-        match self.command_registry.execute_command(command_name, request, &self.agent_registry).await {
-            Ok(response) => McpResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": response.result
-                    }],
-                    "metadata": response.metadata
-                })),
-                error: None,
-            },
-            Err(e) => McpResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: None,
-                error: Some(McpError {
-                    code: -32603,
-                    message: format!("Command execution failed: {}", e),
-                    data: None,
-                }),
-            },
-        }
-    }
-
-    async fn handle_resources_list(&self, id: Option<Value>) -> McpResponse {
-        let resources = self.resource_registry.list_resources().await;
+        let resource_list: Vec<Value> = resources
+            .into_iter()
+            .map(|resource| {
+                json!({
+                    "uri": resource.uri,
+                    "name": resource.name,
+                    "description": resource.description,
+                    "mimeType": resource.mime_type
+                })
+            })
+            .collect();
 
         McpResponse {
             jsonrpc: "2.0".to_string(),
             id,
             result: Some(json!({
-                "resources": resources
+                "resources": resource_list
             })),
             error: None,
         }
     }
 
-    async fn handle_resources_read(&self, id: Option<Value>, params: Option<Value>) -> McpResponse {
+    fn handle_resources_read(&self, id: Option<Value>, params: Option<Value>) -> McpResponse {
         let params = match params {
             Some(p) => p,
             None => {
@@ -891,28 +436,33 @@ impl McpServer {
                     result: None,
                     error: Some(McpError {
                         code: -32602,
-                        message: "Missing uri parameter".to_string(),
+                        message: "Missing resource URI".to_string(),
                         data: None,
                     }),
                 };
             }
         };
 
-        // Read resource through registry
-        match self.resource_registry.read_resource(uri).await {
-            Ok(content) => McpResponse {
+        match self.resources.get_resource(uri) {
+            Some(resource) => McpResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
-                result: Some(json!(content)),
+                result: Some(json!({
+                    "contents": [{
+                        "uri": resource.uri,
+                        "mimeType": resource.mime_type,
+                        "text": resource.content
+                    }]
+                })),
                 error: None,
             },
-            Err(e) => McpResponse {
+            None => McpResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
                 result: None,
                 error: Some(McpError {
-                    code: -32603,
-                    message: format!("Resource read failed: {}", e),
+                    code: -32602,
+                    message: format!("Resource not found: {}", uri),
                     data: None,
                 }),
             },
