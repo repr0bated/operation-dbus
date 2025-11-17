@@ -72,7 +72,7 @@ impl Node for CodeReviewNode {
 
     async fn prepare(&self, context: &mut Context) -> Result<()> {
         log::info!("🔍 Preparing code review for {} code", self.language);
-        context.insert("review_language".to_string(), Value::String(self.language.clone()));
+        context.set("review_language", Value::String(self.language.clone()));
         Ok(())
     }
 
@@ -96,7 +96,7 @@ impl Node for CodeReviewNode {
     async fn post_process(&self, context: &mut Context, result: &Result<Value>) -> Result<ProcessResult<Self::State>> {
         match result {
             Ok(value) if value.as_str() == Some("code_analyzed") => {
-                context.insert("analysis_complete".to_string(), Value::Bool(true));
+                context.set("analysis_complete", Value::Bool(true));
                 log::info!("✅ Code analysis completed");
                 Ok(ProcessResult::new(McpWorkflowState::CodeAnalyzed, "Code review completed successfully".to_string()))
             }
@@ -146,7 +146,7 @@ impl Node for TestGenerationNode {
     async fn post_process(&self, context: &mut Context, result: &Result<Value>) -> Result<ProcessResult<Self::State>> {
         match result {
             Ok(value) if value.as_str() == Some("tests_generated") => {
-                context.insert("tests_generated".to_string(), Value::Bool(true));
+                context.set("tests_generated", Value::Bool(true));
                 log::info!("✅ Tests generated successfully");
                 Ok(ProcessResult::new(McpWorkflowState::TestsGenerated, "Tests generated successfully".to_string()))
             }
@@ -196,7 +196,7 @@ impl Node for DocumentationNode {
     async fn post_process(&self, context: &mut Context, result: &Result<Value>) -> Result<ProcessResult<Self::State>> {
         match result {
             Ok(value) if value.as_str() == Some("docs_updated") => {
-                context.insert("docs_updated".to_string(), Value::Bool(true));
+                context.set("docs_updated", Value::Bool(true));
                 log::info!("✅ Documentation updated");
                 Ok(ProcessResult::new(McpWorkflowState::DocsUpdated, "Documentation updated".to_string()))
             }
@@ -245,7 +245,7 @@ impl Node for DeploymentNode {
     async fn post_process(&self, context: &mut Context, result: &Result<Value>) -> Result<ProcessResult<Self::State>> {
         match result {
             Ok(value) if value.as_str() == Some("ready_to_deploy") => {
-                context.insert("deployment_ready".to_string(), Value::Bool(true));
+                context.set("deployment_ready", Value::Bool(true));
                 log::info!("✅ Deployment package ready");
                 Ok(ProcessResult::new(McpWorkflowState::ReadyToDeploy, "Deployment package ready".to_string()))
             }
@@ -327,7 +327,7 @@ mod tests {
 
         // Create test context
         let mut context = Context::new();
-        context.insert("code".to_string(), Value::String("fn main() { println!(\"Hello\"); }".to_string()));
+        context.set("code", Value::String("fn main() { println!(\"Hello\"); }".to_string()));
 
         // This would run the full workflow in a real test
         // let result = manager.run_workflow("code_review_rust", context).await;

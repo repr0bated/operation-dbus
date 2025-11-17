@@ -248,7 +248,7 @@ impl SystemIntrospector {
         ];
 
         // Introspect priority services first
-        for service_name in priority_services {
+        for service_name in &priority_services {
             if service_names.contains(&service_name.to_string()) {
                 match self.introspect_service(service_name).await {
                     Ok(service) => {

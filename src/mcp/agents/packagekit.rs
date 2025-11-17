@@ -69,11 +69,12 @@ impl PackageKitAgent {
     /// Get transaction proxy
     async fn get_transaction_proxy(&self, transaction_path: &str) -> Result<Proxy<'static>> {
         let conn = Connection::system().await?;
+        let path_owned = transaction_path.to_string();
 
         Proxy::new(
             &conn,
             "org.freedesktop.PackageKit",
-            transaction_path,
+            path_owned,
             "org.freedesktop.PackageKit.Transaction",
         )
         .await
