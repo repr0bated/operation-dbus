@@ -153,7 +153,8 @@ async fn handle_chat(
             content: response.clone(),
         });
         if hist.len() > 20 {
-            hist.drain(0..hist.len() - 20);
+            let hist_len = hist.len();
+            hist.drain(0..hist_len - 20);
         }
     }
 

@@ -23,9 +23,9 @@ serde_json = "1"
 bytes = "1"
 
 # D-Bus
-zbus = { version = " =3.14.1", features = ["tokio"] }
-zbus_xml = "=3.1.0"
-zvariant = "=3.15.2"
+zbus = { version = "4", features = ["tokio"] }
+zbus_xml = "4"
+zvariant = "4"
 
 # UUID for checksums and auto-plugins
 uuid = { version = "1.6", features = ["v4"] }
@@ -47,6 +47,18 @@ clap = { version = "4", features = ["derive"] }
 # Error handling
 anyhow = "1"
 thiserror = "1"
+
+# Dynamic cloning for trait objects
+dyn-clone = "1.0"
+
+# Lazy static for embedded content
+lazy_static = "1.4"
+
+# YAML parsing for agent specs
+serde_yaml = "0.9"
+
+# HTTP client for LLM API calls
+reqwest = { version = "0.12", features = ["json"] }
 
 # Logging
 tracing = "0.1"
@@ -83,9 +95,6 @@ gethostname = "0.5"
 num_cpus = "1.16"
 base64ct = "=1.7.3"
 base64 = "0.22"
-
-# HTTP client for AI integration
-reqwest = { version = "0.11", features = ["json"] }
 
 # ML/Transformers (optional, for advanced vectorization)
 ort = { version = "2.0.0-rc.10", optional = true, features = ["download-binaries"] }

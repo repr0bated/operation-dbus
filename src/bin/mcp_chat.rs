@@ -44,8 +44,7 @@ async fn main() -> anyhow::Result<()> {
     let agent_registry = Arc::new(AgentRegistry::new());
 
     // Register introspection tools
-    tool_registry
-        .register_introspection_tools()
+    op_dbus::mcp::introspection_tools::register_introspection_tools(&tool_registry)
         .await
         .expect("Failed to register introspection tools");
 

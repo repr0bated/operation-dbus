@@ -351,7 +351,7 @@ impl HierarchicalIntrospector {
         ).await?;
 
         // Call GetManagedObjects
-        let result: HashMap<zvariant::OwnedObjectPath, HashMap<zvariant::OwnedInterfaceName, HashMap<String, zvariant::OwnedValue>>> =
+        let result: HashMap<zbus::zvariant::OwnedObjectPath, HashMap<String, HashMap<String, zbus::zvariant::OwnedValue>>> =
             proxy.call("GetManagedObjects", &()).await?;
 
         // Convert to string keys
@@ -388,8 +388,8 @@ impl HierarchicalIntrospector {
                 format!("{}/{}", path, child_name)
             };
 
-            // Recursive call
-            self.introspect_recursively(conn, service_name, &child_path, objects).await?;
+            // Recursive call (boxed to avoid infinite-sized future)
+            Box::pin(self.introspect_recursively(conn, service_name, &child_path, objects)).await?;
         }
 
         Ok(())
@@ -459,7 +459,9 @@ impl HierarchicalIntrospector {
             .map(|method| {
                 let inputs = method.args()
                     .iter()
-                    .filter(|arg| arg.direction().map(|d| d == "in").unwrap_or(true))
+                    .filter(|arg| {
+                        arg.direction().map(|d| matches!(d, zbus_xml::ArgDirection::In)).unwrap_or(true)
+                    })
                     .map(|arg| ArgumentIntrospection {
                         name: arg.name().map(String::from),
                         type_: arg.ty().to_string(),
@@ -469,7 +471,9 @@ impl HierarchicalIntrospector {
 
                 let outputs = method.args()
                     .iter()
-                    .filter(|arg| arg.direction().map(|d| d == "out").unwrap_or(false))
+                    .filter(|arg| {
+                        arg.direction().map(|d| matches!(d, zbus_xml::ArgDirection::Out)).unwrap_or(false)
+                    })
                     .map(|arg| ArgumentIntrospection {
                         name: arg.name().map(String::from),
                         type_: arg.ty().to_string(),
@@ -490,11 +494,11 @@ impl HierarchicalIntrospector {
             .map(|prop| PropertyIntrospection {
                 name: prop.name().to_string(),
                 type_: prop.ty().to_string(),
-                access: match prop.access() {
-                    zbus_xml::Access::Read => "read",
-                    zbus_xml::Access::Write => "write",
-                    zbus_xml::Access::ReadWrite => "readwrite",
-                }.to_string(),
+                access: {
+                    // In zbus 4, Access enum may have moved
+                    // Convert to string representation
+                    format!("{:?}", prop.access()).to_lowercase()
+                },
             })
             .collect();
 
