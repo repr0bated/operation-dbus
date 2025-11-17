@@ -13,15 +13,36 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use zbus::Connection;
+use zbus::{Connection, Proxy};
+use zbus::zvariant::OwnedValue;
+use zbus_xml::Node;
 
 use crate::mcp::system_introspection::SystemIntrospector;
+
+/// D-Bus bus type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BusType {
+    /// System bus (system-wide services)
+    System,
+    /// Session bus (user-specific services)
+    Session,
+}
+
+impl std::fmt::Display for BusType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BusType::System => write!(f, "system"),
+            BusType::Session => write!(f, "session"),
+        }
+    }
+}
 
 /// Complete D-Bus service index
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DbusIndex {
     pub version: String,
     pub timestamp: i64,
+    pub bus_type: BusType,
     pub services: HashMap<String, ServiceIndex>,
     pub statistics: IndexStatistics,
 }
@@ -74,29 +95,67 @@ pub struct IndexStatistics {
 /// D-Bus indexer that builds complete system index
 pub struct DbusIndexer {
     index_root: PathBuf,
+    bus_type: BusType,
+    connection: Connection,
     introspector: SystemIntrospector,
 }
 
 impl DbusIndexer {
-    /// Create new indexer with BTRFS subvolume path
+    /// Create new indexer for system bus (default)
     pub async fn new(index_root: impl AsRef<Path>) -> Result<Self> {
+        Self::new_with_bus(index_root, BusType::System).await
+    }
+
+    /// Create new indexer with specific bus type
+    pub async fn new_with_bus(index_root: impl AsRef<Path>, bus_type: BusType) -> Result<Self> {
         let index_root = index_root.as_ref().to_path_buf();
 
         // Ensure index directory exists
         fs::create_dir_all(&index_root)
             .context("Failed to create index directory")?;
 
+        // Connect to the specified bus
+        let connection = match bus_type {
+            BusType::System => Connection::system().await?,
+            BusType::Session => Connection::session().await?,
+        };
+
         let introspector = SystemIntrospector::new().await?;
 
         Ok(Self {
             index_root,
+            bus_type,
+            connection,
             introspector,
         })
     }
 
+    /// Index BOTH system and session buses for complete coverage
+    pub async fn build_complete_index_all_buses(index_root: impl AsRef<Path>) -> Result<(DbusIndex, DbusIndex)> {
+        let index_root = index_root.as_ref();
+
+        log::info!("📡 Indexing BOTH system and session buses...");
+
+        // Index system bus
+        log::info!("📡 Starting system bus index...");
+        let system_indexer = Self::new_with_bus(index_root, BusType::System).await?;
+        let system_index = system_indexer.build_complete_index().await?;
+
+        // Index session bus
+        log::info!("📡 Starting session bus index...");
+        let session_indexer = Self::new_with_bus(index_root, BusType::Session).await?;
+        let session_index = session_indexer.build_complete_index().await?;
+
+        log::info!("✅ Complete D-Bus index built");
+        log::info!("   System bus: {} services", system_index.statistics.total_services);
+        log::info!("   Session bus: {} services", session_index.statistics.total_services);
+
+        Ok((system_index, session_index))
+    }
+
     /// Build complete D-Bus index (unlimited, no artificial limits)
     pub async fn build_complete_index(&self) -> Result<DbusIndex> {
-        log::info!("🔍 Starting complete D-Bus index build...");
+        log::info!("🔍 Starting complete D-Bus index build for {} bus...", self.bus_type);
         let start = std::time::Instant::now();
 
         // Discover ALL services
@@ -133,6 +192,7 @@ impl DbusIndexer {
         let index = DbusIndex {
             version: "1.0.0".to_string(),
             timestamp: chrono::Utc::now().timestamp(),
+            bus_type: self.bus_type,
             services,
             statistics: IndexStatistics {
                 total_services: service_names.len(),
@@ -153,8 +213,23 @@ impl DbusIndexer {
     }
 
     /// Index a single service completely (no limits)
+    /// Tries ObjectManager first for 10-100x speedup, falls back to recursive introspection
     async fn index_service(&self, service_name: &str) -> Result<ServiceIndex> {
-        // Discover ALL object paths (no 100-object limit!)
+        // Try ObjectManager.GetManagedObjects first (MUCH faster!)
+        match self.try_index_via_object_manager(service_name).await {
+            Ok(service_index) => {
+                log::debug!("   ✨ Used ObjectManager for {} ({} objects)",
+                    service_name, service_index.objects.len());
+                return Ok(service_index);
+            }
+            Err(e) => {
+                log::trace!("   ObjectManager not available for {}: {}", service_name, e);
+                // Fall through to recursive introspection
+            }
+        }
+
+        // Fallback: Discover ALL object paths via recursive introspection
+        log::trace!("   🔍 Using recursive introspection for {}", service_name);
         let objects = self.discover_all_objects_unlimited(service_name).await?;
 
         let mut object_indices = Vec::new();
@@ -174,6 +249,89 @@ impl DbusIndexer {
                     log::debug!("   Skipping {}: {}", object_path, e);
                 }
             }
+        }
+
+        Ok(ServiceIndex {
+            name: service_name.to_string(),
+            objects: object_indices,
+            total_interfaces,
+            total_methods,
+            total_properties,
+        })
+    }
+
+    /// Try to index service using ObjectManager.GetManagedObjects (10-100x faster!)
+    async fn try_index_via_object_manager(&self, service_name: &str) -> Result<ServiceIndex> {
+        // Try common ObjectManager paths
+        let om_paths = vec![
+            "/".to_string(),
+            format!("/{}", service_name.replace('.', "/")),
+        ];
+
+        for path in om_paths {
+            if let Ok(managed) = self.call_get_managed_objects(service_name, &path).await {
+                return self.index_from_managed_objects(service_name, managed);
+            }
+        }
+
+        anyhow::bail!("ObjectManager not available for {}", service_name)
+    }
+
+    /// Call ObjectManager.GetManagedObjects on a service
+    async fn call_get_managed_objects(
+        &self,
+        service: &str,
+        path: &str,
+    ) -> Result<HashMap<String, HashMap<String, HashMap<String, OwnedValue>>>> {
+        let proxy = Proxy::new(
+            &self.connection,
+            service,
+            path,
+            "org.freedesktop.DBus.ObjectManager"
+        ).await?;
+
+        // Call GetManagedObjects with proper zbus 3.14.1 API
+        let result: Result<HashMap<String, HashMap<String, HashMap<String, OwnedValue>>>, _> =
+            proxy.call("GetManagedObjects", &()).await;
+
+        Ok(result?)
+    }
+
+    /// Build ServiceIndex from ObjectManager data
+    fn index_from_managed_objects(
+        &self,
+        service_name: &str,
+        managed: HashMap<String, HashMap<String, HashMap<String, OwnedValue>>>,
+    ) -> Result<ServiceIndex> {
+        let mut object_indices = Vec::new();
+        let mut total_interfaces = 0;
+        let mut total_methods = 0;
+        let mut total_properties = 0;
+
+        for (object_path, interfaces) in managed {
+            let interface_names: Vec<String> = interfaces.keys().cloned().collect();
+            total_interfaces += interface_names.len();
+
+            // Count properties from the managed objects data
+            let mut properties = Vec::new();
+            for (interface_name, props) in &interfaces {
+                for (prop_name, prop_value) in props {
+                    properties.push(PropertyIndex {
+                        name: prop_name.clone(),
+                        interface: interface_name.clone(),
+                        type_signature: prop_value.value_signature().to_string(),
+                        access: "read".to_string(), // ObjectManager only gives current values
+                    });
+                }
+            }
+            total_properties += properties.len();
+
+            object_indices.push(ObjectIndex {
+                path: object_path,
+                interfaces: interface_names,
+                methods: Vec::new(), // ObjectManager doesn't include method signatures
+                properties,
+            });
         }
 
         Ok(ServiceIndex {
@@ -224,10 +382,58 @@ impl DbusIndexer {
     async fn index_object(&self, service_name: &str, object_path: &str) -> Result<ObjectIndex> {
         let xml = self.introspector.introspect_service_at_path(service_name, object_path).await?;
 
-        // Parse introspection XML (simplified - you'd use your introspection_parser)
-        let interfaces = self.extract_interfaces(&xml);
-        let methods = self.extract_methods(&xml);
-        let properties = self.extract_properties(&xml);
+        // Parse introspection XML with zbus_xml::Node for full method/property signatures
+        let node = Node::from_reader(xml.as_bytes())
+            .context("Failed to parse introspection XML")?;
+
+        let mut interfaces = Vec::new();
+        let mut methods = Vec::new();
+        let mut properties = Vec::new();
+
+        // Extract interfaces, methods, and properties with full signatures
+        for iface in node.interfaces() {
+            let iface_name = iface.name().to_string();
+            interfaces.push(iface_name.clone());
+
+            // Extract methods with input/output signatures
+            for method in iface.methods() {
+                let inputs: Vec<String> = method.args()
+                    .iter()
+                    .filter(|a| a.direction().map(|d| d == zbus_xml::ArgDirection::In).unwrap_or(true))
+                    .map(|a| a.ty().to_string())
+                    .collect();
+
+                let outputs: Vec<String> = method.args()
+                    .iter()
+                    .filter(|a| a.direction().map(|d| d == zbus_xml::ArgDirection::Out).unwrap_or(false))
+                    .map(|a| a.ty().to_string())
+                    .collect();
+
+                methods.push(MethodIndex {
+                    name: method.name().to_string(),
+                    interface: iface_name.clone(),
+                    inputs,
+                    outputs,
+                });
+            }
+
+            // Extract properties with types and access modes
+            for property in iface.properties() {
+                // PropertyAccess enum: Read, Write, ReadWrite
+                let access_str = match property.access() {
+                    zbus_xml::PropertyAccess::Read => "read",
+                    zbus_xml::PropertyAccess::Write => "write",
+                    zbus_xml::PropertyAccess::ReadWrite => "readwrite",
+                };
+
+                properties.push(PropertyIndex {
+                    name: property.name().to_string(),
+                    interface: iface_name.clone(),
+                    type_signature: property.ty().to_string(),
+                    access: access_str.to_string(),
+                });
+            }
+        }
 
         Ok(ObjectIndex {
             path: object_path.to_string(),
@@ -263,41 +469,31 @@ impl DbusIndexer {
         Ok(index)
     }
 
-    // Helper methods (simplified versions - you'd integrate with introspection_parser)
+    // Helper method for extracting child nodes using zbus_xml::Node
 
     fn extract_child_nodes(&self, xml: &str) -> Vec<String> {
-        // Extract <node name="..."/> from introspection XML
-        let mut children = Vec::new();
-        for line in xml.lines() {
-            if line.trim().starts_with("<node name=") {
-                if let Some(name) = line.split('"').nth(1) {
-                    children.push(name.to_string());
+        // Extract child <node name="..."/> from introspection XML using zbus_xml
+        match Node::from_reader(xml.as_bytes()) {
+            Ok(node) => {
+                node.nodes()
+                    .iter()
+                    .filter_map(|n| n.name())
+                    .map(|s| s.to_string())
+                    .collect()
+            }
+            Err(_) => {
+                // Fallback to basic parsing if XML parsing fails
+                let mut children = Vec::new();
+                for line in xml.lines() {
+                    if line.trim().starts_with("<node name=") {
+                        if let Some(name) = line.split('"').nth(1) {
+                            children.push(name.to_string());
+                        }
+                    }
                 }
+                children
             }
         }
-        children
-    }
-
-    fn extract_interfaces(&self, xml: &str) -> Vec<String> {
-        let mut interfaces = Vec::new();
-        for line in xml.lines() {
-            if line.trim().starts_with("<interface name=") {
-                if let Some(name) = line.split('"').nth(1) {
-                    interfaces.push(name.to_string());
-                }
-            }
-        }
-        interfaces
-    }
-
-    fn extract_methods(&self, xml: &str) -> Vec<MethodIndex> {
-        // Simplified - would use proper XML parser
-        Vec::new()
-    }
-
-    fn extract_properties(&self, xml: &str) -> Vec<PropertyIndex> {
-        // Simplified - would use proper XML parser
-        Vec::new()
     }
 }
 

@@ -24,6 +24,7 @@ bytes = "1"
 
 # D-Bus
 zbus = { version = " =3.14.1", features = ["tokio"] }
+zbus_xml = "4.0"
 
 # UUID for checksums and auto-plugins
 uuid = { version = "1.6", features = ["v4"] }
