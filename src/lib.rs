@@ -24,7 +24,8 @@ pub mod webui;
 #[cfg(feature = "ml")]
 pub mod ml;
 
-#[cfg(feature = "mcp")]
+// MCP module available with either mcp or web feature
+#[cfg(any(feature = "mcp", feature = "web"))]
 pub mod mcp;
 
 // Re-exports for convenience

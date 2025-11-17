@@ -27,6 +27,11 @@ pub mod system_introspection;
 pub mod agent_registry;
 pub mod tool_registry;
 
+// MCP tools
+pub mod tools {
+    pub mod introspection;
+}
+
 // Chat interface
 pub mod chat_server;
 pub mod ai_context_provider;
