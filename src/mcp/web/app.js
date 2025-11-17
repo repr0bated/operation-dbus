@@ -300,6 +300,312 @@ class MCPControlCenter {
         `;
     }
 
+    // Enhanced Discovery Methods
+    async discoverServices() {
+        this.showToast('Discovering D-Bus services...', 'info');
+
+        try {
+            const response = await fetch('/api/tools/list_dbus_services/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ include_activatable: false })
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.result.active_services) {
+                this.discoveredServices = data.result.active_services;
+                this.serviceTree = {};  // Store expanded state
+                this.showToast(`Discovered ${this.discoveredServices.length} services`, 'success');
+
+                // Update stats
+                document.getElementById('discovery-stats').style.display = 'block';
+                document.getElementById('stat-services').textContent = this.discoveredServices.length;
+
+                this.renderDiscoveryTree();
+            } else {
+                this.showToast('Discovery failed', 'error');
+            }
+        } catch (error) {
+            console.error('Discovery error:', error);
+            this.showToast('Failed to discover services', 'error');
+        }
+    }
+
+    async expandService(serviceName) {
+        if (this.serviceTree[serviceName]?.paths) {
+            // Already loaded, just toggle
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/tools/list_dbus_object_paths/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service_name: serviceName })
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.result.object_paths) {
+                if (!this.serviceTree[serviceName]) {
+                    this.serviceTree[serviceName] = {};
+                }
+                this.serviceTree[serviceName].paths = data.result.object_paths;
+                this.serviceTree[serviceName].expanded = true;
+
+                // Update object count
+                const totalObjects = Object.values(this.serviceTree)
+                    .filter(s => s.paths)
+                    .reduce((sum, s) => sum + s.paths.length, 0);
+                document.getElementById('stat-objects').textContent = totalObjects;
+
+                this.renderDiscoveryTree();
+            }
+        } catch (error) {
+            console.error('Failed to expand service:', error);
+            this.showToast(`Failed to load paths for ${serviceName}`, 'error');
+        }
+    }
+
+    async expandObject(serviceName, objectPath) {
+        const key = `${serviceName}:${objectPath}`;
+
+        if (this.serviceTree[serviceName]?.objects?.[objectPath]) {
+            // Already loaded
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/tools/introspect_dbus_object/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    service_name: serviceName,
+                    object_path: objectPath
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.result.interfaces) {
+                if (!this.serviceTree[serviceName].objects) {
+                    this.serviceTree[serviceName].objects = {};
+                }
+                this.serviceTree[serviceName].objects[objectPath] = {
+                    interfaces: data.result.interfaces,
+                    child_nodes: data.result.child_nodes || [],
+                    expanded: true
+                };
+
+                // Update interface and method counts
+                let totalInterfaces = 0;
+                let totalMethods = 0;
+                Object.values(this.serviceTree).forEach(service => {
+                    if (service.objects) {
+                        Object.values(service.objects).forEach(obj => {
+                            totalInterfaces += obj.interfaces.length;
+                            obj.interfaces.forEach(iface => {
+                                totalMethods += iface.methods?.length || 0;
+                            });
+                        });
+                    }
+                });
+                document.getElementById('stat-interfaces').textContent = totalInterfaces;
+                document.getElementById('stat-methods').textContent = totalMethods;
+
+                this.renderDiscoveryTree();
+            }
+        } catch (error) {
+            console.error('Failed to introspect object:', error);
+            this.showToast(`Failed to introspect ${objectPath}`, 'error');
+        }
+    }
+
+    renderDiscoveryTree() {
+        const container = document.getElementById('discovery-results');
+        const viewMode = document.getElementById('discovery-view-mode')?.value || 'tree';
+
+        if (!this.discoveredServices || this.discoveredServices.length === 0) {
+            return;
+        }
+
+        let html = '<div class="discovery-tree">';
+
+        this.discoveredServices.forEach(serviceName => {
+            const service = this.serviceTree[serviceName] || {};
+            const isExpanded = service.expanded;
+            const paths = service.paths || [];
+
+            html += `
+                <div class="tree-node service-node">
+                    <div class="tree-node-header" onclick="window.mcp.toggleService('${this.escapeHtml(serviceName)}')">
+                        <span class="tree-toggle">${paths.length > 0 ? (isExpanded ? '▼' : '►') : '○'}</span>
+                        <span class="tree-icon">📦</span>
+                        <span class="tree-label">${this.escapeHtml(serviceName)}</span>
+                        ${paths.length > 0 ? `<span class="tree-badge">${paths.length} objects</span>` : ''}
+                        <button class="btn btn-xs" onclick="event.stopPropagation(); window.mcp.introspectServiceManually('${this.escapeHtml(serviceName)}')" style="margin-left: auto;">
+                            Introspect
+                        </button>
+                    </div>
+                    ${isExpanded && paths.length > 0 ? `
+                        <div class="tree-children">
+                            ${paths.map(path => this.renderObjectNode(serviceName, path)).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    renderObjectNode(serviceName, objectPath) {
+        const service = this.serviceTree[serviceName];
+        const object = service?.objects?.[objectPath];
+        const isExpanded = object?.expanded;
+        const interfaces = object?.interfaces || [];
+
+        let html = `
+            <div class="tree-node object-node">
+                <div class="tree-node-header" onclick="window.mcp.toggleObject('${this.escapeHtml(serviceName)}', '${this.escapeHtml(objectPath)}')">
+                    <span class="tree-toggle">${interfaces.length > 0 ? (isExpanded ? '▼' : '►') : '○'}</span>
+                    <span class="tree-icon">📄</span>
+                    <span class="tree-label">${this.escapeHtml(objectPath)}</span>
+                    ${interfaces.length > 0 ? `<span class="tree-badge">${interfaces.length} interfaces</span>` : ''}
+                </div>
+                ${isExpanded && interfaces.length > 0 ? `
+                    <div class="tree-children">
+                        ${interfaces.map(iface => this.renderInterfaceNode(iface)).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+
+        return html;
+    }
+
+    renderInterfaceNode(iface) {
+        const methods = iface.methods || [];
+        const properties = iface.properties || [];
+        const signals = iface.signals || [];
+
+        return `
+            <div class="tree-node interface-node">
+                <div class="tree-node-header">
+                    <span class="tree-icon">⚡</span>
+                    <span class="tree-label">${this.escapeHtml(iface.name)}</span>
+                    ${methods.length > 0 ? `<span class="tree-badge badge-method">${methods.length} methods</span>` : ''}
+                    ${properties.length > 0 ? `<span class="tree-badge badge-property">${properties.length} props</span>` : ''}
+                    ${signals.length > 0 ? `<span class="tree-badge badge-signal">${signals.length} signals</span>` : ''}
+                </div>
+                <div class="tree-children">
+                    ${methods.map(m => `
+                        <div class="tree-node method-node">
+                            <span class="tree-icon">🔧</span>
+                            <span class="tree-label">${this.escapeHtml(m.name)}(${m.in_args?.map(a => a.type).join(', ') || ''})</span>
+                            ${m.out_args?.length > 0 ? `<span class="tree-type">→ ${m.out_args.map(a => a.type).join(', ')}</span>` : ''}
+                        </div>
+                    `).join('')}
+                    ${properties.map(p => `
+                        <div class="tree-node property-node">
+                            <span class="tree-icon">📋</span>
+                            <span class="tree-label">${this.escapeHtml(p.name)}</span>
+                            <span class="tree-type">${p.type}</span>
+                            <span class="tree-access">${p.access}</span>
+                        </div>
+                    `).join('')}
+                    ${signals.map(s => `
+                        <div class="tree-node signal-node">
+                            <span class="tree-icon">📡</span>
+                            <span class="tree-label">${this.escapeHtml(s.name)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    async toggleService(serviceName) {
+        const service = this.serviceTree[serviceName];
+
+        if (!service || !service.paths) {
+            // First time - load paths
+            await this.expandService(serviceName);
+        } else {
+            // Toggle expansion
+            service.expanded = !service.expanded;
+            this.renderDiscoveryTree();
+        }
+    }
+
+    async toggleObject(serviceName, objectPath) {
+        const service = this.serviceTree[serviceName];
+        const object = service?.objects?.[objectPath];
+
+        if (!object) {
+            // First time - load introspection
+            await this.expandObject(serviceName, objectPath);
+        } else {
+            // Toggle expansion
+            object.expanded = !object.expanded;
+            this.renderDiscoveryTree();
+        }
+    }
+
+    async expandAllServices() {
+        if (!this.discoveredServices) {
+            this.showToast('Run discovery first', 'warning');
+            return;
+        }
+
+        this.showToast('Expanding all services...', 'info');
+
+        for (const serviceName of this.discoveredServices) {
+            if (!this.serviceTree[serviceName]?.paths) {
+                await this.expandService(serviceName);
+            } else {
+                this.serviceTree[serviceName].expanded = true;
+            }
+        }
+
+        this.renderDiscoveryTree();
+        this.showToast('All services expanded', 'success');
+    }
+
+    collapseAllServices() {
+        if (!this.serviceTree) return;
+
+        Object.values(this.serviceTree).forEach(service => {
+            service.expanded = false;
+            if (service.objects) {
+                Object.values(service.objects).forEach(obj => {
+                    obj.expanded = false;
+                });
+            }
+        });
+
+        this.renderDiscoveryTree();
+    }
+
+    filterServices(query) {
+        // TODO: Implement filtering
+        console.log('Filter:', query);
+    }
+
+    changeDiscoveryView(viewMode) {
+        // TODO: Implement different view modes
+        console.log('View mode:', viewMode);
+    }
+
+    introspectServiceManually(serviceName) {
+        const path = prompt(`Enter object path for ${serviceName}:`, '/');
+        if (path) {
+            this.expandObject(serviceName, path);
+        }
+    }
+
     renderLogs() {
         const container = document.getElementById('logs-container');
         container.innerHTML = '';

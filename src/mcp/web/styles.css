@@ -743,3 +743,142 @@ body {
         gap: 16px;
     }
 }
+/* Discovery Tree Styles */
+.discovery-tree {
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 13px;
+}
+
+.tree-node {
+    margin: 2px 0;
+}
+
+.tree-node-header {
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+    gap: 8px;
+}
+
+.tree-node-header:hover {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.service-node > .tree-node-header {
+    background: rgba(59, 130, 246, 0.05);
+    font-weight: 500;
+}
+
+.service-node > .tree-node-header:hover {
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.tree-toggle {
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.tree-icon {
+    flex-shrink: 0;
+    font-size: 16px;
+}
+
+.tree-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tree-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.badge-method {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.badge-property {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+}
+
+.badge-signal {
+    background: rgba(139, 92, 246, 0.15);
+    color: #8b5cf6;
+}
+
+.tree-type {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+.tree-access {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.1);
+    color: #6b7280;
+}
+
+.tree-children {
+    margin-left: 20px;
+    border-left: 1px solid rgba(107, 114, 128, 0.2);
+    padding-left: 8px;
+}
+
+.method-node .tree-node-header,
+.property-node .tree-node-header,
+.signal-node .tree-node-header {
+    cursor: default;
+    padding: 4px 8px;
+}
+
+.method-node .tree-node-header:hover,
+.property-node .tree-node-header:hover,
+.signal-node .tree-node-header:hover {
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.discovery-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.discovery-placeholder {
+    text-align: center;
+    padding: 60px 20px;
+    color: #9ca3af;
+}
+
+.stat-item {
+    text-align: center;
+}
+
+.stat-label {
+    font-size: 12px;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #3b82f6;
+    margin-top: 4px;
+}

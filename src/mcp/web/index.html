@@ -288,26 +288,71 @@
             <!-- Discovery Section -->
             <section id="discovery" class="section">
                 <div class="section-header">
-                    <h2>Service Discovery</h2>
-                    <button class="btn btn-primary" onclick="runDiscovery()">
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                            <circle cx="7" cy="7" r="4" stroke="currentColor" stroke-width="2"/>
-                            <path d="M10 10L14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                        </svg>
-                        Run Discovery
-                    </button>
+                    <h2>🔍 D-Bus Discovery</h2>
+                    <div class="discovery-controls">
+                        <button class="btn btn-primary" onclick="window.mcp.discoverServices()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <circle cx="7" cy="7" r="4" stroke="currentColor" stroke-width="2"/>
+                                <path d="M10 10L14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Discover Services
+                        </button>
+                        <button class="btn btn-sm" onclick="window.mcp.expandAllServices()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M8 4V12M4 8H12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Expand All
+                        </button>
+                        <button class="btn btn-sm" onclick="window.mcp.collapseAllServices()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M4 8H12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Collapse All
+                        </button>
+                        <select id="discovery-view-mode" class="form-select form-select-sm" onchange="window.mcp.changeDiscoveryView(this.value)">
+                            <option value="tree">Tree View</option>
+                            <option value="list">List View</option>
+                            <option value="grid">Grid View</option>
+                        </select>
+                        <input type="text" id="discovery-filter" class="form-control form-control-sm" placeholder="Filter services..." oninput="window.mcp.filterServices(this.value)" style="width: 200px; display: inline-block;">
+                    </div>
+                </div>
+
+                <div class="discovery-stats" id="discovery-stats" style="margin-bottom: 20px; padding: 15px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; display: none;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                        <div class="stat-item">
+                            <div class="stat-label">Services</div>
+                            <div class="stat-value" id="stat-services">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Objects</div>
+                            <div class="stat-value" id="stat-objects">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Interfaces</div>
+                            <div class="stat-value" id="stat-interfaces">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Methods</div>
+                            <div class="stat-value" id="stat-methods">0</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="discovery-results" id="discovery-results">
-                    <div class="discovery-categories">
-                        <div class="category-section">
-                            <h3>Getting Started</h3>
-                            <div class="service-list">
-                                <div class="service-item">
-                                    <span class="service-name">Click "Run Discovery" to scan your system</span>
-                                    <span class="service-path">for services and interfaces</span>
-                                </div>
-                            </div>
+                    <div class="discovery-placeholder">
+                        <div class="placeholder-icon">🔍</div>
+                        <div class="placeholder-text">
+                            <h3>D-Bus Service Discovery</h3>
+                            <p>Click "Discover Services" to explore all D-Bus services on your system.</p>
+                            <p>You'll be able to:</p>
+                            <ul style="text-align: left; display: inline-block; margin-top: 10px;">
+                                <li>Browse services in an expandable tree</li>
+                                <li>Explore object paths and their hierarchies</li>
+                                <li>View interfaces, methods, properties, and signals</li>
+                                <li>Manually introspect specific services</li>
+                                <li>Filter and search across all discovered items</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
