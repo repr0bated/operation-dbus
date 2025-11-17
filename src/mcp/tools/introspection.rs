@@ -522,6 +522,269 @@ impl WarmCacheTool {
     }
 }
 
+/// MCP Tool: List all available D-Bus services (DISCOVERY TOOL)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListDbusServicesTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Vec<ToolParameter>,
+}
+
+impl ListDbusServicesTool {
+    pub fn new() -> Self {
+        Self {
+            name: "list_dbus_services".to_string(),
+            description: "List all available D-Bus services on the system bus. Use this FIRST to discover what services exist before querying them.".to_string(),
+            parameters: vec![
+                ToolParameter {
+                    name: "include_activatable".to_string(),
+                    type_: "boolean".to_string(),
+                    description: "Include services that can be activated but aren't currently running".to_string(),
+                    required: false,
+                },
+            ],
+        }
+    }
+
+    pub async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        let include_activatable = params
+            .get("include_activatable")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let introspector = DbusIntrospector::new().await?;
+        let mut active_services = introspector.list_all_services().await?;
+        active_services.sort();
+
+        let mut result = serde_json::json!({
+            "active_services": active_services,
+            "count": active_services.len(),
+        });
+
+        if include_activatable {
+            let mut activatable = introspector.list_activatable_services().await?;
+            activatable.sort();
+            result["activatable_services"] = serde_json::json!(activatable);
+            result["activatable_count"] = serde_json::json!(activatable.len());
+        }
+
+        // Add helpful examples of common services
+        result["examples"] = serde_json::json!({
+            "systemd": "org.freedesktop.systemd1",
+            "networkmanager": "org.freedesktop.NetworkManager",
+            "login": "org.freedesktop.login1",
+            "packagekit": "org.freedesktop.PackageKit",
+            "upower": "org.freedesktop.UPower",
+            "udisks": "org.freedesktop.UDisks2"
+        });
+
+        result["next_steps"] = serde_json::json!({
+            "explore_service": "Use list_dbus_object_paths with a service name to see what objects it provides",
+            "introspect_object": "Use introspect_dbus_object to see interfaces/methods/properties"
+        });
+
+        Ok(result)
+    }
+}
+
+/// MCP Tool: List object paths for a D-Bus service (DISCOVERY TOOL)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListDbusObjectPathsTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Vec<ToolParameter>,
+}
+
+impl ListDbusObjectPathsTool {
+    pub fn new() -> Self {
+        Self {
+            name: "list_dbus_object_paths".to_string(),
+            description: "List all object paths provided by a D-Bus service. Use this SECOND after listing services to discover what objects a service provides.".to_string(),
+            parameters: vec![
+                ToolParameter {
+                    name: "service_name".to_string(),
+                    type_: "string".to_string(),
+                    description: "D-Bus service name (e.g., org.freedesktop.systemd1). Get this from list_dbus_services first.".to_string(),
+                    required: true,
+                },
+            ],
+        }
+    }
+
+    pub async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        let service_name = params
+            .get("service_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("service_name parameter required. Use list_dbus_services to discover available services."))?;
+
+        let introspector = DbusIntrospector::new().await?;
+
+        // Introspect the service to get all paths
+        match introspector.introspect_service(service_name).await {
+            Ok(service_info) => {
+                let mut paths = service_info.object_paths;
+                paths.sort();
+
+                Ok(serde_json::json!({
+                    "service": service_name,
+                    "object_paths": paths,
+                    "count": paths.len(),
+                    "next_steps": {
+                        "introspect_object": format!("Use introspect_dbus_object with service={} and one of these paths", service_name)
+                    }
+                }))
+            }
+            Err(e) => {
+                Err(anyhow::anyhow!(
+                    "Failed to introspect service '{}': {}. Tip: Use list_dbus_services to verify the service name is correct.",
+                    service_name, e
+                ))
+            }
+        }
+    }
+}
+
+/// MCP Tool: Introspect a specific D-Bus object (DISCOVERY TOOL)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntrospectDbusObjectTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Vec<ToolParameter>,
+}
+
+impl IntrospectDbusObjectTool {
+    pub fn new() -> Self {
+        Self {
+            name: "introspect_dbus_object".to_string(),
+            description: "Introspect a specific D-Bus object to see what interfaces, methods, properties, and signals it provides. Use this THIRD after listing services and paths.".to_string(),
+            parameters: vec![
+                ToolParameter {
+                    name: "service_name".to_string(),
+                    type_: "string".to_string(),
+                    description: "D-Bus service name (from list_dbus_services)".to_string(),
+                    required: true,
+                },
+                ToolParameter {
+                    name: "object_path".to_string(),
+                    type_: "string".to_string(),
+                    description: "Object path (from list_dbus_object_paths)".to_string(),
+                    required: true,
+                },
+            ],
+        }
+    }
+
+    pub async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        let service_name = params
+            .get("service_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("service_name required. Use list_dbus_services first."))?;
+
+        let object_path = params
+            .get("object_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("object_path required. Use list_dbus_object_paths first."))?;
+
+        let introspector = DbusIntrospector::new().await?;
+
+        // Get introspection XML and parse it
+        match introspector.introspect_service_at_path(service_name, object_path).await {
+            Ok(xml) => {
+                // Parse XML to extract interfaces, methods, properties, signals
+                use zbus_xml::Node;
+                let node = Node::from_reader(xml.as_bytes())?;
+
+                let mut interfaces_info = vec![];
+
+                for interface in node.interfaces() {
+                    let iface_name = interface.name().as_ref().to_string();
+
+                    // Extract methods
+                    let methods: Vec<_> = interface.methods().iter().map(|m| {
+                        let method_name = m.name().as_ref().to_string();
+                        let in_args: Vec<_> = m.args().iter()
+                            .filter(|a| matches!(a.direction(), Some(zbus_xml::ArgDirection::In)))
+                            .map(|a| serde_json::json!({
+                                "name": a.name().unwrap_or(""),
+                                "type": a.ty()
+                            }))
+                            .collect();
+                        let out_args: Vec<_> = m.args().iter()
+                            .filter(|a| matches!(a.direction(), Some(zbus_xml::ArgDirection::Out)))
+                            .map(|a| serde_json::json!({
+                                "name": a.name().unwrap_or(""),
+                                "type": a.ty()
+                            }))
+                            .collect();
+
+                        serde_json::json!({
+                            "name": method_name,
+                            "in_args": in_args,
+                            "out_args": out_args
+                        })
+                    }).collect();
+
+                    // Extract properties
+                    let properties: Vec<_> = interface.properties().iter().map(|p| {
+                        let access_str = match p.access() {
+                            zbus_xml::PropertyAccess::Read => "read",
+                            zbus_xml::PropertyAccess::Write => "write",
+                            zbus_xml::PropertyAccess::ReadWrite => "readwrite",
+                        };
+                        serde_json::json!({
+                            "name": p.name().as_ref(),
+                            "type": p.ty(),
+                            "access": access_str
+                        })
+                    }).collect();
+
+                    // Extract signals
+                    let signals: Vec<_> = interface.signals().iter().map(|s| {
+                        serde_json::json!({
+                            "name": s.name().as_ref(),
+                            "args": s.args().iter().map(|a| serde_json::json!({
+                                "name": a.name().unwrap_or(""),
+                                "type": a.ty()
+                            })).collect::<Vec<_>>()
+                        })
+                    }).collect();
+
+                    interfaces_info.push(serde_json::json!({
+                        "name": iface_name,
+                        "methods": methods,
+                        "properties": properties,
+                        "signals": signals
+                    }));
+                }
+
+                // Extract child nodes
+                let child_nodes: Vec<String> = node.nodes().iter()
+                    .filter_map(|n| n.name().map(|name| name.to_string()))
+                    .collect();
+
+                Ok(serde_json::json!({
+                    "service": service_name,
+                    "object_path": object_path,
+                    "interfaces": interfaces_info,
+                    "child_nodes": child_nodes,
+                    "summary": {
+                        "interface_count": interfaces_info.len(),
+                        "total_methods": interfaces_info.iter().map(|i| i["methods"].as_array().unwrap().len()).sum::<usize>(),
+                        "total_properties": interfaces_info.iter().map(|i| i["properties"].as_array().unwrap().len()).sum::<usize>(),
+                        "total_signals": interfaces_info.iter().map(|i| i["signals"].as_array().unwrap().len()).sum::<usize>(),
+                    }
+                }))
+            }
+            Err(e) => {
+                Err(anyhow::anyhow!(
+                    "Failed to introspect {}{}: {}. Tip: Use list_dbus_object_paths to verify the path exists.",
+                    service_name, object_path, e
+                ))
+            }
+        }
+    }
+}
+
 /// Get list of priority D-Bus services to cache
 fn get_priority_services() -> Vec<String> {
     vec![
@@ -537,11 +800,19 @@ fn get_priority_services() -> Vec<String> {
 /// Register all introspection tools
 pub fn register_introspection_tools() -> Vec<Box<dyn McpTool>> {
     vec![
+        // Discovery tools (MOST IMPORTANT - use these first!)
+        Box::new(ListDbusServicesTool::new()),
+        Box::new(ListDbusObjectPathsTool::new()),
+        Box::new(IntrospectDbusObjectTool::new()),
+
+        // System introspection tools
         Box::new(DiscoverSystemTool::new()),
         Box::new(AnalyzeCpuFeaturesTool::new()),
         Box::new(AnalyzeIspTool::new()),
         Box::new(GenerateIspRequestTool::new()),
         Box::new(CompareHardwareTool::new()),
+
+        // Cache query tools (require knowing service/interface names)
         Box::new(QueryCachedDbusMethodsTool::new()),
         Box::new(SearchDbusMethodsTool::new()),
         Box::new(GetCacheStatsTool::new()),
@@ -689,6 +960,54 @@ impl McpTool for GetCacheStatsTool {
 
 #[async_trait::async_trait]
 impl McpTool for WarmCacheTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters(&self) -> &[ToolParameter] {
+        &self.parameters
+    }
+    async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        self.execute(params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl McpTool for ListDbusServicesTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters(&self) -> &[ToolParameter] {
+        &self.parameters
+    }
+    async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        self.execute(params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl McpTool for ListDbusObjectPathsTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters(&self) -> &[ToolParameter] {
+        &self.parameters
+    }
+    async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        self.execute(params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl McpTool for IntrospectDbusObjectTool {
     fn name(&self) -> &str {
         &self.name
     }
