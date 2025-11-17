@@ -66,6 +66,9 @@ BTRFS and caching strategies.
 
 | Document | Description | Audience |
 |----------|-------------|----------|
+| [INTROSPECTION-JSON-CACHE.md](INTROSPECTION-JSON-CACHE.md) | D-Bus introspection SQLite cache | Developers |
+| [NONNET-INTROSPECTION-INTEGRATION.md](NONNET-INTROSPECTION-INTEGRATION.md) | Introspection DB integration options | Architects |
+| [OVSDB-INTROSPECTION-SCHEMA.md](OVSDB-INTROSPECTION-SCHEMA.md) | OVSDB-based introspection approach | Architects |
 | [BTRFS-CACHING-STRATEGY.md](../BTRFS-CACHING-STRATEGY.md) | BTRFS caching | Developers |
 | [CACHING-IMPLEMENTED.md](../CACHING-IMPLEMENTED.md) | Implementation status | Developers |
 | [BTRFS-SUBVOLUME-MANAGEMENT.md](../BTRFS-SUBVOLUME-MANAGEMENT.md) | Subvolume management | Admins |
@@ -119,17 +122,18 @@ Project status and maintenance docs.
 → [DUAL-BRIDGE-ARCHITECTURE.md](../DUAL-BRIDGE-ARCHITECTURE.md)
 
 **Understand caching:**
-→ [BTRFS-CACHING-STRATEGY.md](../BTRFS-CACHING-STRATEGY.md)
+→ [INTROSPECTION-JSON-CACHE.md](INTROSPECTION-JSON-CACHE.md) (D-Bus introspection cache)
+→ [BTRFS-CACHING-STRATEGY.md](../BTRFS-CACHING-STRATEGY.md) (BTRFS filesystem cache)
 
 **Contribute code:**
 → [CODE-REVIEW-REPORT.md](../CODE-REVIEW-REPORT.md) + [COUPLING-FIXES.md](../COUPLING-FIXES.md)
 
 ## 📊 Documentation Statistics
 
-- **Total Files:** 44 markdown files
-- **Current & Accurate:** 38 files (86%)
+- **Total Files:** 47 markdown files
+- **Current & Accurate:** 41 files (87%)
 - **Needs Update:** 5 files (11%)
-- **Future Features:** 2 files (3%)
+- **Future Features:** 1 file (2%)
 
 ## ✅ Documentation Health
 
@@ -148,4 +152,4 @@ This index is maintained by the project maintainers. To add or update documentat
 3. Update cross-references
 4. Verify links work
 
-**Last Updated:** 2025-01-15
+**Last Updated:** 2025-11-17
