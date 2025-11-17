@@ -43,6 +43,9 @@ pub mod workflows;
 // D-Bus indexer for hierarchical abstraction
 pub mod dbus_indexer;
 
+// Embedded resources for MCP
+pub mod resources;
+
 #[cfg(feature = "mcp")]
 pub mod web_bridge;
 #[cfg(feature = "mcp")]

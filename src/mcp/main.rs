@@ -2,6 +2,9 @@
 
 #[path = "../mcp/tool_registry.rs"]
 mod tool_registry;
+#[path = "../mcp/resources.rs"]
+mod resources;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,6 +14,7 @@ use tool_registry::{
     AuditMiddleware, DynamicToolBuilder, LoggingMiddleware, Tool, ToolContent, ToolRegistry,
     ToolResult,
 };
+use resources::ResourceRegistry;
 use zbus::Connection;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,9 +43,10 @@ struct McpError {
     data: Option<Value>,
 }
 
-/// Refactored MCP server with tool registry
+/// Refactored MCP server with tool registry and embedded resources
 struct McpServer {
     registry: Arc<ToolRegistry>,
+    resources: Arc<ResourceRegistry>,
     orchestrator: Option<zbus::Proxy<'static>>,
 }
 
@@ -60,6 +65,10 @@ impl McpServer {
 
         // Register default tools
         Self::register_default_tools(&registry).await?;
+
+        // Create resource registry with embedded documentation
+        let resources = Arc::new(ResourceRegistry::new());
+        eprintln!("Loaded {} embedded resources", resources.list_resources().len());
 
         // Try to connect to orchestrator
         let orchestrator = match Connection::session().await {
@@ -88,6 +97,7 @@ impl McpServer {
 
         Ok(Self {
             registry,
+            resources,
             orchestrator,
         })
     }
@@ -242,6 +252,8 @@ impl McpServer {
             "initialize" => self.handle_initialize(request.id),
             "tools/list" => self.handle_tools_list(request.id).await,
             "tools/call" => self.handle_tools_call(request.id, request.params).await,
+            "resources/list" => self.handle_resources_list(request.id),
+            "resources/read" => self.handle_resources_read(request.id, request.params),
             _ => McpResponse {
                 jsonrpc: "2.0".to_string(),
                 id: request.id,
@@ -265,12 +277,16 @@ impl McpServer {
                     "tools": {
                         "list": true,
                         "call": true
+                    },
+                    "resources": {
+                        "list": true,
+                        "read": true
                     }
                 },
                 "serverInfo": {
                     "name": "dbus-mcp-refactored",
                     "version": "2.0.0",
-                    "description": "Refactored MCP server with loose coupling"
+                    "description": "Refactored MCP server with loose coupling and embedded documentation"
                 }
             })),
             error: None,
@@ -363,6 +379,90 @@ impl McpServer {
                 error: Some(McpError {
                     code: -32603,
                     message: format!("Tool execution failed: {}", e),
+                    data: None,
+                }),
+            },
+        }
+    }
+
+    fn handle_resources_list(&self, id: Option<Value>) -> McpResponse {
+        let resources = self.resources.list_resources();
+
+        let resource_list: Vec<Value> = resources
+            .into_iter()
+            .map(|resource| {
+                json!({
+                    "uri": resource.uri,
+                    "name": resource.name,
+                    "description": resource.description,
+                    "mimeType": resource.mime_type
+                })
+            })
+            .collect();
+
+        McpResponse {
+            jsonrpc: "2.0".to_string(),
+            id,
+            result: Some(json!({
+                "resources": resource_list
+            })),
+            error: None,
+        }
+    }
+
+    fn handle_resources_read(&self, id: Option<Value>, params: Option<Value>) -> McpResponse {
+        let params = match params {
+            Some(p) => p,
+            None => {
+                return McpResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: None,
+                    error: Some(McpError {
+                        code: -32602,
+                        message: "Missing params".to_string(),
+                        data: None,
+                    }),
+                };
+            }
+        };
+
+        let uri = match params["uri"].as_str() {
+            Some(u) => u,
+            None => {
+                return McpResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: None,
+                    error: Some(McpError {
+                        code: -32602,
+                        message: "Missing resource URI".to_string(),
+                        data: None,
+                    }),
+                };
+            }
+        };
+
+        match self.resources.get_resource(uri) {
+            Some(resource) => McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: Some(json!({
+                    "contents": [{
+                        "uri": resource.uri,
+                        "mimeType": resource.mime_type,
+                        "text": resource.content
+                    }]
+                })),
+                error: None,
+            },
+            None => McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: None,
+                error: Some(McpError {
+                    code: -32602,
+                    message: format!("Resource not found: {}", uri),
                     data: None,
                 }),
             },
