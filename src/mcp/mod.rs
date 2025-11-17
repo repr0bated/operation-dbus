@@ -43,6 +43,9 @@ pub mod workflows;
 // D-Bus indexer for hierarchical abstraction
 pub mod dbus_indexer;
 
+// Introspection cache with JSON/SQLite storage
+pub mod introspection_cache;
+
 // Embedded resources for MCP
 pub mod resources;
 
