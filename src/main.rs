@@ -133,6 +133,10 @@ enum Commands {
         #[arg(short, long, default_value = "9573")]
         port: u16,
     },
+
+    /// D-Bus index management (hierarchical abstraction layer)
+    #[command(subcommand)]
+    Index(IndexCommands),
 }
 
 #[derive(Subcommand)]
@@ -164,6 +168,48 @@ enum CacheCommands {
 
     /// Delete all snapshots
     DeleteSnapshots,
+}
+
+#[derive(Subcommand)]
+enum IndexCommands {
+    /// Build complete D-Bus index (unlimited scan)
+    Build {
+        /// Output directory (default: /var/lib/op-dbus/@dbus-index)
+        #[arg(short, long, default_value = "/var/lib/op-dbus/@dbus-index")]
+        output: PathBuf,
+    },
+
+    /// Update existing index (incremental)
+    Update {
+        /// Index directory
+        #[arg(short, long, default_value = "/var/lib/op-dbus/@dbus-index")]
+        index: PathBuf,
+    },
+
+    /// Search D-Bus index
+    Search {
+        /// Search query (service/object/method name)
+        query: String,
+
+        /// Index directory
+        #[arg(short, long, default_value = "/var/lib/op-dbus/@dbus-index")]
+        index: PathBuf,
+    },
+
+    /// Show index statistics
+    Stats {
+        /// Index directory
+        #[arg(short, long, default_value = "/var/lib/op-dbus/@dbus-index")]
+        index: PathBuf,
+    },
+
+    /// Diff two D-Bus index snapshots
+    Diff {
+        /// First index (baseline)
+        baseline: PathBuf,
+        /// Second index (current)
+        current: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -809,6 +855,8 @@ async fn main() -> Result<()> {
 
         Commands::Cache(cmd) => handle_cache_command(cmd).await,
 
+        Commands::Index(cmd) => handle_index_command(cmd).await,
+
         Commands::Serve { bind, port } => {
             info!("Starting web UI server on {}:{}", bind, port);
 
@@ -949,6 +997,137 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
             let cache = crate::cache::BtrfsCache::new(cache_dir).await?;
             let count = cache.delete_all_snapshots().await?;
             println!("? Deleted {} snapshots", count);
+            Ok(())
+        }
+    }
+}
+
+async fn handle_index_command(cmd: IndexCommands) -> Result<()> {
+    use crate::mcp::dbus_indexer::{DbusIndexer, DbusQueryEngine};
+
+    match cmd {
+        IndexCommands::Build { output } => {
+            println!("🔍 Building complete D-Bus index...");
+            println!("   Output: {}", output.display());
+            println!();
+
+            let indexer = DbusIndexer::new(&output).await?;
+            let index = indexer.build_complete_index().await?;
+            indexer.save(&index)?;
+
+            println!();
+            println!("✅ Index built successfully!");
+            println!("   Location: {}/index.json", output.display());
+            println!("   Services: {}", index.statistics.total_services);
+            println!("   Objects: {}", index.statistics.total_objects);
+            println!("   Methods: {}", index.statistics.total_methods);
+            println!();
+            println!("💡 Use 'op-dbus index search <query>' to search the index");
+            println!("💡 Use 'btrfs subvolume snapshot' to create versioned snapshots");
+
+            Ok(())
+        }
+
+        IndexCommands::Update { index } => {
+            println!("🔄 Updating D-Bus index at {}...", index.display());
+            println!("   (Incremental update - only scans changed services)");
+            println!();
+
+            let indexer = DbusIndexer::new(&index).await?;
+            // TODO: Implement incremental update
+            println!("⚠️  Incremental update not yet implemented - use 'build' for now");
+
+            Ok(())
+        }
+
+        IndexCommands::Search { query, index } => {
+            let indexer = DbusIndexer::new(&index).await?;
+            let dbus_index = indexer.load()?;
+            let query_engine = DbusQueryEngine::new(dbus_index);
+
+            let results = query_engine.search(&query);
+
+            if results.is_empty() {
+                println!("No results found for: {}", query);
+            } else {
+                println!("Found {} results for '{}':\n", results.len(), query);
+                for result in results.iter().take(50) {
+                    println!("  {}", result);
+                }
+
+                if results.len() > 50 {
+                    println!("\n... and {} more results", results.len() - 50);
+                }
+            }
+
+            Ok(())
+        }
+
+        IndexCommands::Stats { index } => {
+            let indexer = DbusIndexer::new(&index).await?;
+            let dbus_index = indexer.load()?;
+
+            println!("=== D-Bus Index Statistics ===\n");
+            println!("Index version:    {}", dbus_index.version);
+            println!("Last updated:     {}", chrono::DateTime::from_timestamp(dbus_index.timestamp, 0)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| "Unknown".to_string()));
+            println!();
+            println!("Services:         {}", dbus_index.statistics.total_services);
+            println!("Objects:          {}", dbus_index.statistics.total_objects);
+            println!("Interfaces:       {}", dbus_index.statistics.total_interfaces);
+            println!("Methods:          {}", dbus_index.statistics.total_methods);
+            println!("Properties:       {}", dbus_index.statistics.total_properties);
+            println!();
+            println!("Scan duration:    {:.2}s", dbus_index.statistics.scan_duration_seconds);
+            println!("Index location:   {}", index.display());
+
+            Ok(())
+        }
+
+        IndexCommands::Diff { baseline, current } => {
+            let baseline_indexer = DbusIndexer::new(&baseline).await?;
+            let current_indexer = DbusIndexer::new(&current).await?;
+
+            let baseline_index = baseline_indexer.load()?;
+            let current_index = current_indexer.load()?;
+
+            println!("=== D-Bus Index Diff ===\n");
+            println!("Baseline: {} ({} services)",
+                baseline.display(),
+                baseline_index.statistics.total_services);
+            println!("Current:  {} ({} services)\n",
+                current.display(),
+                current_index.statistics.total_services);
+
+            // Services added
+            let added: Vec<_> = current_index.services.keys()
+                .filter(|k| !baseline_index.services.contains_key(*k))
+                .collect();
+            if !added.is_empty() {
+                println!("Services added (+{}):", added.len());
+                for service in &added {
+                    println!("  + {}", service);
+                }
+                println!();
+            }
+
+            // Services removed
+            let removed: Vec<_> = baseline_index.services.keys()
+                .filter(|k| !current_index.services.contains_key(*k))
+                .collect();
+            if !removed.is_empty() {
+                println!("Services removed (-{}):", removed.len());
+                for service in &removed {
+                    println!("  - {}", service);
+                }
+                println!();
+            }
+
+            if added.is_empty() && removed.is_empty() {
+                println!("No differences found");
+            }
+
             Ok(())
         }
     }

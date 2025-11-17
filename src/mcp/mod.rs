@@ -29,9 +29,14 @@ pub mod tool_registry;
 
 // Chat interface
 pub mod chat_server;
+pub mod ai_context_provider;
+pub mod ollama;
 
 // Flow-based workflows
 pub mod workflows;
+
+// D-Bus indexer for hierarchical abstraction
+pub mod dbus_indexer;
 
 #[cfg(feature = "mcp")]
 pub mod web_bridge;
