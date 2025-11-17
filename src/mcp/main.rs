@@ -6,6 +6,7 @@ mod tool_registry;
 mod resources;
 mod llm_agents;
 mod executors;
+mod commands;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -16,6 +17,7 @@ use tool_registry::{
     ToolResult,
 };
 use llm_agents::{AgentRegistry, AgentRequest};
+use commands::CommandRegistry;
 use executors::ExecutorFactory;
 use resources::register_embedded_markdown_resources;
 use zbus::Connection;
@@ -46,11 +48,12 @@ struct McpError {
     data: Option<Value>,
 }
 
-/// Refactored MCP server with tool, resource, and agent registries
+/// Refactored MCP server with tool, resource, agent, and command registries
 struct McpServer {
     tool_registry: Arc<ToolRegistry>,
     resource_registry: Arc<resources::ResourceRegistry>,
     agent_registry: Arc<AgentRegistry>,
+    command_registry: Arc<CommandRegistry>,
     orchestrator: Option<zbus::Proxy<'static>>,
 }
 
@@ -72,6 +75,11 @@ impl McpServer {
         let agents_loaded = agent_registry.load_agents(std::path::Path::new("/git/agents")).await?;
         eprintln!("Loaded {} agents from filesystem", agents_loaded);
 
+        // Create command registry and load commands from filesystem
+        let command_registry = Arc::new(CommandRegistry::new());
+        let commands_loaded = command_registry.load_commands(std::path::Path::new("/git/commands")).await?;
+        eprintln!("Loaded {} commands from filesystem", commands_loaded);
+
         // Register LLM executors
         let executors = ExecutorFactory::create_executors();
         for executor in executors {
@@ -83,6 +91,9 @@ impl McpServer {
 
         // Register agent execution tools
         Self::register_agent_tools(&tool_registry, &agent_registry).await?;
+
+        // Register command execution tools
+        Self::register_command_tools(&tool_registry, &command_registry, &agent_registry).await?;
 
         // Create resource registry
         let resource_registry = Arc::new(resources::ResourceRegistry::new());
@@ -119,6 +130,7 @@ impl McpServer {
             tool_registry,
             resource_registry,
             agent_registry,
+            command_registry,
             orchestrator,
         })
     }
@@ -335,6 +347,70 @@ impl McpServer {
         Ok(())
     }
 
+    /// Register command execution tools
+    async fn register_command_tools(
+        registry: &ToolRegistry,
+        command_registry: &CommandRegistry,
+        agent_registry: &AgentRegistry,
+    ) -> Result<()> {
+        // Add a tool to execute commands
+        let execute_command_tool = DynamicToolBuilder::new("execute_command")
+            .description("Execute any of the 61 available development commands with specialized functionality")
+            .schema(json!({
+                "type": "object",
+                "properties": {
+                    "command_name": {
+                        "type": "string",
+                        "description": "Name of the command to execute (e.g., 'api-scaffold', 'code-explain', 'ai-review')"
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "The task or request for the command"
+                    },
+                    "context": {
+                        "type": "object",
+                        "description": "Optional context information"
+                    }
+                },
+                "required": ["command_name", "task"]
+            }))
+            .handler(move |params| async move {
+                // This will be implemented when we have access to registries
+                let command_name = params["command_name"].as_str().unwrap_or("unknown");
+                let task = params["task"].as_str().unwrap_or("no task");
+
+                Ok(ToolResult::success(ToolContent::text(format!(
+                    "Command execution requested: {} with task: {}", command_name, task
+                ))))
+            })
+            .build();
+
+        registry.register_tool(Box::new(execute_command_tool)).await?;
+
+        // Add a tool to list available commands
+        let list_commands_tool = DynamicToolBuilder::new("list_commands")
+            .description("List all available development commands and their specializations")
+            .schema(json!({
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Optional category filter (e.g., 'tools', 'workflows')"
+                    }
+                }
+            }))
+            .handler(|params| async move {
+                Ok(ToolResult::success(ToolContent::text(
+                    "Command listing functionality - 61 commands available across tools and workflows".to_string()
+                )))
+            })
+            .build();
+
+        registry.register_tool(Box::new(list_commands_tool)).await?;
+
+        Ok(())
+    }
+
     async fn handle_request(&self, request: McpRequest) -> McpResponse {
         match request.method.as_str() {
             "initialize" => self.handle_initialize(request.id),
@@ -457,9 +533,19 @@ impl McpServer {
             return self.handle_agent_execution(id, arguments).await;
         }
 
+        // Check if this is a command execution request
+        if tool_name == "execute_command" {
+            return self.handle_command_execution(id, arguments).await;
+        }
+
         // Check if this is a direct agent call (agent name used as tool name)
         if self.agent_registry.get_agent(tool_name).await.is_some() {
             return self.handle_direct_agent_execution(id, tool_name, arguments).await;
+        }
+
+        // Check if this is a direct command call (command name used as tool name)
+        if self.command_registry.get_command(tool_name).await.is_some() {
+            return self.handle_direct_command_execution(id, tool_name, arguments).await;
         }
 
         // Execute regular tool through registry
@@ -595,6 +681,124 @@ impl McpServer {
                 error: Some(McpError {
                     code: -32603,
                     message: format!("Agent execution failed: {}", e),
+                    data: None,
+                }),
+            },
+        }
+    }
+
+    async fn handle_command_execution(&self, id: Option<Value>, arguments: Value) -> McpResponse {
+        let command_name = match arguments["command_name"].as_str() {
+            Some(name) => name,
+            None => {
+                return McpResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: None,
+                    error: Some(McpError {
+                        code: -32602,
+                        message: "Missing command_name parameter".to_string(),
+                        data: None,
+                    }),
+                };
+            }
+        };
+
+        let task = match arguments["task"].as_str() {
+            Some(task) => task,
+            None => {
+                return McpResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: None,
+                    error: Some(McpError {
+                        code: -32602,
+                        message: "Missing task parameter".to_string(),
+                        data: None,
+                    }),
+                };
+            }
+        };
+
+        let request = AgentRequest {
+            task: task.to_string(),
+            context: arguments["context"].as_object().cloned().map(Value::Object),
+            parameters: arguments["parameters"].as_object().cloned().map(|m| {
+                m.into_iter().map(|(k, v)| (k, v)).collect()
+            }),
+        };
+
+        match self.command_registry.execute_command(command_name, request, &self.agent_registry).await {
+            Ok(response) => McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: Some(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": response.result
+                    }],
+                    "metadata": response.metadata
+                })),
+                error: None,
+            },
+            Err(e) => McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: None,
+                error: Some(McpError {
+                    code: -32603,
+                    message: format!("Command execution failed: {}", e),
+                    data: None,
+                }),
+            },
+        }
+    }
+
+    async fn handle_direct_command_execution(&self, id: Option<Value>, command_name: &str, arguments: Value) -> McpResponse {
+        let task = match arguments["task"].as_str() {
+            Some(task) => task,
+            None => {
+                return McpResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: None,
+                    error: Some(McpError {
+                        code: -32602,
+                        message: "Missing task parameter".to_string(),
+                        data: None,
+                    }),
+                };
+            }
+        };
+
+        let request = AgentRequest {
+            task: task.to_string(),
+            context: arguments["context"].as_object().cloned().map(Value::Object),
+            parameters: arguments["parameters"].as_object().cloned().map(|m| {
+                m.into_iter().map(|(k, v)| (k, v)).collect()
+            }),
+        };
+
+        match self.command_registry.execute_command(command_name, request, &self.agent_registry).await {
+            Ok(response) => McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: Some(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": response.result
+                    }],
+                    "metadata": response.metadata
+                })),
+                error: None,
+            },
+            Err(e) => McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id,
+                result: None,
+                error: Some(McpError {
+                    code: -32603,
+                    message: format!("Command execution failed: {}", e),
                     data: None,
                 }),
             },

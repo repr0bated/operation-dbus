@@ -25,6 +25,7 @@ pub mod system_introspection;
 
 // Refactored modules for loose coupling
 pub mod agent_registry;
+pub mod commands;
 pub mod llm_agents;
 pub mod executors;
 pub mod tool_registry;
