@@ -1,6 +1,6 @@
 //! Refactored orchestrator using agent registry for loose coupling
 
-use op_dbus::mcp::agent_registry::{load_default_specs, AgentRegistry};
+use crate::mcp::agent_registry::{load_default_specs, AgentRegistry};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

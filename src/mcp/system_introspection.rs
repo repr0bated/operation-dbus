@@ -56,6 +56,7 @@ impl SystemIntrospector {
             .into_iter()
             .filter(|name| !name.starts_with(':'))
             .filter(|name| name.contains('.')) // Must be well-formed
+            .map(|name| name.to_string())
             .collect();
 
         Ok(services)
@@ -67,7 +68,7 @@ impl SystemIntrospector {
 
         let names = proxy.list_activatable_names().await?;
 
-        Ok(names.into_iter().collect())
+        Ok(names.into_iter().map(|name| name.to_string()).collect())
     }
 
     /// Introspect a specific service at a given path
@@ -102,7 +103,7 @@ impl SystemIntrospector {
         service_name: &str,
         start_path: &str,
     ) -> Result<Vec<String>> {
-        let mut paths = vec![start_path.to_string()];
+        let paths = vec![start_path.to_string()];
         let mut discovered = vec![start_path.to_string()];
 
         // Try to introspect the starting path
@@ -123,7 +124,7 @@ impl SystemIntrospector {
                     // Recursively discover children (limited depth)
                     if discovered.len() < 100 {
                         // Safety limit
-                        match self.discover_object_paths(service_name, &child_path).await {
+                        match Box::pin(self.discover_object_paths(service_name, &child_path)).await {
                             Ok(sub_paths) => {
                                 for sub_path in sub_paths {
                                     if !discovered.contains(&sub_path) {
@@ -246,7 +247,7 @@ impl SystemIntrospector {
         ];
 
         // Introspect priority services first
-        for service_name in priority_services {
+        for service_name in &priority_services {
             if service_names.contains(&service_name.to_string()) {
                 match self.introspect_service(service_name).await {
                     Ok(service) => {

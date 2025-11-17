@@ -8,14 +8,12 @@ pub mod agents {
     pub mod file;
     pub mod monitor;
     pub mod network;
-    pub mod packagekit;
     pub mod systemd;
 }
 
 // Core MCP modules
 pub mod bridge;
 pub mod discovery;
-pub mod discovery_enhanced;
 pub mod hybrid_dbus_bridge;
 pub mod hybrid_scanner;
 pub mod introspection_parser;
@@ -39,11 +37,6 @@ pub mod ollama;
 
 // Flow-based workflows
 pub mod workflows;
-
-#[cfg(feature = "mcp")]
-pub mod web_bridge;
-#[cfg(feature = "mcp")]
-pub mod web_bridge_improved;
 
 // lib.rs is a small utility module for re-exports
 pub mod lib;

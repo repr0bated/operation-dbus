@@ -1,4 +1,5 @@
 //! Enterprise-grade NUMA topology detection and management
+#![allow(dead_code)]
 //!
 //! This module provides comprehensive NUMA (Non-Uniform Memory Access) support
 //! for optimal cache performance on multi-socket systems.
@@ -80,8 +81,8 @@ impl NumaTopology {
             let name_str = name.to_string_lossy();
 
             // Parse node directories (nodeN)
-            if name_str.starts_with("node") {
-                if let Ok(node_id) = name_str[4..].parse::<u32>() {
+            if let Some(node_suffix) = name_str.strip_prefix("node") {
+                if let Ok(node_id) = node_suffix.parse::<u32>() {
                     let node_path = entry.path();
 
                     match Self::parse_node(&node_path, node_id) {
@@ -259,8 +260,8 @@ impl NumaTopology {
             for link in node_links.flatten() {
                 let name = link.file_name();
                 let name_str = name.to_string_lossy();
-                if name_str.starts_with("node") {
-                    if let Ok(node_id) = name_str[4..].parse::<u32>() {
+                if let Some(node_suffix) = name_str.strip_prefix("node") {
+                    if let Ok(node_id) = node_suffix.parse::<u32>() {
                         return Some(node_id);
                     }
                 }

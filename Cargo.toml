@@ -24,6 +24,8 @@ bytes = "1"
 
 # D-Bus
 zbus = { version = " =3.14.1", features = ["tokio"] }
+zbus_xml = "=3.1.0"
+zvariant = "=3.15.2"
 
 # UUID for checksums and auto-plugins
 uuid = { version = "1.6", features = ["v4"] }
@@ -122,10 +124,6 @@ name = "dbus-orchestrator"
 path = "src/mcp/orchestrator.rs"
 required-features = ["mcp"]
 
-[[bin]]
-name = "dbus-mcp-web"
-path = "src/mcp/web_main.rs"
-required-features = ["mcp"]
 
 [[bin]]
 name = "dbus-agent-executor"
@@ -205,10 +203,6 @@ name = "dbus-mcp-discovery"
 path = "src/mcp/discovery.rs"
 required-features = ["mcp"]
 
-[[bin]]
-name = "dbus-mcp-discovery-enhanced"
-path = "src/mcp/discovery_enhanced.rs"
-required-features = ["mcp"]
 
 [[bin]]
 name = "introspection-parser"

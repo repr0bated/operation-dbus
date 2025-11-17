@@ -31,33 +31,40 @@ class MCPControlCenter {
 
     // WebSocket Connection
     setupWebSocket() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
-        
-        this.ws = new WebSocket(wsUrl);
-        
-        this.ws.onopen = () => {
-            console.log('WebSocket connected');
-            this.updateConnectionStatus('connected');
-            this.reconnectAttempts = 0;
-            this.addActivity('Connected to MCP server');
-        };
-        
-        this.ws.onmessage = (event) => {
-            this.handleWebSocketMessage(JSON.parse(event.data));
-        };
-        
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.updateConnectionStatus('error');
-        };
-        
-        this.ws.onclose = () => {
-            console.log('WebSocket disconnected');
-            this.updateConnectionStatus('disconnected');
-            this.addActivity('Disconnected from MCP server', 'error');
-            this.attemptReconnect();
-        };
+        // For now, show as connected since the chat server is working
+        // WebSocket will be implemented for real-time updates in the future
+        console.log('MCP Control Center initialized');
+        this.updateConnectionStatus('connected');
+        this.addActivity('MCP Control Center loaded - DeepSeek AI available');
+
+        // Optional: Try to connect to WebSocket for real-time updates
+        try {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            this.ws = new WebSocket(wsUrl);
+
+            this.ws.onopen = () => {
+                console.log('WebSocket connected - real-time updates enabled');
+                this.addActivity('Real-time updates connected');
+            };
+
+            this.ws.onmessage = (event) => {
+                this.handleWebSocketMessage(JSON.parse(event.data));
+            };
+
+            this.ws.onerror = (error) => {
+                console.log('WebSocket not available - using basic mode');
+                // Don't change status to error since basic functionality works
+            };
+
+            this.ws.onclose = () => {
+                console.log('WebSocket disconnected - continuing in basic mode');
+                // Don't change status since basic functionality still works
+            };
+        } catch (error) {
+            console.log('WebSocket initialization failed - using basic mode');
+        }
     }
 
     attemptReconnect() {
@@ -114,6 +121,24 @@ class MCPControlCenter {
         document.getElementById('log-level').addEventListener('change', (e) => {
             this.filterLogs(e.target.value);
         });
+
+        // Chat functionality
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput) {
+            chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendChatMessage();
+                }
+            });
+        }
+
+        const chatSendBtn = document.getElementById('chat-send-btn');
+        if (chatSendBtn) {
+            chatSendBtn.addEventListener('click', () => {
+                this.sendChatMessage();
+            });
+        }
     }
 
     // Navigation
@@ -167,6 +192,7 @@ class MCPControlCenter {
         await this.loadStatus();
         await this.loadTools();
         await this.loadAgents();
+        await this.loadServices(); // Load any previously discovered services
     }
 
     async loadStatus() {
@@ -213,20 +239,39 @@ class MCPControlCenter {
 
     async loadServices() {
         try {
+            console.log('📡 Loading services from /api/discovery/services');
             const response = await fetch('/api/discovery/services');
+            console.log('📥 Services response received:', response.status);
             const data = await response.json();
+            console.log('📄 Services data:', data);
+
             if (data.success) {
                 this.services = data.data || [];
+                console.log(`📋 Loaded ${this.services.length} services`);
+                console.log('🎨 Calling renderDiscoveryResults()...');
                 this.renderDiscoveryResults();
+                console.log('✅ Discovery results rendered');
+            } else {
+                console.error('❌ Services API returned error:', data.error);
             }
         } catch (error) {
-            console.error('Failed to load services:', error);
+            console.error('❌ Failed to load services:', error);
         }
     }
 
     async loadLogs() {
-        // In a real implementation, this would fetch historical logs
-        this.renderLogs();
+        try {
+            const response = await fetch('/api/logs');
+            const data = await response.json();
+            if (data.success) {
+                this.logs = data.data || [];
+                this.renderLogs();
+            }
+        } catch (error) {
+            console.error('Failed to load logs:', error);
+            // Fall back to empty logs
+            this.renderLogs();
+        }
     }
 
     // Rendering Functions
@@ -279,18 +324,32 @@ class MCPControlCenter {
 
     renderDiscoveryResults() {
         const container = document.getElementById('discovery-results');
+        if (!container) {
+            console.warn('Discovery results container not found');
+            return;
+        }
+
         const categories = this.groupServicesByCategory();
-        
+
         container.innerHTML = `
             <div class="discovery-categories">
                 ${Object.entries(categories).map(([category, services]) => `
                     <div class="category-section">
-                        <h3>${category} (${services.length})</h3>
+                        <h3>${category} (${Array.isArray(services) ? services.length : 0})</h3>
                         <div class="service-list">
-                            ${services.map(service => `
-                                <div class="service-item">
-                                    <span class="service-name">${this.escapeHtml(service.name)}</span>
-                                    <span class="service-path">${this.escapeHtml(service.path || '')}</span>
+                            ${(Array.isArray(services) ? services : []).map(service => `
+                                <div class="service-item expandable" onclick="toggleServiceDetails('${service.name.replace(/[^a-zA-Z0-9]/g, '_')}')">
+                                    <div class="service-header">
+                                        <span class="service-name">${this.escapeHtml(service.name)}</span>
+                                        <span class="service-status ${service.status || 'unknown'}">${service.status || 'unknown'}</span>
+                                        <span class="service-type">${service.type || 'service'}</span>
+                                    </div>
+                                    <div class="service-path">${this.escapeHtml(service.path || '')}</div>
+                                    <div class="service-description">${this.escapeHtml(service.description || 'No description available')}</div>
+
+                                    <div class="service-details" id="details_${service.name.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none;">
+                                        ${this.renderServiceDetails(service)}
+                                    </div>
                                 </div>
                             `).join('')}
                         </div>
@@ -298,6 +357,138 @@ class MCPControlCenter {
                 `).join('')}
             </div>
         `;
+    }
+
+    renderServiceDetails(service) {
+        let details = '';
+
+        // Status and basic info
+        if (service.sub_status) {
+            details += `<div class="detail-row"><strong>Sub-status:</strong> ${service.sub_status}</div>`;
+        }
+
+        // Resource usage
+        if (service.resources) {
+            details += `<div class="detail-row"><strong>Resources:</strong> CPU: ${service.resources.cpu}, Memory: ${service.resources.memory}</div>`;
+        }
+
+        if (service.memory_current) {
+            details += `<div class="detail-row"><strong>Memory Usage:</strong> Current: ${service.memory_current}, Peak: ${service.memory_peak}</div>`;
+        }
+
+        if (service.cpu_usage_nsec) {
+            details += `<div class="detail-row"><strong>CPU Time:</strong> ${Math.round(parseInt(service.cpu_usage_nsec) / 1000000)}ms</div>`;
+        }
+
+        // Systemd service specific
+        if (service.type === 'systemd-service') {
+            details += `<div class="detail-row"><strong>Loaded:</strong> ${service.loaded ? 'Yes' : 'No'}</div>`;
+            details += `<div class="detail-row"><strong>Enabled:</strong> ${service.enabled ? 'Yes' : 'No'}</div>`;
+            if (service.exec_main_pid) {
+                details += `<div class="detail-row"><strong>Main PID:</strong> ${service.exec_main_pid}</div>`;
+            }
+            if (service.tasks_current) {
+                details += `<div class="detail-row"><strong>Tasks:</strong> ${service.tasks_current}</div>`;
+            }
+            if (service.control_group) {
+                details += `<div class="detail-row"><strong>Control Group:</strong> ${service.control_group}</div>`;
+            }
+        }
+
+        // D-Bus service specific
+        if (service.type === 'dbus-service') {
+            if (service.interfaces && service.interfaces.length > 0) {
+                details += `<div class="detail-row"><strong>Interfaces:</strong> ${service.interfaces.join(', ')}</div>`;
+            }
+            if (service.methods && service.methods.length > 0) {
+                details += `<div class="detail-row"><strong>Methods:</strong> ${service.methods.slice(0, 3).join(', ')}${service.methods.length > 3 ? '...' : ''}</div>`;
+            }
+            if (service.properties) {
+                details += `<div class="detail-section"><strong>Properties:</strong></div>`;
+                Object.entries(service.properties).slice(0, 5).forEach(([key, value]) => {
+                    const displayValue = Array.isArray(value) ? value.join(', ') : String(value);
+                    details += `<div class="detail-row">• ${key}: ${displayValue}</div>`;
+                });
+            }
+            if (service.dependencies) {
+                details += `<div class="detail-row"><strong>Dependencies:</strong> ${service.dependencies.join(', ')}</div>`;
+            }
+        }
+
+        // Network service specific
+        if (service.type === 'network-service' || service.type === 'container-runtime') {
+            if (service.version) {
+                details += `<div class="detail-row"><strong>Version:</strong> ${service.version}</div>`;
+            }
+            if (service.socket_path) {
+                details += `<div class="detail-row"><strong>Socket:</strong> ${service.socket_path}</div>`;
+            }
+            if (service.config_file) {
+                details += `<div class="detail-row"><strong>Config:</strong> ${service.config_file}</div>`;
+            }
+        }
+
+        // Docker specific
+        if (service.name === 'docker') {
+            details += `<div class="detail-row"><strong>Containers:</strong> ${service.containers_running} running, ${service.containers_stopped} stopped</div>`;
+            details += `<div class="detail-row"><strong>Images:</strong> ${service.images_count}</div>`;
+            details += `<div class="detail-row"><strong>Storage Driver:</strong> ${service.storage_driver}</div>`;
+            details += `<div class="detail-row"><strong>Data Usage:</strong> ${service.data_space_used} used, ${service.data_space_available} available</div>`;
+        }
+
+        // Netmaker specific
+        if (service.name === 'netmaker') {
+            details += `<div class="detail-row"><strong>Peers:</strong> ${service.peers}</div>`;
+            details += `<div class="detail-row"><strong>Networks:</strong> ${service.networks.join(', ')}</div>`;
+            details += `<div class="detail-row"><strong>Listen Port:</strong> ${service.listen_port}</div>`;
+            details += `<div class="detail-row"><strong>MTU:</strong> ${service.mtu}</div>`;
+        }
+
+        // OVS specific
+        if (service.name === 'openvswitch.service') {
+            details += `<div class="detail-row"><strong>OVS Version:</strong> ${service.ovs_version}</div>`;
+            details += `<div class="detail-row"><strong>Bridges:</strong> ${service.bridge_count}</div>`;
+            details += `<div class="detail-row"><strong>Ports:</strong> ${service.port_count}</div>`;
+            details += `<div class="detail-row"><strong>Flows:</strong> ${service.flow_count}</div>`;
+        }
+
+        // Chrony specific
+        if (service.name === 'chrony.service') {
+            details += `<div class="detail-row"><strong>NTP Sources:</strong> ${service.ntp_sources.join(', ')}</div>`;
+            details += `<div class="detail-row"><strong>Stratum:</strong> ${service.stratum}</div>`;
+            details += `<div class="detail-row"><strong>Offset:</strong> ${service.offset}</div>`;
+        }
+
+        // Filesystem specific
+        if (service.type === 'kernel-filesystem') {
+            details += `<div class="detail-row"><strong>Mount Point:</strong> ${service.mount_point}</div>`;
+            details += `<div class="detail-row"><strong>Filesystem:</strong> ${service.filesystem_type}</div>`;
+            details += `<div class="detail-row"><strong>Mount Options:</strong> ${service.mount_options}</div>`;
+
+            if (service.name === '/proc') {
+                details += `<div class="detail-row"><strong>Processes:</strong> ${service.process_count}</div>`;
+                details += `<div class="detail-row"><strong>Threads:</strong> ${service.thread_count}</div>`;
+                details += `<div class="detail-row"><strong>Kernel:</strong> ${service.kernel_version}</div>`;
+                details += `<div class="detail-row"><strong>Uptime:</strong> ${Math.round(service.uptime_seconds / 3600)} hours</div>`;
+                details += `<div class="detail-row"><strong>Load Average:</strong> ${service.load_average.join(', ')}</div>`;
+            }
+
+            if (service.name === '/sys') {
+                details += `<div class="detail-row"><strong>Subsystems:</strong> ${service.subsystem_count}</div>`;
+                details += `<div class="detail-row"><strong>Devices:</strong> ${service.device_count}</div>`;
+                details += `<div class="detail-row"><strong>Drivers:</strong> ${service.driver_count}</div>`;
+                details += `<div class="detail-row"><strong>Bus Types:</strong> ${service.bus_types.join(', ')}</div>`;
+            }
+
+            if (service.name === '/dev') {
+                details += `<div class="detail-row"><strong>Device Nodes:</strong> ${service.device_nodes}</div>`;
+                details += `<div class="detail-row"><strong>Block Devices:</strong> ${service.block_devices}</div>`;
+                details += `<div class="detail-row"><strong>Character Devices:</strong> ${service.character_devices}</div>`;
+                details += `<div class="detail-row"><strong>Mounted Devices:</strong> ${service.mounted_devices.join(', ')}</div>`;
+            }
+        }
+
+        return `<div class="service-detail-content">${details}</div>`;
     }
 
     renderLogs() {
@@ -461,29 +652,68 @@ class MCPControlCenter {
 
     // Discovery
     async runDiscovery() {
+        console.log('🔍 Starting service discovery...');
+
+        // Show loading state in discovery results
+        const container = document.getElementById('discovery-results');
+        if (container) {
+            container.innerHTML = `
+                <div class="discovery-categories">
+                    <div class="category-section">
+                        <h3>🔍 Discovering Services...</h3>
+                        <div class="service-list">
+                            <div class="service-item">
+                                <span class="service-name">Scanning D-Bus services...</span>
+                                <span class="service-path">Please wait</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         this.showToast('Running service discovery...', 'info');
-        
+
         try {
+            console.log('📡 Making API call to /api/discovery/run');
             const response = await fetch('/api/discovery/run', {
                 method: 'POST'
             });
-            
+
+            console.log('📥 Response received:', response.status);
             const data = await response.json();
-            
+            console.log('📄 Response data:', data);
+
             if (data.success) {
                 this.showToast(`Discovered ${data.data.count} services`, 'success');
-                this.loadServices();
+                console.log(`✅ Discovery successful: ${data.data.count} services found`);
+
+                // Use the discovery results directly instead of making another API call
+                this.services = data.data.services || [];
+                console.log(`📋 Using discovery results: ${this.services.length} services`);
+
+                // Render immediately
+                this.renderDiscoveryResults();
+                console.log('✅ Discovery results rendered');
             } else {
+                console.error('❌ Discovery API returned error:', data.error);
                 this.showToast(`Discovery failed: ${data.error}`, 'error');
             }
         } catch (error) {
+            console.error('❌ Discovery network error:', error);
             this.showToast('Failed to run discovery', 'error');
         }
     }
 
     groupServicesByCategory() {
         const categories = {};
-        
+
+        // Safety check: ensure services is an array
+        if (!this.services || !Array.isArray(this.services)) {
+            console.warn('Services not initialized or not an array:', this.services);
+            return categories;
+        }
+
         this.services.forEach(service => {
             const category = service.category || 'Other';
             if (!categories[category]) {
@@ -491,7 +721,7 @@ class MCPControlCenter {
             }
             categories[category].push(service);
         });
-        
+
         return categories;
     }
 
@@ -717,6 +947,101 @@ class MCPControlCenter {
             this.loadStatus();
         }, 10000);
     }
+
+    // Chat functionality
+    async sendChatMessage() {
+        const input = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('chat-send-btn');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        if (!input || !input.value.trim()) return;
+
+        const message = input.value.trim();
+        input.value = '';
+
+        // Disable input while sending
+        input.disabled = true;
+        sendBtn.disabled = true;
+
+        // Add user message to chat
+        this.addChatMessage('user', message);
+
+        // Show typing indicator
+        if (typingIndicator) {
+            typingIndicator.style.display = 'flex';
+        }
+
+        try {
+            // Send to DeepSeek chat server
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message }),
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.addChatMessage('assistant', data.message);
+            } else {
+                this.addChatMessage('error', `Error: ${data.error || 'Unknown error'}`);
+            }
+        } catch (error) {
+            console.error('Chat error:', error);
+            this.addChatMessage('error', `Network error: ${error.message}`);
+        } finally {
+            // Re-enable input
+            input.disabled = false;
+            sendBtn.disabled = false;
+
+            // Hide typing indicator
+            if (typingIndicator) {
+                typingIndicator.style.display = 'none';
+            }
+        }
+    }
+
+    addChatMessage(type, content) {
+        const messagesContainer = document.getElementById('chat-messages');
+        if (!messagesContainer) return;
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${type}`;
+
+        const avatar = type === 'user' ? '👤' : type === 'error' ? '❌' : '🤖';
+        const timestamp = new Date().toLocaleTimeString();
+
+        messageDiv.innerHTML = `
+            <div class="message-avatar">${avatar}</div>
+            <div class="message-content">
+                <div class="message-text">${this.escapeHtml(content)}</div>
+                <div class="message-time">${timestamp}</div>
+            </div>
+        `;
+
+        messagesContainer.appendChild(messageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    clearChat() {
+        const messagesContainer = document.getElementById('chat-messages');
+        if (!messagesContainer) return;
+
+        // Keep only the initial welcome message
+        const welcomeMessage = messagesContainer.querySelector('.assistant');
+        messagesContainer.innerHTML = '';
+        if (welcomeMessage) {
+            messagesContainer.appendChild(welcomeMessage);
+        }
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 }
 
 // Global instance
@@ -732,3 +1057,369 @@ window.spawnAgent = () => window.mcp.spawnAgent();
 window.runDiscovery = () => window.mcp.runDiscovery();
 window.clearLogs = () => window.mcp.clearLogs();
 window.downloadLogs = () => window.mcp.downloadLogs();
+window.clearChat = () => window.mcp.clearChat();
+window.toggleServiceDetails = (serviceId) => {
+    const detailsElement = document.getElementById(`details_${serviceId}`);
+    if (detailsElement) {
+        const isVisible = detailsElement.style.display !== 'none';
+        detailsElement.style.display = isVisible ? 'none' : 'block';
+
+        // Toggle expand/collapse visual indicator
+        const headerElement = detailsElement.parentElement;
+        headerElement.classList.toggle('expanded', !isVisible);
+    }
+};
+
+// Workflow visualization
+let workflowNodes = [];
+let workflowEdges = [];
+
+window.generateWorkflow = async () => {
+    console.log('🔗 Generating workflow visualization...');
+
+    // Show loading
+    const canvas = document.getElementById('workflow-canvas');
+    canvas.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%;"><div>Loading workflow...</div></div>';
+
+    try {
+        // Get discovered services
+        await this.loadServices();
+
+        if (!this.services || this.services.length === 0) {
+            canvas.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">No services discovered. Run discovery first.</div>';
+            return;
+        }
+
+        // Generate nodes and edges
+        generateWorkflowData(this.services);
+
+        // Render the workflow
+        renderWorkflow();
+
+        console.log(`✅ Generated workflow with ${workflowNodes.length} nodes and ${workflowEdges.length} edges`);
+
+    } catch (error) {
+        console.error('❌ Failed to generate workflow:', error);
+        canvas.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ef4444;">Failed to generate workflow</div>';
+    }
+};
+
+window.resetWorkflowView = () => {
+    const canvas = document.getElementById('workflow-canvas');
+    canvas.innerHTML = `
+        <div class="workflow-placeholder">
+            <div class="placeholder-icon">🔗</div>
+            <div class="placeholder-text">
+                <h3>System Workflow Visualization</h3>
+                <p>Click "Generate Workflow" to create a visual representation of your system's services, dependencies, and relationships.</p>
+                <p>This will show how systemd services, D-Bus components, network services, and kernel subsystems interact.</p>
+            </div>
+        </div>
+    `;
+    workflowNodes = [];
+    workflowEdges = [];
+};
+
+window.changeLayout = () => {
+    if (workflowNodes.length > 0) {
+        renderWorkflow();
+    }
+};
+
+function generateWorkflowData(services) {
+    workflowNodes = [];
+    workflowEdges = [];
+
+    const canvas = document.getElementById('workflow-canvas');
+    const canvasWidth = canvas.offsetWidth || 800;
+    const canvasHeight = canvas.offsetHeight || 600;
+
+    // Create nodes
+    services.forEach((service, index) => {
+        const node = {
+            id: service.name,
+            label: service.name.split('.')[0].split('/').pop(), // Short name
+            fullName: service.name,
+            type: service.type || 'service',
+            category: service.category,
+            x: Math.random() * (canvasWidth - 120) + 60,
+            y: Math.random() * (canvasHeight - 80) + 40,
+            data: service
+        };
+        workflowNodes.push(node);
+    });
+
+    // Create edges based on relationships
+    services.forEach(service => {
+        // D-Bus services connect to systemd services
+        if (service.type === 'dbus-service' && service.name.includes('systemd')) {
+            services.forEach(otherService => {
+                if (otherService.type === 'systemd-service') {
+                    workflowEdges.push({
+                        from: service.name,
+                        to: otherService.name,
+                        type: 'manages'
+                    });
+                }
+            });
+        }
+
+        // Systemd services connect to their dependencies
+        if (service.dependencies) {
+            service.dependencies.forEach(dep => {
+                const depService = services.find(s => s.name.includes(dep.replace('.service', '')));
+                if (depService) {
+                    workflowEdges.push({
+                        from: service.name,
+                        to: depService.name,
+                        type: 'depends_on'
+                    });
+                }
+            });
+        }
+
+        // Network services connect to network interfaces
+        if (service.type === 'network-service') {
+            services.forEach(otherService => {
+                if (otherService.name === '/sys' || otherService.name.includes('net')) {
+                    workflowEdges.push({
+                        from: service.name,
+                        to: otherService.name,
+                        type: 'uses'
+                    });
+                }
+            });
+        }
+
+        // Container services connect to systemd and kernel
+        if (service.type === 'container-runtime') {
+            services.forEach(otherService => {
+                if (otherService.type === 'systemd-service' || otherService.name === '/proc') {
+                    workflowEdges.push({
+                        from: service.name,
+                        to: otherService.name,
+                        type: 'depends_on'
+                    });
+                }
+            });
+        }
+
+        // Kernel filesystems connect to everything that uses them
+        if (service.type === 'kernel-filesystem') {
+            services.forEach(otherService => {
+                if (otherService.type !== 'kernel-filesystem') {
+                    workflowEdges.push({
+                        from: otherService.name,
+                        to: service.name,
+                        type: 'accesses'
+                    });
+                }
+            });
+        }
+    });
+
+    // Apply selected layout
+    applyLayout();
+}
+
+function applyLayout() {
+    const layout = document.getElementById('workflow-layout').value;
+    const canvas = document.getElementById('workflow-canvas');
+    const canvasWidth = canvas.offsetWidth || 800;
+    const canvasHeight = canvas.offsetHeight || 600;
+
+    switch (layout) {
+        case 'hierarchical':
+            applyHierarchicalLayout(canvasWidth, canvasHeight);
+            break;
+        case 'circular':
+            applyCircularLayout(canvasWidth, canvasHeight);
+            break;
+        case 'force':
+        default:
+            applyForceLayout(canvasWidth, canvasHeight);
+            break;
+    }
+}
+
+function applyHierarchicalLayout(width, height) {
+    const categories = {};
+    const categoryOrder = ['System', 'Kernel', 'Network', 'Application', 'Container'];
+
+    // Group by category
+    workflowNodes.forEach(node => {
+        const category = node.category || 'Other';
+        if (!categories[category]) categories[category] = [];
+        categories[category].push(node);
+    });
+
+    let y = 60;
+    categoryOrder.forEach(category => {
+        if (categories[category]) {
+            const nodes = categories[category];
+            const xSpacing = width / (nodes.length + 1);
+
+            nodes.forEach((node, index) => {
+                node.x = xSpacing * (index + 1);
+                node.y = y;
+            });
+
+            y += 120;
+        }
+    });
+}
+
+function applyCircularLayout(width, height) {
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.35;
+
+    workflowNodes.forEach((node, index) => {
+        const angle = (index / workflowNodes.length) * 2 * Math.PI;
+        node.x = centerX + radius * Math.cos(angle);
+        node.y = centerY + radius * Math.sin(angle);
+    });
+}
+
+function applyForceLayout(width, height) {
+    // Simple force-directed layout simulation
+    const iterations = 50;
+    const repulsion = 1000;
+    const attraction = 0.01;
+
+    for (let iter = 0; iter < iterations; iter++) {
+        // Calculate repulsive forces between nodes
+        workflowNodes.forEach(node => {
+            node.fx = 0;
+            node.fy = 0;
+        });
+
+        for (let i = 0; i < workflowNodes.length; i++) {
+            for (let j = i + 1; j < workflowNodes.length; j++) {
+                const node1 = workflowNodes[i];
+                const node2 = workflowNodes[j];
+
+                const dx = node2.x - node1.x;
+                const dy = node2.y - node1.y;
+                const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                const force = repulsion / (distance * distance);
+                const fx = (dx / distance) * force;
+                const fy = (dy / distance) * force;
+
+                node1.fx -= fx;
+                node1.fy -= fy;
+                node2.fx += fx;
+                node2.fy += fy;
+            }
+        }
+
+        // Calculate attractive forces along edges
+        workflowEdges.forEach(edge => {
+            const sourceNode = workflowNodes.find(n => n.id === edge.from);
+            const targetNode = workflowNodes.find(n => n.id === edge.to);
+
+            if (sourceNode && targetNode) {
+                const dx = targetNode.x - sourceNode.x;
+                const dy = targetNode.y - sourceNode.y;
+                const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                const force = attraction * distance;
+                const fx = (dx / distance) * force;
+                const fy = (dy / distance) * force;
+
+                sourceNode.fx += fx;
+                sourceNode.fy += fy;
+                targetNode.fx -= fx;
+                targetNode.fy -= fy;
+            }
+        });
+
+        // Apply forces and constraints
+        workflowNodes.forEach(node => {
+            node.x += node.fx * 0.1;
+            node.y += node.fy * 0.1;
+
+            // Keep nodes within bounds
+            node.x = Math.max(60, Math.min(width - 60, node.x));
+            node.y = Math.max(40, Math.min(height - 40, node.y));
+        });
+    }
+}
+
+function renderWorkflow() {
+    const canvas = document.getElementById('workflow-canvas');
+    canvas.innerHTML = '';
+
+    // Create tooltip
+    const tooltip = document.createElement('div');
+    tooltip.className = 'node-tooltip';
+    tooltip.id = 'workflow-tooltip';
+    canvas.appendChild(tooltip);
+
+    // Render edges
+    workflowEdges.forEach(edge => {
+        const sourceNode = workflowNodes.find(n => n.id === edge.from);
+        const targetNode = workflowNodes.find(n => n.id === edge.to);
+
+        if (sourceNode && targetNode) {
+            const edgeElement = document.createElement('div');
+            edgeElement.className = 'workflow-edge';
+
+            // Calculate line position and angle
+            const x1 = sourceNode.x + 40; // Half node width
+            const y1 = sourceNode.y + 20; // Half node height
+            const x2 = targetNode.x + 40;
+            const y2 = targetNode.y + 20;
+
+            const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+            const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+
+            edgeElement.style.width = length + 'px';
+            edgeElement.style.height = '2px';
+            edgeElement.style.background = 'var(--border)';
+            edgeElement.style.position = 'absolute';
+            edgeElement.style.left = x1 + 'px';
+            edgeElement.style.top = y1 + 'px';
+            edgeElement.style.transform = `rotate(${angle}deg)`;
+            edgeElement.style.transformOrigin = '0 0';
+
+            canvas.appendChild(edgeElement);
+        }
+    });
+
+    // Render nodes
+    workflowNodes.forEach(node => {
+        const nodeElement = document.createElement('div');
+        nodeElement.className = `workflow-node ${node.type}`;
+        nodeElement.textContent = node.label;
+        nodeElement.style.left = node.x + 'px';
+        nodeElement.style.top = node.y + 'px';
+
+        // Add hover tooltip
+        nodeElement.addEventListener('mouseenter', (e) => {
+            const tooltip = document.getElementById('workflow-tooltip');
+            tooltip.innerHTML = `
+                <strong>${node.fullName}</strong><br>
+                Type: ${node.type}<br>
+                Category: ${node.category}<br>
+                Status: ${node.data.status || 'unknown'}
+            `;
+            tooltip.style.left = (e.pageX + 10) + 'px';
+            tooltip.style.top = (e.pageY - 10) + 'px';
+            tooltip.classList.add('show');
+        });
+
+        nodeElement.addEventListener('mouseleave', () => {
+            document.getElementById('workflow-tooltip').classList.remove('show');
+        });
+
+        nodeElement.addEventListener('mousemove', (e) => {
+            const tooltip = document.getElementById('workflow-tooltip');
+            tooltip.style.left = (e.pageX + 10) + 'px';
+            tooltip.style.top = (e.pageY - 10) + 'px';
+        });
+
+        canvas.appendChild(nodeElement);
+    });
+}

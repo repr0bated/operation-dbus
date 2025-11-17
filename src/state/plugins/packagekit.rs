@@ -61,6 +61,12 @@ pub struct PackageKitState {
 #[derive(Debug, Clone)]
 pub struct PackageKitPlugin;
 
+impl Default for PackageKitPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PackageKitPlugin {
     pub fn new() -> Self {
         Self

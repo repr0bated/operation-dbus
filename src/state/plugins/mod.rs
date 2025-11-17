@@ -16,7 +16,6 @@ pub mod systemd;
 pub mod dnsresolver;
 pub mod pcidecl;
 pub use dnsresolver::DnsResolverPlugin;
-pub use keyring::KeyringPlugin;
 pub use login1::Login1Plugin;
 pub use lxc::LxcPlugin;
 pub use net::NetStatePlugin;

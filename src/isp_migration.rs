@@ -103,6 +103,12 @@ pub struct MigrationStep {
 
 pub struct IspMigrationAnalyzer;
 
+impl Default for IspMigrationAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IspMigrationAnalyzer {
     pub fn new() -> Self {
         Self
@@ -297,7 +303,8 @@ impl IspMigrationAnalyzer {
         Ok(restrictions)
     }
 
-    fn recommend_providers(&self, restrictions: &[Restriction]) -> Vec<ProviderRecommendation> {
+    #[allow(clippy::vec_init_then_push)]
+    fn recommend_providers(&self, _restrictions: &[Restriction]) -> Vec<ProviderRecommendation> {
         let mut providers = Vec::new();
 
         // Hetzner - Best for GPU + full control

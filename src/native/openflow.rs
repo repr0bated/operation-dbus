@@ -1,5 +1,6 @@
 //! Native OpenFlow protocol implementation
 //! Talks directly to OpenFlow switches without CLI tools
+#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -120,7 +121,6 @@ impl OpenFlowHeader {
 pub struct OpenFlowClient {
     stream: TcpStream,
     next_xid: u32,
-    version: OpenFlowVersion,
 }
 
 impl OpenFlowClient {
@@ -133,7 +133,6 @@ impl OpenFlowClient {
         let mut client = Self {
             stream,
             next_xid: 1,
-            version: OpenFlowVersion::V1_3,
         };
 
         // Perform OpenFlow handshake
@@ -323,7 +322,7 @@ impl OpenFlowMessage for OpenFlowFeaturesRequest {
 
 // Features reply
 #[derive(Clone)]
-struct OpenFlowFeaturesReply {
+pub struct OpenFlowFeaturesReply {
     xid: u32,
     datapath_id: u64,
     n_buffers: u32,
@@ -381,7 +380,7 @@ struct OpenFlowFlowMod {
 }
 
 impl OpenFlowFlowMod {
-    fn from_flow_entry(flow: &FlowEntry, xid: u32) -> Self {
+    fn from_flow_entry(_flow: &FlowEntry, xid: u32) -> Self {
         // This is a placeholder - real implementation would encode the flow properly
         Self {
             xid,

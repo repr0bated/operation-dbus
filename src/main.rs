@@ -18,7 +18,6 @@ use std::sync::Arc;
 use tokio::fs;
 use tracing::info;
 
-use crate::state::plugin::StatePlugin;
 
 #[derive(Parser)]
 #[command(

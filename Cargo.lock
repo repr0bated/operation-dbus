@@ -2188,6 +2188,7 @@ dependencies = [
  "ort",
  "pocketflow_rs",
  "rand",
+ "reqwest 0.11.27",
  "rtnetlink",
  "rusqlite",
  "serde",

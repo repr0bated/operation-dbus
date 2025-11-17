@@ -107,7 +107,7 @@ impl McpServer {
                 },
                 "required": ["service"]
             }))
-            .handler(|params| {
+            .handler(|params| async move {
                 let service = params["service"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing service parameter"))?;
@@ -135,7 +135,7 @@ impl McpServer {
                 },
                 "required": ["path"]
             }))
-            .handler(|params| {
+            .handler(|params| async move {
                 let path = params["path"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing path parameter"))?;
@@ -157,7 +157,7 @@ impl McpServer {
                 "type": "object",
                 "properties": {}
             }))
-            .handler(|_params| {
+            .handler(|_params| async move {
                 Ok(ToolResult {
                     content: vec![ToolContent::json(json!({
                         "interfaces": [
@@ -184,7 +184,7 @@ impl McpServer {
                     }
                 }
             }))
-            .handler(|params| {
+            .handler(|params| async move {
                 let filter = params["filter"].as_str();
 
                 Ok(ToolResult {
@@ -219,7 +219,7 @@ impl McpServer {
                 },
                 "required": ["command"]
             }))
-            .handler(|params| {
+            .handler(|params| async move {
                 let command = params["command"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing command"))?;

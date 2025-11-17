@@ -1,43 +1,62 @@
 use anyhow::Result;
 use axum::{
-    routing::{get, post},
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::State,
+    response::{Html, IntoResponse},
+    routing::get,
     Router,
 };
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+use tokio::sync::RwLock;
 use tower_http::{
     services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
-use tracing::{info, warn};
+use tracing::{info, error};
 
-mod agent_registry;
-mod chat_server;
-mod tool_registry;
+mod ollama;
+use ollama::OllamaClient;
 
-use agent_registry::AgentRegistry;
-use chat_server::{create_chat_router, ChatServerState};
-use tool_registry::{DynamicToolBuilder, Tool, ToolRegistry};
-use op_dbus::blockchain::StreamingBlockchain;
+// Chat message structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ChatMessage {
+    User { content: String, timestamp: u64 },
+    Assistant { content: String, timestamp: u64 },
+    Error { content: String, timestamp: u64 },
+}
+
+// Chat server state
+#[derive(Clone)]
+struct ChatState {
+    ollama_client: Option<Arc<OllamaClient>>,
+    conversations: Arc<RwLock<HashMap<String, Vec<ChatMessage>>>>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    info!("Starting MCP Chat Server...");
+    info!("Starting DeepSeek Chat Server...");
 
-    // Initialize registries
-    let tool_registry = Arc::new(ToolRegistry::new());
-    let agent_registry = Arc::new(AgentRegistry::new());
+    // Create Ollama client for DeepSeek
+    let ollama_client = if let Ok(api_key) = std::env::var("OLLAMA_API_KEY") {
+        info!("Using Ollama Cloud API with DeepSeek");
+        Some(Arc::new(OllamaClient::deepseek_cloud(api_key)))
+    } else {
+        info!("OLLAMA_API_KEY not set. Set your Ollama API key to enable DeepSeek chat.");
+        info!("Get your API key from: https://ollama.com");
+        None
+    };
 
-    // Register default tools
-    register_default_tools(&tool_registry).await?;
-
-    // Load default agent specs
-    agent_registry::load_default_specs(&*agent_registry).await?;
-
-    // Create chat server state
-    let chat_state = ChatServerState::new(tool_registry.clone(), agent_registry.clone());
+    // Create chat state
+    let chat_state = ChatState {
+        ollama_client,
+        conversations: Arc::new(RwLock::new(HashMap::new())),
+    };
 
     // Setup static file serving for the web UI
     let web_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -47,8 +66,8 @@ async fn main() -> Result<()> {
 
     // Create the main router
     let app = Router::new()
-        // Chat routes
-        .nest("/chat", create_chat_router(chat_state))
+        // WebSocket endpoint for chat
+        .route("/ws", get(websocket_handler))
         // Serve static files
         .route(
             "/",
@@ -60,16 +79,16 @@ async fn main() -> Result<()> {
             "/chat-styles.css",
             ServeFile::new(web_dir.join("chat-styles.css")),
         )
-        // Fallback to index for other static assets
-        .fallback_service(ServeDir::new(web_dir))
+        // Fallback to web directory for other static assets
+        .nest_service("/", ServeDir::new(&web_dir))
         // Add tracing
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http())
+        .with_state(chat_state);
 
     // Start the server
-    // Bind to 0.0.0.0 to accept connections from any network interface
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    info!("MCP Chat Server listening on http://{}", addr);
-    info!("Server accessible at http://<your-ip>:8080/chat.html");
+    info!("DeepSeek Chat Server listening on http://{}", addr);
+    info!("Open http://localhost:8080 in your browser to chat with DeepSeek");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
@@ -77,455 +96,110 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn register_default_tools(registry: &ToolRegistry) -> Result<()> {
-    // Systemd tool
-    registry.register_tool(Box::new(SystemdTool)).await?;
-
-    // File tool
-    registry.register_tool(Box::new(FileTool)).await?;
-
-    // Network tool
-    registry.register_tool(Box::new(NetworkTool)).await?;
-
-    // Process tool
-    registry.register_tool(Box::new(ProcessTool)).await?;
-
-    // Blockchain snapshot management
-    registry.register_tool(Box::new(BlockchainSnapshotTool)).await?;
-
-    // Blockchain retention policy
-    registry.register_tool(Box::new(BlockchainRetentionTool)).await?;
-
-    let tools = registry.list_tools().await;
-    info!("Registered {} default tools", tools.len());
-    Ok(())
+// WebSocket handler for chat
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<ChatState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-// Example tool implementations
-struct SystemdTool;
+async fn handle_socket(socket: WebSocket, state: ChatState) {
+    let (mut sender, mut receiver) = socket.split();
 
-#[async_trait::async_trait]
-impl Tool for SystemdTool {
-    fn name(&self) -> &str {
-        "systemd"
-    }
+    // Generate a simple conversation ID
+    let conversation_id = format!("conv_{}", std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis());
 
-    fn description(&self) -> &str {
-        "Manage systemd services"
-    }
+    while let Some(Ok(message)) = receiver.next().await {
+        if let Message::Text(text) = message {
+            // Parse incoming message
+            if let Ok(chat_msg) = serde_json::from_str::<ChatMessage>(&text) {
+                match chat_msg {
+                    ChatMessage::User { content, .. } => {
+                        // Store user message
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
 
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["status", "start", "stop", "restart", "enable", "disable"]
-                },
-                "service": {
-                    "type": "string",
-                    "description": "Service name (e.g., nginx.service)"
+                        let user_msg = ChatMessage::User {
+                            content: content.clone(),
+                            timestamp,
+                        };
+
+                        // Add to conversation
+                        {
+                            let mut conversations = state.conversations.write().await;
+                            conversations.entry(conversation_id.clone())
+                                .or_insert_with(Vec::new)
+                                .push(user_msg.clone());
+                        }
+
+                        // Send back the user message for UI update
+                        if let Ok(response) = serde_json::to_string(&user_msg) {
+                            let _ = sender.send(Message::Text(response)).await;
+                        }
+
+                        // Generate AI response if Ollama client is available
+                        if let Some(ollama_client) = &state.ollama_client {
+                            match ollama_client.deepseek_chat(&content).await {
+                                Ok(ai_response) => {
+                                    let ai_msg = ChatMessage::Assistant {
+                                        content: ai_response,
+                                        timestamp: std::time::SystemTime::now()
+                                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs(),
+                                    };
+
+                                    // Add to conversation
+                                    {
+                                        let mut conversations = state.conversations.write().await;
+                                        conversations.entry(conversation_id.clone())
+                                            .or_insert_with(Vec::new)
+                                            .push(ai_msg.clone());
+                                    }
+
+                                    // Send AI response
+                                    if let Ok(response) = serde_json::to_string(&ai_msg) {
+                                        let _ = sender.send(Message::Text(response)).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("AI chat error: {}", e);
+                                    let error_msg = ChatMessage::Error {
+                                        content: format!("AI chat failed: {}", e),
+                                        timestamp: std::time::SystemTime::now()
+                                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs(),
+                                    };
+
+                                    if let Ok(response) = serde_json::to_string(&error_msg) {
+                                        let _ = sender.send(Message::Text(response)).await;
+                                    }
+                                }
+                            }
+                        } else {
+                            // No Ollama client - send error message
+                            let error_msg = ChatMessage::Error {
+                                content: "DeepSeek AI is not available. Please set OLLAMA_API_KEY environment variable.".to_string(),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs(),
+                            };
+
+                            if let Ok(response) = serde_json::to_string(&error_msg) {
+                                let _ = sender.send(Message::Text(response)).await;
+                            }
+                        }
+                    }
+                    _ => {} // Ignore other message types
                 }
-            },
-            "required": ["action", "service"]
-        })
-    }
-
-    async fn execute(&self, params: serde_json::Value) -> Result<tool_registry::ToolResult> {
-        let action = params["action"].as_str().unwrap_or("status");
-        let service = params["service"].as_str().unwrap_or("");
-
-        // Simulate systemctl command
-        let output = match action {
-            "status" => format!("● {} - Active: running", service),
-            "start" => format!("Started {}", service),
-            "stop" => format!("Stopped {}", service),
-            "restart" => format!("Restarted {}", service),
-            _ => format!("Action {} on {}", action, service),
-        };
-
-        Ok(tool_registry::ToolResult {
-            content: vec![tool_registry::ToolContent::text(output)],
-            metadata: None,
-        })
-    }
-}
-
-struct FileTool;
-
-#[async_trait::async_trait]
-impl Tool for FileTool {
-    fn name(&self) -> &str {
-        "file"
-    }
-
-    fn description(&self) -> &str {
-        "File operations (read, write, delete)"
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["read", "write", "delete"]
-                },
-                "path": {
-                    "type": "string",
-                    "description": "File path"
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Content for write operations"
-                }
-            },
-            "required": ["action", "path"]
-        })
-    }
-
-    async fn execute(&self, params: serde_json::Value) -> Result<tool_registry::ToolResult> {
-        let action = params["action"].as_str().unwrap_or("read");
-        let path = params["path"].as_str().unwrap_or("");
-
-        let output = match action {
-            "read" => format!("Contents of {}: [file content]", path),
-            "write" => format!("Wrote to {}", path),
-            "delete" => format!("Deleted {}", path),
-            _ => format!("Unknown action: {}", action),
-        };
-
-        Ok(tool_registry::ToolResult {
-            content: vec![tool_registry::ToolContent::text(output)],
-            metadata: None,
-        })
-    }
-}
-
-struct NetworkTool;
-
-#[async_trait::async_trait]
-impl Tool for NetworkTool {
-    fn name(&self) -> &str {
-        "network"
-    }
-
-    fn description(&self) -> &str {
-        "Network interface management"
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["list", "up", "down", "configure"]
-                },
-                "interface": {
-                    "type": "string",
-                    "description": "Network interface name"
-                }
-            },
-            "required": ["action"]
-        })
-    }
-
-    async fn execute(&self, params: serde_json::Value) -> Result<tool_registry::ToolResult> {
-        let action = params["action"].as_str().unwrap_or("list");
-
-        let output = match action {
-            "list" => "eth0: UP, 192.168.1.100/24\nlo: UP, 127.0.0.1/8".to_string(),
-            _ => format!("Performed {} on network", action),
-        };
-
-        Ok(tool_registry::ToolResult {
-            content: vec![tool_registry::ToolContent::text(output)],
-            metadata: None,
-        })
-    }
-}
-
-struct ProcessTool;
-
-#[async_trait::async_trait]
-impl Tool for ProcessTool {
-    fn name(&self) -> &str {
-        "process"
-    }
-
-    fn description(&self) -> &str {
-        "Process management and monitoring"
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["list", "kill", "info"]
-                },
-                "pid": {
-                    "type": "number",
-                    "description": "Process ID"
-                }
-            },
-            "required": ["action"]
-        })
-    }
-
-    async fn execute(&self, params: serde_json::Value) -> Result<tool_registry::ToolResult> {
-        let action = params["action"].as_str().unwrap_or("list");
-
-        let output = match action {
-            "list" => "PID   CMD\n1234  systemd\n5678  nginx".to_string(),
-            _ => format!("Performed {} on process", action),
-        };
-
-        Ok(tool_registry::ToolResult {
-            content: vec![tool_registry::ToolContent::text(output)],
-            metadata: None,
-        })
-    }
-}
-
-struct BlockchainSnapshotTool;
-
-#[async_trait::async_trait]
-impl Tool for BlockchainSnapshotTool {
-    fn name(&self) -> &str {
-        "blockchain_snapshot"
-    }
-
-    fn description(&self) -> &str {
-        "Manage blockchain state snapshots for disaster recovery (list, show, rollback)"
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["list", "show", "rollback"],
-                    "description": "Operation to perform"
-                },
-                "snapshot_name": {
-                    "type": "string",
-                    "description": "Snapshot name (required for show/rollback)"
-                }
-            },
-            "required": ["action"]
-        })
-    }
-
-    async fn execute(&self, params: serde_json::Value) -> Result<tool_registry::ToolResult> {
-        let action = params["action"].as_str().unwrap_or("list");
-        let blockchain_path = std::env::var("OPDBUS_BLOCKCHAIN_PATH")
-            .unwrap_or_else(|_| "/var/lib/op-dbus/blockchain".to_string());
-
-        match action {
-            "list" => {
-                // List all snapshots
-                let blockchain = StreamingBlockchain::new(&blockchain_path)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to initialize blockchain: {}", e))?;
-
-                let snapshots = blockchain.list_state_snapshots().await?;
-
-                if snapshots.is_empty() {
-                    return Ok(tool_registry::ToolResult {
-                        content: vec![tool_registry::ToolContent::text(
-                            "No snapshots found. Snapshots are created automatically when you apply state changes."
-                        )],
-                        metadata: None,
-                    });
-                }
-
-                let mut output = format!("Found {} state snapshots:\n\n", snapshots.len());
-                for (name, timestamp) in &snapshots {
-                    output.push_str(&format!("• {} ({})\n", name, timestamp));
-                }
-                output.push_str("\nUse action='show' with snapshot_name to view details.");
-
-                Ok(tool_registry::ToolResult {
-                    content: vec![tool_registry::ToolContent::text(output)],
-                    metadata: Some(serde_json::json!({
-                        "snapshot_count": snapshots.len()
-                    })),
-                })
             }
-            "show" => {
-                let snapshot_name = params["snapshot_name"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("snapshot_name required for show action"))?;
-
-                let blockchain = StreamingBlockchain::new(&blockchain_path).await?;
-                let state_file = blockchain.rollback_to_snapshot(snapshot_name).await?;
-
-                let state_content = tokio::fs::read_to_string(&state_file).await?;
-                let state: serde_json::Value = serde_json::from_str(&state_content)?;
-
-                Ok(tool_registry::ToolResult {
-                    content: vec![
-                        tool_registry::ToolContent::text(format!("Snapshot: {}", snapshot_name)),
-                        tool_registry::ToolContent::json(state),
-                    ],
-                    metadata: Some(serde_json::json!({
-                        "snapshot_name": snapshot_name,
-                        "state_file": state_file.display().to_string()
-                    })),
-                })
-            }
-            "rollback" => {
-                Ok(tool_registry::ToolResult {
-                    content: vec![tool_registry::ToolContent::text(
-                        "Rollback functionality coming soon. For now, use 'show' to view snapshot contents."
-                    )],
-                    metadata: None,
-                })
-            }
-            _ => Ok(tool_registry::ToolResult {
-                content: vec![tool_registry::ToolContent::error(format!("Unknown action: {}", action))],
-                metadata: None,
-            }),
         }
     }
-}
-
-struct BlockchainRetentionTool;
-
-#[async_trait::async_trait]
-impl Tool for BlockchainRetentionTool {
-    fn name(&self) -> &str {
-        "blockchain_retention"
-    }
-
-    fn description(&self) -> &str {
-        "View and update blockchain snapshot retention policy (hourly, daily, weekly, quarterly)"
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["show", "update"],
-                    "description": "Show current policy or update it"
-                },
-                "hourly": {
-                    "type": "number",
-                    "description": "Number of hourly snapshots to keep"
-                },
-                "daily": {
-                    "type": "number",
-                    "description": "Number of daily snapshots to keep"
-                },
-                "weekly": {
-                    "type": "number",
-                    "description": "Number of weekly snapshots to keep"
-                },
-                "quarterly": {
-                    "type": "number",
-                    "description": "Number of quarterly snapshots to keep"
-                }
-            },
-            "required": ["action"]
-        })
-    }
-
-    async fn execute(&self, params: serde_json::Value) -> Result<tool_registry::ToolResult> {
-        let action = params["action"].as_str().unwrap_or("show");
-        let blockchain_path = std::env::var("OPDBUS_BLOCKCHAIN_PATH")
-            .unwrap_or_else(|_| "/var/lib/op-dbus/blockchain".to_string());
-
-        let mut blockchain = StreamingBlockchain::new(&blockchain_path)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to initialize blockchain: {}", e))?;
-
-        match action {
-            "show" => {
-                let policy = blockchain.retention_policy();
-
-                let output = format!(
-                    "Snapshot Retention Policy:\n\n\
-                     • Hourly:    {} snapshots (last 24 hours)\n\
-                     • Daily:     {} snapshots (last 30 days)\n\
-                     • Weekly:    {} snapshots (last 12 weeks)\n\
-                     • Quarterly: {} snapshots (long-term)\n\n\
-                     Old snapshots are automatically pruned based on this policy.",
-                    policy.hourly, policy.daily, policy.weekly, policy.quarterly
-                );
-
-                Ok(tool_registry::ToolResult {
-                    content: vec![tool_registry::ToolContent::text(output)],
-                    metadata: Some(serde_json::json!({
-                        "hourly": policy.hourly,
-                        "daily": policy.daily,
-                        "weekly": policy.weekly,
-                        "quarterly": policy.quarterly
-                    })),
-                })
-            }
-            "update" => {
-                let mut policy = blockchain.retention_policy();
-                let mut changed = false;
-
-                if let Some(hourly) = params["hourly"].as_u64() {
-                    policy.set_hourly(hourly as usize);
-                    changed = true;
-                }
-                if let Some(daily) = params["daily"].as_u64() {
-                    policy.set_daily(daily as usize);
-                    changed = true;
-                }
-                if let Some(weekly) = params["weekly"].as_u64() {
-                    policy.set_weekly(weekly as usize);
-                    changed = true;
-                }
-                if let Some(quarterly) = params["quarterly"].as_u64() {
-                    policy.set_quarterly(quarterly as usize);
-                    changed = true;
-                }
-
-                if !changed {
-                    return Ok(tool_registry::ToolResult {
-                        content: vec![tool_registry::ToolContent::error(
-                            "No changes specified. Provide hourly, daily, weekly, or quarterly parameters."
-                        )],
-                        metadata: None,
-                    });
-                }
-
-                blockchain.set_retention_policy(policy);
-
-                let output = format!(
-                    "Updated Retention Policy:\n\n\
-                     • Hourly:    {} snapshots\n\
-                     • Daily:     {} snapshots\n\
-                     • Weekly:    {} snapshots\n\
-                     • Quarterly: {} snapshots\n\n\
-                     Note: This is a runtime change. Set environment variables for persistence.",
-                    policy.hourly, policy.daily, policy.weekly, policy.quarterly
-                );
-
-                Ok(tool_registry::ToolResult {
-                    content: vec![tool_registry::ToolContent::text(output)],
-                    metadata: Some(serde_json::json!({
-                        "hourly": policy.hourly,
-                        "daily": policy.daily,
-                        "weekly": policy.weekly,
-                        "quarterly": policy.quarterly,
-                        "updated": true
-                    })),
-                })
-            }
-            _ => Ok(tool_registry::ToolResult {
-                content: vec![tool_registry::ToolContent::error(format!("Unknown action: {}", action))],
-                metadata: None,
-            }),
-        }
-    }
-}

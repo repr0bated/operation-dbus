@@ -485,7 +485,7 @@ impl LxcPlugin {
         let container_dir = format!("{}/images/{}", storage_path, container.id);
 
         // Verify golden image exists
-        if !tokio::fs::metadata(&golden_image_path).await.is_ok() {
+        if tokio::fs::metadata(&golden_image_path).await.is_err() {
             return Err(anyhow::anyhow!(
                 "Golden image not found: {}. Create it with: sudo ./create-btrfs-golden-image.sh {}",
                 golden_image_path,
@@ -659,7 +659,7 @@ features: {}
             .await?;
 
         // Create systemd service
-        let service_content = format!(
+        let service_content =
             r#"[Unit]
 Description=LXC First Boot Initialization
 After=network-online.target
@@ -673,8 +673,7 @@ RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
-"#
-        );
+"#.to_string();
 
         tokio::fs::create_dir_all(format!("{}/etc/systemd/system", rootfs)).await?;
         tokio::fs::write(&service_path, service_content).await?;

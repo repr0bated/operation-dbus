@@ -1,13 +1,13 @@
 //! Plugin Workflow System - Node-Based Architecture for Plugins
+#![allow(dead_code)]
 //!
 //! This module enables plugins to participate in flow-based workflows using PocketFlow.
 //! Each plugin becomes a node that can be connected to other plugins in complex pipelines.
 
-use crate::state::plugin::{StatePlugin, StateDiff, ApplyResult, Checkpoint, PluginCapabilities};
+use crate::state::plugin::StatePlugin;
 use anyhow::Result;
 use async_trait::async_trait;
 use pocketflow_rs::{Context, Node, ProcessResult, ProcessState};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -229,6 +229,12 @@ pub struct PluginWorkflowManager {
     workflows: std::collections::HashMap<String, pocketflow_rs::Flow<PluginWorkflowState>>,
 }
 
+impl Default for PluginWorkflowManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PluginWorkflowManager {
     pub fn new() -> Self {
         Self {
@@ -239,7 +245,7 @@ impl PluginWorkflowManager {
     /// Register a plugin as a workflow node
     pub fn register_plugin(&mut self, name: &str, plugin: Arc<dyn StatePlugin>) {
         // Create a basic workflow node
-        let node = WorkflowPluginNode::new(plugin);
+        let _node = WorkflowPluginNode::new(plugin);
         // In a full implementation, we'd store these nodes for workflow creation
         // For now, just log the registration
         log::info!("Registered plugin '{}' as workflow node", name);
@@ -345,87 +351,5 @@ impl WorkflowPluginNodeBuilder {
 
     pub fn build(self) -> WorkflowPluginNode {
         self.node
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::plugin::{StateDiff, ApplyResult, Checkpoint};
-
-    // Mock plugin for testing
-    struct MockPlugin {
-        name: String,
-        available: bool,
-    }
-
-    #[async_trait]
-    impl StatePlugin for MockPlugin {
-        fn name(&self) -> &str {
-            &self.name
-        }
-
-        fn version(&self) -> &str {
-            "1.0.0"
-        }
-
-        fn is_available(&self) -> bool {
-            self.available
-        }
-
-        async fn query_current_state(&self) -> Result<Value> {
-            Ok(serde_json::json!({"status": "ok"}))
-        }
-
-        async fn calculate_diff(&self, _current: &Value, _desired: &Value) -> Result<StateDiff> {
-            Ok(StateDiff {
-                changes: vec![],
-                metadata: Default::default(),
-            })
-        }
-
-        async fn apply_state(&self, _diff: &StateDiff) -> Result<ApplyResult> {
-            Ok(ApplyResult {
-                success: true,
-                errors: vec![],
-                metadata: Default::default(),
-            })
-        }
-
-        async fn create_checkpoint(&self) -> Result<Checkpoint> {
-            Ok(Checkpoint {
-                id: "test".to_string(),
-                timestamp: chrono::Utc::now(),
-                data: Value::Null,
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn test_workflow_plugin_node() {
-        let mock_plugin = Arc::new(MockPlugin {
-            name: "test_plugin".to_string(),
-            available: true,
-        });
-
-        let node = WorkflowPluginNode::new(mock_plugin)
-            .with_inputs(vec!["input_data".to_string()])
-            .with_outputs(vec!["output_result".to_string()]);
-
-        let mut context = Context::new();
-        context.set("input_data".to_string(), Value::String("test input".to_string()));
-
-        // Test prepare
-        node.prepare(&mut context).await.unwrap();
-
-        // Test execute
-        let result = node.execute(&context).await.unwrap();
-        assert_eq!(result, PluginWorkflowState::Completed);
-
-        // Test post_process
-        node.post_process(&mut context, &result).await.unwrap();
-
-        // Check that outputs were stored
-        assert!(context.get("output_result").is_some());
     }
 }

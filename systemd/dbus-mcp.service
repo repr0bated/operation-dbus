@@ -1,0 +1,19 @@
+[Unit]
+Description=D-Bus MCP Server for operation-dbus
+Documentation=https://github.com/operation-dbus
+After=network.target dbus.service
+
+[Service]
+Type=simple
+User=jeremy
+WorkingDirectory=/git/operation-dbus
+Environment="RUST_LOG=info"
+ExecStart=/git/operation-dbus/target/release/dbus-mcp
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dbus-mcp
+
+[Install]
+WantedBy=multi-user.target
