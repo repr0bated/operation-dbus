@@ -1,0 +1,455 @@
+# Operation-DBus Staging Manifest
+# Defines deployable components, their dependencies, and overlaps
+
+version: 1
+metadata:
+  name: operation-dbus-staging
+  description: Staged deployment system for operation-dbus components
+  author: Claude AI Assistant
+  date: 2025-11-17
+
+# Component definitions
+components:
+  # Stage 1: Core D-Bus Layer
+  core-dbus:
+    stage: 1
+    name: "Core D-Bus Infrastructure"
+    description: "Basic D-Bus introspection and connection management"
+    overlaps: []
+    dependencies: []
+    files:
+      - src/mcp/system_introspection.rs
+      - src/introspection/*.rs
+    binaries:
+      - op-dbus
+    services: []
+    config:
+      - /etc/op-dbus/state.json
+    requirements:
+      - D-Bus system bus available
+      - Rust toolchain (for building)
+    verification:
+      - "dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames"
+      - "op-dbus query"
+
+  # Stage 2: Introspection Cache
+  introspection-cache:
+    stage: 2
+    name: "D-Bus Introspection Cache"
+    description: "SQLite-based caching of D-Bus introspection data"
+    overlaps:
+      - numa-cache: "Both use caching infrastructure; NUMA adds topology awareness"
+    dependencies:
+      - core-dbus
+    files:
+      - src/mcp/introspection_cache.rs
+      - scripts/warm-dbus-cache.sh
+      - tests/introspection_cache_test.rs
+    binaries: []
+    services:
+      - systemd/dbus-cache-warmup.service
+      - systemd/dbus-cache-warmup.timer
+    config:
+      - /var/cache/dbus-introspection.db
+    requirements:
+      - SQLite3
+      - Write access to /var/cache
+    verification:
+      - "test -f /var/cache/dbus-introspection.db"
+      - "sqlite3 /var/cache/dbus-introspection.db 'SELECT COUNT(*) FROM introspection_cache;'"
+      - "systemctl status dbus-cache-warmup.timer"
+
+  # Stage 3: NUMA-Aware Caching (overlaps with introspection-cache)
+  numa-cache:
+    stage: 3
+    name: "NUMA-Aware Cache Optimization"
+    description: "CPU topology-aware caching for multi-socket systems"
+    overlaps:
+      - introspection-cache: "Extends cache with NUMA node affinity"
+      - btrfs-cache: "Shares cache directory structure"
+    dependencies:
+      - introspection-cache
+    files:
+      - src/cache/numa.rs
+      - src/cache/mod.rs
+    binaries: []
+    services: []
+    config:
+      - /etc/op-dbus/numa-policy.json
+    requirements:
+      - Multi-socket NUMA system (optional, degrades gracefully)
+      - libnuma
+    verification:
+      - "numactl --hardware"
+      - "op-dbus query --check-numa"
+
+  # Stage 4: BTRFS Cache Layer (overlaps with blockchain state)
+  btrfs-cache:
+    stage: 4
+    name: "BTRFS Snapshot-Based Caching"
+    description: "Copy-on-write caching with snapshot support"
+    overlaps:
+      - blockchain-state: "Shares BTRFS subvolume infrastructure"
+      - numa-cache: "Uses same cache directories"
+    dependencies:
+      - introspection-cache
+    files:
+      - src/cache/btrfs.rs
+      - create-btrfs-golden-image.sh
+    binaries: []
+    services: []
+    config:
+      - /var/cache/op-dbus (BTRFS subvolume)
+    requirements:
+      - BTRFS filesystem
+      - Root or sudo access for subvolume management
+    verification:
+      - "btrfs subvolume list /var/cache"
+      - "btrfs filesystem usage /var/cache"
+
+  # Stage 5: Network Layer (OVS + NetworkManager)
+  network-layer:
+    stage: 5
+    name: "Network Infrastructure"
+    description: "Open vSwitch and NetworkManager D-Bus integration"
+    overlaps:
+      - blockchain-state: "Network state is checkpointed in blockchain"
+    dependencies:
+      - core-dbus
+    files:
+      - src/plugins/network.rs
+      - src/native/openflow.rs
+      - systemd/ovsdb-server.service
+      - systemd/ovs-vswitchd.service
+    binaries:
+      - op-dbus (network plugin)
+    services:
+      - systemd/openvswitch.service
+    config:
+      - /etc/openvswitch/conf.db
+      - /etc/op-dbus/network.json
+    requirements:
+      - Open vSwitch packages
+      - NetworkManager (optional)
+    verification:
+      - "systemctl status openvswitch"
+      - "ovs-vsctl show"
+      - "op-dbus query --plugin net"
+
+  # Stage 6: Blockchain State Management (major overlap with BTRFS)
+  blockchain-state:
+    stage: 6
+    name: "Blockchain State & Checkpoints"
+    description: "Merkle-tree based state snapshots with BTRFS backing"
+    overlaps:
+      - btrfs-cache: "Uses BTRFS subvolumes for state storage"
+      - network-layer: "Checkpoints network configuration state"
+      - introspection-cache: "May checkpoint cache state"
+    dependencies:
+      - btrfs-cache
+      - network-layer
+    files:
+      - src/state/blockchain.rs
+      - src/state/checkpoint.rs
+      - src/snapshot/*.rs
+    binaries:
+      - op-dbus (snapshot commands)
+    services: []
+    config:
+      - /var/lib/op-dbus/blockchain
+      - /etc/op-dbus/snapshot-policy.json
+    requirements:
+      - BTRFS filesystem
+      - Sufficient disk space for snapshots
+    verification:
+      - "op-dbus snapshot list"
+      - "btrfs subvolume list /var/lib/op-dbus"
+
+  # Stage 7: MCP Server
+  mcp-server:
+    stage: 7
+    name: "Model Context Protocol Server"
+    description: "AI agent integration via MCP tools and resources"
+    overlaps:
+      - introspection-cache: "MCP tools query the cache"
+    dependencies:
+      - introspection-cache
+      - core-dbus
+    files:
+      - src/mcp/main.rs
+      - src/mcp/tools/*.rs
+      - src/mcp/resources.rs
+      - src/mcp/web/*
+    binaries:
+      - dbus-mcp
+      - mcp-chat
+    services:
+      - systemd/dbus-mcp.service (optional)
+    config:
+      - /etc/op-dbus/mcp-config.json
+    requirements:
+      - Network access (for web interface)
+      - Port 8080 available
+    verification:
+      - "curl http://localhost:8080/api/status"
+      - "dbus-mcp --version"
+
+  # Stage 8: Workflow Automation
+  workflow-automation:
+    stage: 8
+    name: "Visual Workflow Builder"
+    description: "Node-based D-Bus automation workflows"
+    overlaps:
+      - mcp-server: "Workflows execute via MCP tools"
+      - blockchain-state: "Workflows can trigger state snapshots"
+    dependencies:
+      - mcp-server
+    files:
+      - src/mcp/web/index.html (workflow section)
+      - src/mcp/web/app.js (workflow methods)
+    binaries: []
+    services: []
+    config:
+      - /var/lib/op-dbus/workflows/*.json
+    requirements:
+      - MCP server running
+      - Web browser for visual builder
+    verification:
+      - "curl http://localhost:8080/#workflow"
+      - "test -d /var/lib/op-dbus/workflows"
+
+# Staging profiles: pre-defined component bundles
+profiles:
+  minimal:
+    name: "Minimal D-Bus Toolkit"
+    description: "Just core D-Bus introspection and basic caching"
+    components:
+      - core-dbus
+      - introspection-cache
+
+  network-admin:
+    name: "Network Administrator"
+    description: "D-Bus tools + network management"
+    components:
+      - core-dbus
+      - introspection-cache
+      - network-layer
+
+  full-stack:
+    name: "Full Operation-DBus Stack"
+    description: "All components with automation and AI integration"
+    components:
+      - core-dbus
+      - introspection-cache
+      - numa-cache
+      - btrfs-cache
+      - network-layer
+      - blockchain-state
+      - mcp-server
+      - workflow-automation
+
+  developer:
+    name: "Developer Environment"
+    description: "Core + MCP for AI-assisted development"
+    components:
+      - core-dbus
+      - introspection-cache
+      - mcp-server
+      - workflow-automation
+
+# Overlap documentation
+overlaps:
+  caching-infrastructure:
+    components:
+      - introspection-cache
+      - numa-cache
+      - btrfs-cache
+    description: |
+      These three components share caching infrastructure but at different layers:
+      - introspection-cache: SQLite database for D-Bus metadata
+      - numa-cache: CPU topology-aware cache placement
+      - btrfs-cache: Filesystem-level copy-on-write caching
+
+      They can coexist but share /var/cache directory structure.
+      NUMA adds topology awareness on top of base cache.
+      BTRFS provides snapshot capability for cache state.
+
+  state-management:
+    components:
+      - btrfs-cache
+      - blockchain-state
+      - network-layer
+    description: |
+      BTRFS and blockchain both manage system state:
+      - btrfs-cache: Filesystem snapshots for cache data
+      - blockchain-state: Merkle-tree checkpoints for config state
+      - network-layer: Actual network configuration being snapshotted
+
+      The blockchain uses BTRFS subvolumes as storage backend.
+      Network state is one of the things being checkpointed.
+      Cannot separate cleanly - they're designed to work together.
+
+  mcp-integration:
+    components:
+      - mcp-server
+      - introspection-cache
+      - workflow-automation
+    description: |
+      MCP server provides AI agent interface to the system:
+      - Reads from introspection-cache for fast queries
+      - Workflow-automation uses MCP tools for execution
+
+      These form a tightly coupled AI automation stack.
+
+# Installation order recommendations
+installation_order:
+  - stage: 1
+    required: true
+    components: [core-dbus]
+    description: "Core D-Bus layer must be installed first"
+
+  - stage: 2
+    required: false
+    components: [introspection-cache]
+    description: "Caching layer improves performance significantly"
+
+  - stage: 3
+    required: false
+    components: [numa-cache, btrfs-cache]
+    description: "Advanced caching - install one or both based on hardware"
+    notes: "NUMA requires multi-socket system; BTRFS requires BTRFS filesystem"
+
+  - stage: 4
+    required: false
+    components: [network-layer]
+    description: "Network management capabilities"
+
+  - stage: 5
+    required: false
+    components: [blockchain-state]
+    description: "State checkpointing - requires BTRFS cache"
+    notes: "This pulls in BTRFS functionality if not already installed"
+
+  - stage: 6
+    required: false
+    components: [mcp-server, workflow-automation]
+    description: "AI and automation layer"
+    notes: "Install both together for full automation capabilities"
+
+# Snapshot configuration
+snapshots:
+  enabled: true
+  backend: btrfs
+  base_path: /var/lib/op-dbus/snapshots
+  naming_scheme: "stage-{stage}-{component}-{timestamp}"
+  
+  # Snapshot points - when to create snapshots
+  snapshot_points:
+    - before_stage: true
+      name: "pre-{stage}-{component}"
+      description: "Snapshot before installing {component}"
+      
+    - after_stage: true
+      name: "post-{stage}-{component}"
+      description: "Snapshot after successfully installing {component}"
+      
+    - on_failure: true
+      name: "failed-{stage}-{component}"
+      description: "Snapshot on installation failure for debugging"
+      
+  # Snapshot retention policy
+  retention:
+    keep_all_stage_snapshots: true  # Keep all pre/post stage snapshots
+    keep_failed_snapshots: 5        # Keep last 5 failure snapshots
+    keep_pre_rollback: true         # Keep snapshot before rollback
+    
+  # What to snapshot
+  snapshot_paths:
+    - /etc/op-dbus
+    - /var/lib/op-dbus
+    - /var/cache/op-dbus
+    - /usr/local/bin/op-dbus
+    - /etc/systemd/system/op-dbus*
+    - /etc/systemd/system/dbus-cache-warmup*
+    - /etc/openvswitch
+    
+  # Rollback strategy
+  rollback:
+    automatic_on_verification_failure: false  # Manual rollback only
+    preserve_user_data: true                  # Don't rollback user-created data
+    excluded_paths:
+      - /var/log                              # Keep logs
+      - /var/cache/apt                        # Keep package cache
+      
+# Stage progression with snapshot integration
+stage_progression:
+  pre_stage_checks:
+    - verify_btrfs_available
+    - check_disk_space
+    - verify_snapshot_path_writable
+    
+  stage_workflow:
+    1_pre_snapshot:
+      action: create_snapshot
+      name: "pre-{component}"
+      
+    2_verify_dependencies:
+      action: check_dependencies
+      on_failure: rollback_to_pre_snapshot
+      
+    3_install_component:
+      action: install_files_and_services
+      on_failure: rollback_to_pre_snapshot
+      
+    4_verify_installation:
+      action: run_verification_commands
+      on_failure: rollback_to_pre_snapshot
+      
+    5_post_snapshot:
+      action: create_snapshot
+      name: "post-{component}"
+      
+    6_mark_complete:
+      action: update_staging_state
+      
+  post_stage_checks:
+    - verify_services_running
+    - check_system_health
+
+# CLI command structure
+cli_commands:
+  list:
+    description: "List all available components and their status"
+    usage: "op-dbus-stage list [--profile PROFILE]"
+    
+  show:
+    description: "Show detailed information about a component"
+    usage: "op-dbus-stage show COMPONENT"
+    
+  install:
+    description: "Install one or more components"
+    usage: "op-dbus-stage install COMPONENT [COMPONENT...] [--snapshot] [--verify]"
+    options:
+      --snapshot: "Create snapshots before/after (default: true)"
+      --verify: "Run verification checks (default: true)"
+      --force: "Force installation even if dependencies missing"
+      
+  install-profile:
+    description: "Install a pre-defined profile"
+    usage: "op-dbus-stage install-profile PROFILE"
+    
+  verify:
+    description: "Verify installed components"
+    usage: "op-dbus-stage verify [COMPONENT]"
+    
+  rollback:
+    description: "Rollback to a previous snapshot"
+    usage: "op-dbus-stage rollback [SNAPSHOT_NAME|STAGE_NUMBER]"
+    
+  snapshots:
+    description: "List all snapshots"
+    usage: "op-dbus-stage snapshots list"
+    
+  status:
+    description: "Show staging deployment status"
+    usage: "op-dbus-stage status"
