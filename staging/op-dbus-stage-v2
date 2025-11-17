@@ -1,0 +1,823 @@
+#!/bin/bash
+# op-dbus-stage v2 - Staged deployment with organized staging folders
+# Staging folders → System symlinks → BTRFS snapshots
+
+set -euo pipefail
+
+# Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${SCRIPT_DIR}/.."
+STAGING_BASE="/var/lib/op-dbus/staging"
+SNAPSHOT_BASE="${STAGING_BASE}/snapshots"
+STATE_FILE="${STAGING_BASE}/.staging-state.json"
+LOG_FILE="/var/log/op-dbus-staging.log"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Logging functions
+log()         { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $*" | tee -a "$LOG_FILE"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "$LOG_FILE"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*" | tee -a "$LOG_FILE"; }
+log_info()    { echo -e "${BLUE}[INFO]${NC} $*" | tee -a "$LOG_FILE"; }
+
+# Check root
+check_root() {
+    [[ $EUID -eq 0 ]] || { log_error "Must run as root"; exit 1; }
+}
+
+# Initialize staging environment
+init_staging() {
+    log_info "Initializing staging environment at $STAGING_BASE"
+
+    mkdir -p "$(dirname "$LOG_FILE")"
+
+    # Check/create BTRFS subvolume for staging
+    if command -v btrfs &> /dev/null; then
+        if ! btrfs subvolume show "$STAGING_BASE" &> /dev/null 2>&1; then
+            log_info "Creating BTRFS subvolume for staging..."
+            mkdir -p "$(dirname "$STAGING_BASE")"
+            btrfs subvolume create "$STAGING_BASE" || {
+                log_warn "Not on BTRFS - using regular directory"
+                mkdir -p "$STAGING_BASE"
+            }
+        fi
+    else
+        log_warn "BTRFS not available - snapshots disabled"
+        mkdir -p "$STAGING_BASE"
+    fi
+
+    mkdir -p "$SNAPSHOT_BASE"
+
+    # Initialize state
+    [[ -f "$STATE_FILE" ]] || cat > "$STATE_FILE" <<'EOF'
+{
+  "version": 2,
+  "staging_base": "/var/lib/op-dbus/staging",
+  "deployed_stages": [],
+  "snapshots": [],
+  "initialized_at": ""
+}
+EOF
+
+    log_success "Staging environment initialized"
+}
+
+# Create staging folder for a component
+create_stage_folder() {
+    local stage_num="$1"
+    local component="$2"
+    local stage_dir="${STAGING_BASE}/stage-${stage_num}-${component}"
+
+    if [[ -d "$stage_dir" ]]; then
+        log_warn "Stage folder already exists: $stage_dir"
+        return 0
+    fi
+
+    log_info "Creating stage folder: stage-${stage_num}-${component}"
+
+    # Try to create as BTRFS subvolume
+    if command -v btrfs &> /dev/null && btrfs subvolume show "$STAGING_BASE" &> /dev/null 2>&1; then
+        btrfs subvolume create "$stage_dir"
+    else
+        mkdir -p "$stage_dir"
+    fi
+
+    # Create standard subdirectories
+    mkdir -p "$stage_dir"/{bin,etc,systemd,var,web,lib}
+
+    log_success "Created: $stage_dir"
+    echo "$stage_dir"
+}
+
+# Snapshot the entire staging area
+create_snapshot() {
+    local name="$1"
+    local description="${2:-Staging snapshot}"
+
+    if ! command -v btrfs &> /dev/null; then
+        log_warn "BTRFS not available - skipping snapshot"
+        return 0
+    fi
+
+    if ! btrfs subvolume show "$STAGING_BASE" &> /dev/null 2>&1; then
+        log_warn "Staging is not a BTRFS subvolume - skipping snapshot"
+        return 0
+    fi
+
+    local timestamp=$(date +%Y%m%d-%H%M%S)
+    local snapshot_name="${name}-${timestamp}"
+    local snapshot_path="${SNAPSHOT_BASE}/${snapshot_name}"
+
+    log_info "Creating snapshot: $snapshot_name"
+
+    # Create read-only snapshot
+    btrfs subvolume snapshot -r "$STAGING_BASE" "$snapshot_path"
+
+    log_success "Snapshot created: $snapshot_name"
+    record_snapshot "$snapshot_name" "$description"
+}
+
+# Record snapshot in state
+record_snapshot() {
+    local name="$1"
+    local desc="$2"
+
+    if command -v jq &> /dev/null; then
+        local tmp=$(mktemp)
+        jq --arg n "$name" --arg d "$desc" --arg t "$(date -Iseconds)" \
+           '.snapshots += [{name: $n, description: $d, timestamp: $t}]' \
+           "$STATE_FILE" > "$tmp"
+        mv "$tmp" "$STATE_FILE"
+    fi
+}
+
+# Deploy stage 1: Core D-Bus
+deploy_stage_1_core_dbus() {
+    local stage_dir=$(create_stage_folder 1 "core-dbus")
+
+    log_info "Building core D-Bus binary..."
+    cd "$REPO_ROOT"
+    cargo build --release --bin op-dbus
+
+    log_info "Copying files to staging..."
+    cp target/release/op-dbus "$stage_dir/bin/"
+    chmod +x "$stage_dir/bin/op-dbus"
+
+    # Default config
+    mkdir -p "$stage_dir/etc/op-dbus"
+    cat > "$stage_dir/etc/op-dbus/state.json" <<'EOF'
+{
+  "version": 1,
+  "plugins": {}
+}
+EOF
+
+    # Create manifest
+    cat > "$stage_dir/manifest.yaml" <<'EOF'
+stage: 1
+component: core-dbus
+description: Core D-Bus infrastructure
+files:
+  - path: bin/op-dbus
+    target: /usr/local/bin/op-dbus
+    type: symlink
+    mode: "0755"
+  - path: etc/op-dbus/state.json
+    target: /etc/op-dbus/state.json
+    type: copy-if-not-exists
+    mode: "0644"
+EOF
+
+    log_info "Creating system symlinks..."
+    mkdir -p /usr/local/bin
+    mkdir -p /etc/op-dbus
+
+    # Symlink binary
+    ln -sf "$stage_dir/bin/op-dbus" /usr/local/bin/op-dbus
+
+    # Copy config if doesn't exist
+    [[ -f /etc/op-dbus/state.json ]] || \
+        cp "$stage_dir/etc/op-dbus/state.json" /etc/op-dbus/state.json
+
+    # Mark as deployed
+    touch "$stage_dir/.deployed"
+
+    log_success "Stage 1 (core-dbus) deployed"
+}
+
+# Deploy stage 2: Introspection Cache
+deploy_stage_2_introspection_cache() {
+    local stage_dir=$(create_stage_folder 2 "introspection-cache")
+
+    log_info "Copying introspection cache files..."
+
+    # Copy warmup script
+    cp "$REPO_ROOT/scripts/warm-dbus-cache.sh" "$stage_dir/bin/"
+    chmod +x "$stage_dir/bin/warm-dbus-cache.sh"
+
+    # Copy systemd units
+    mkdir -p "$stage_dir/systemd"
+    cp "$REPO_ROOT/systemd/dbus-cache-warmup.service" "$stage_dir/systemd/"
+    cp "$REPO_ROOT/systemd/dbus-cache-warmup.timer" "$stage_dir/systemd/"
+
+    # Cache directory placeholder
+    mkdir -p "$stage_dir/var/cache"
+    touch "$stage_dir/var/cache/.gitkeep"
+
+    # Create manifest
+    cat > "$stage_dir/manifest.yaml" <<'EOF'
+stage: 2
+component: introspection-cache
+description: D-Bus introspection SQLite cache
+dependencies:
+  - stage-1-core-dbus
+files:
+  - path: bin/warm-dbus-cache.sh
+    target: /usr/local/bin/warm-dbus-cache.sh
+    type: symlink
+    mode: "0755"
+  - path: systemd/dbus-cache-warmup.service
+    target: /etc/systemd/system/dbus-cache-warmup.service
+    type: symlink
+    mode: "0644"
+  - path: systemd/dbus-cache-warmup.timer
+    target: /etc/systemd/system/dbus-cache-warmup.timer
+    type: symlink
+    mode: "0644"
+EOF
+
+    log_info "Creating system symlinks..."
+
+    # Symlink script
+    ln -sf "$stage_dir/bin/warm-dbus-cache.sh" /usr/local/bin/warm-dbus-cache.sh
+
+    # Symlink systemd units
+    ln -sf "$stage_dir/systemd/dbus-cache-warmup.service" /etc/systemd/system/dbus-cache-warmup.service
+    ln -sf "$stage_dir/systemd/dbus-cache-warmup.timer" /etc/systemd/system/dbus-cache-warmup.timer
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    # Enable timer
+    systemctl enable dbus-cache-warmup.timer
+    systemctl start dbus-cache-warmup.timer
+
+    # Mark deployed
+    touch "$stage_dir/.deployed"
+
+    log_success "Stage 2 (introspection-cache) deployed"
+}
+
+# Deploy stage 5: MCP Server
+deploy_stage_5_mcp_server() {
+    local stage_dir=$(create_stage_folder 5 "mcp-server")
+
+    log_info "Building MCP server..."
+    cd "$REPO_ROOT"
+    cargo build --release --bin dbus-mcp --features mcp
+
+    log_info "Copying files to staging..."
+
+    # Copy binaries
+    cp target/release/dbus-mcp "$stage_dir/bin/"
+    chmod +x "$stage_dir/bin/dbus-mcp"
+
+    # Copy web files
+    mkdir -p "$stage_dir/web"
+    cp -r src/mcp/web/* "$stage_dir/web/"
+
+    # Config
+    mkdir -p "$stage_dir/etc/op-dbus"
+    cat > "$stage_dir/etc/op-dbus/mcp-config.json" <<'EOF'
+{
+  "host": "0.0.0.0",
+  "port": 8080,
+  "enable_web": true,
+  "web_root": "/var/lib/op-dbus/staging/stage-5-mcp-server/web"
+}
+EOF
+
+    # Manifest
+    cat > "$stage_dir/manifest.yaml" <<'EOF'
+stage: 5
+component: mcp-server
+description: Model Context Protocol server for AI agents
+dependencies:
+  - stage-2-introspection-cache
+files:
+  - path: bin/dbus-mcp
+    target: /usr/local/bin/dbus-mcp
+    type: symlink
+    mode: "0755"
+  - path: etc/op-dbus/mcp-config.json
+    target: /etc/op-dbus/mcp-config.json
+    type: copy-if-not-exists
+    mode: "0644"
+  - path: web
+    target: /var/www/op-dbus-mcp
+    type: symlink
+    mode: "0755"
+EOF
+
+    log_info "Creating system symlinks..."
+
+    # Symlink binary
+    ln -sf "$stage_dir/bin/dbus-mcp" /usr/local/bin/dbus-mcp
+
+    # Symlink web directory
+    mkdir -p /var/www
+    ln -sf "$stage_dir/web" /var/www/op-dbus-mcp
+
+    # Copy config if doesn't exist
+    [[ -f /etc/op-dbus/mcp-config.json ]] || \
+        cp "$stage_dir/etc/op-dbus/mcp-config.json" /etc/op-dbus/mcp-config.json
+
+    # Mark deployed
+    touch "$stage_dir/.deployed"
+
+    log_success "Stage 5 (mcp-server) deployed"
+}
+
+# Deploy a stage with snapshots
+deploy_stage() {
+    local component="$1"
+
+    check_root
+
+    # Pre-deployment snapshot
+    create_snapshot "pre-${component}" "Before deploying ${component}"
+
+    # Deploy based on component
+    case "$component" in
+        core-dbus)
+            deploy_stage_1_core_dbus
+            ;;
+        introspection-cache)
+            deploy_stage_2_introspection_cache
+            ;;
+        mcp-server)
+            deploy_stage_5_mcp_server
+            ;;
+        *)
+            log_error "Unknown component: $component"
+            return 1
+            ;;
+    esac
+
+    # Post-deployment snapshot
+    create_snapshot "post-${component}" "After successfully deploying ${component}"
+
+    # Record deployment
+    if command -v jq &> /dev/null; then
+        local tmp=$(mktemp)
+        jq --arg c "$component" --arg t "$(date -Iseconds)" \
+           '.deployed_stages += [{component: $c, timestamp: $t}]' \
+           "$STATE_FILE" > "$tmp"
+        mv "$tmp" "$STATE_FILE"
+    fi
+}
+
+# List deployed stages
+list_stages() {
+    echo -e "\n${CYAN}=== Staging Status ===${NC}\n"
+
+    if [[ ! -d "$STAGING_BASE" ]]; then
+        echo "Staging not initialized. Run: sudo op-dbus-stage init"
+        return
+    fi
+
+    echo "Staging Base: $STAGING_BASE"
+    echo
+
+    local deployed_count=0
+    for stage_dir in "$STAGING_BASE"/stage-*; do
+        [[ -d "$stage_dir" ]] || continue
+
+        local name=$(basename "$stage_dir")
+        if [[ -f "$stage_dir/.deployed" ]]; then
+            local size=$(du -sh "$stage_dir" 2>/dev/null | cut -f1)
+            echo -e "${GREEN}✓${NC} $name ${YELLOW}[$size]${NC}"
+            ((deployed_count++))
+        else
+            echo -e "${BLUE}○${NC} $name (staged but not deployed)"
+        fi
+    done
+
+    [[ $deployed_count -eq 0 ]] && echo "No stages deployed yet"
+    echo
+}
+
+# List snapshots
+list_snapshots() {
+    echo -e "\n${CYAN}=== Snapshots ===${NC}\n"
+
+    if [[ ! -d "$SNAPSHOT_BASE" ]]; then
+        echo "No snapshots yet"
+        return
+    fi
+
+    local count=0
+    for snapshot in "$SNAPSHOT_BASE"/*; do
+        [[ -d "$snapshot" ]] || continue
+
+        local name=$(basename "$snapshot")
+        local size=$(du -sh "$snapshot" 2>/dev/null | cut -f1)
+        local date_part=$(echo "$name" | grep -oP '\d{8}-\d{6}' || echo "unknown")
+
+        echo -e "${GREEN}●${NC} $name ${YELLOW}[$size]${NC} ${BLUE}$date_part${NC}"
+        ((count++))
+    done
+
+    [[ $count -eq 0 ]] && echo "No snapshots found"
+    echo -e "\nTotal: $count snapshots"
+    echo
+}
+
+# Show what's in a stage
+show_stage() {
+    local component="$1"
+    local stage_dir
+
+    # Find stage directory
+    for dir in "$STAGING_BASE"/stage-*-"$component"; do
+        [[ -d "$dir" ]] && stage_dir="$dir" && break
+    done
+
+    [[ -z "$stage_dir" ]] && { log_error "Stage not found: $component"; return 1; }
+
+    echo -e "\n${CYAN}=== Stage: $component ===${NC}\n"
+    echo "Location: $stage_dir"
+
+    [[ -f "$stage_dir/.deployed" ]] && \
+        echo -e "Status: ${GREEN}DEPLOYED${NC}" || \
+        echo -e "Status: ${YELLOW}STAGED (not deployed)${NC}"
+
+    echo
+
+    # Show manifest if exists
+    [[ -f "$stage_dir/manifest.yaml" ]] && {
+        echo -e "${BLUE}Manifest:${NC}"
+        cat "$stage_dir/manifest.yaml"
+        echo
+    }
+
+    # Show directory tree
+    echo -e "${BLUE}Contents:${NC}"
+    tree -L 2 "$stage_dir" 2>/dev/null || find "$stage_dir" -maxdepth 2 -type f -o -type l
+    echo
+}
+
+# Verify a deployed stage
+verify_stage() {
+    local component="$1"
+    local stage_dir
+
+    # Find stage directory
+    for dir in "$STAGING_BASE"/stage-*-"$component"; do
+        [[ -d "$dir" ]] && stage_dir="$dir" && break
+    done
+
+    [[ -z "$stage_dir" ]] && { log_error "Stage not found: $component"; return 1; }
+    [[ ! -f "$stage_dir/.deployed" ]] && { log_error "Stage not deployed: $component"; return 1; }
+
+    echo -e "\n${CYAN}=== Verifying: $component ===${NC}\n"
+
+    local errors=0
+
+    # Check symlinks are valid
+    case "$component" in
+        core-dbus)
+            if [[ -L /usr/local/bin/op-dbus ]]; then
+                local target=$(readlink /usr/local/bin/op-dbus)
+                if [[ "$target" == "$stage_dir/bin/op-dbus" ]]; then
+                    echo -e "${GREEN}✓${NC} Binary symlink correct: /usr/local/bin/op-dbus → $target"
+                else
+                    echo -e "${RED}✗${NC} Binary symlink incorrect: expected $stage_dir/bin/op-dbus"
+                    ((errors++))
+                fi
+            else
+                echo -e "${RED}✗${NC} Binary symlink missing: /usr/local/bin/op-dbus"
+                ((errors++))
+            fi
+
+            if [[ -x /usr/local/bin/op-dbus ]]; then
+                echo -e "${GREEN}✓${NC} Binary is executable"
+            else
+                echo -e "${RED}✗${NC} Binary not executable"
+                ((errors++))
+            fi
+            ;;
+
+        introspection-cache)
+            if [[ -L /usr/local/bin/warm-dbus-cache.sh ]]; then
+                echo -e "${GREEN}✓${NC} Cache warmup script symlinked"
+            else
+                echo -e "${RED}✗${NC} Cache warmup script not found"
+                ((errors++))
+            fi
+
+            if systemctl is-enabled dbus-cache-warmup.timer &>/dev/null; then
+                echo -e "${GREEN}✓${NC} Timer enabled"
+            else
+                echo -e "${YELLOW}⚠${NC} Timer not enabled"
+            fi
+
+            if systemctl is-active dbus-cache-warmup.timer &>/dev/null; then
+                echo -e "${GREEN}✓${NC} Timer running"
+            else
+                echo -e "${YELLOW}⚠${NC} Timer not running"
+            fi
+            ;;
+
+        mcp-server)
+            if [[ -L /usr/local/bin/dbus-mcp ]]; then
+                echo -e "${GREEN}✓${NC} MCP server binary symlinked"
+            else
+                echo -e "${RED}✗${NC} MCP server binary not found"
+                ((errors++))
+            fi
+
+            if [[ -L /var/www/op-dbus-mcp ]]; then
+                echo -e "${GREEN}✓${NC} Web UI symlinked"
+            else
+                echo -e "${RED}✗${NC} Web UI not symlinked"
+                ((errors++))
+            fi
+            ;;
+    esac
+
+    echo
+
+    if [[ $errors -eq 0 ]]; then
+        log_success "Stage verification passed: $component"
+        return 0
+    else
+        log_error "Stage verification failed: $errors error(s)"
+        return 1
+    fi
+}
+
+# Rollback a stage
+rollback_stage() {
+    local component="$1"
+    local stage_dir
+
+    check_root
+
+    # Find stage directory
+    for dir in "$STAGING_BASE"/stage-*-"$component"; do
+        [[ -d "$dir" ]] && stage_dir="$dir" && break
+    done
+
+    [[ -z "$stage_dir" ]] && { log_error "Stage not found: $component"; return 1; }
+
+    echo -e "\n${YELLOW}=== Rolling back: $component ===${NC}\n"
+    echo "This will:"
+    echo "  1. Remove system symlinks"
+    echo "  2. Delete staging folder"
+    echo "  3. Create a rollback snapshot"
+    echo
+
+    read -p "Continue? [y/N] " -n 1 -r
+    echo
+    [[ ! $REPLY =~ ^[Yy]$ ]] && { echo "Cancelled"; return 1; }
+
+    # Pre-rollback snapshot
+    create_snapshot "rollback-${component}" "Before rolling back ${component}"
+
+    log_info "Removing system symlinks..."
+
+    # Remove symlinks based on component
+    case "$component" in
+        core-dbus)
+            rm -f /usr/local/bin/op-dbus
+            ;;
+        introspection-cache)
+            systemctl stop dbus-cache-warmup.timer 2>/dev/null || true
+            systemctl disable dbus-cache-warmup.timer 2>/dev/null || true
+            rm -f /usr/local/bin/warm-dbus-cache.sh
+            rm -f /etc/systemd/system/dbus-cache-warmup.service
+            rm -f /etc/systemd/system/dbus-cache-warmup.timer
+            systemctl daemon-reload
+            ;;
+        mcp-server)
+            rm -f /usr/local/bin/dbus-mcp
+            rm -f /var/www/op-dbus-mcp
+            ;;
+    esac
+
+    log_info "Deleting staging folder..."
+
+    # Delete subvolume or directory
+    if command -v btrfs &> /dev/null && btrfs subvolume show "$stage_dir" &> /dev/null 2>&1; then
+        btrfs subvolume delete "$stage_dir"
+    else
+        rm -rf "$stage_dir"
+    fi
+
+    # Update state
+    if command -v jq &> /dev/null; then
+        local tmp=$(mktemp)
+        jq --arg c "$component" '.deployed_stages = [.deployed_stages[] | select(.component != $c)]' \
+           "$STATE_FILE" > "$tmp"
+        mv "$tmp" "$STATE_FILE"
+    fi
+
+    log_success "Rollback complete: $component"
+    echo
+    echo "Note: Config files in /etc/op-dbus were preserved"
+    echo
+}
+
+# Interactive guided installation
+interactive_install() {
+    check_root
+
+    echo -e "${CYAN}"
+    cat <<'EOF'
+╔═══════════════════════════════════════════════╗
+║   Operation-DBus Staged Installation Tool    ║
+╚═══════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
+
+    # Check if initialized
+    if [[ ! -d "$STAGING_BASE" ]]; then
+        echo "Staging environment not initialized."
+        read -p "Initialize now? [Y/n] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            init_staging
+        else
+            echo "Cancelled"
+            return 1
+        fi
+    fi
+
+    echo
+    echo -e "${BLUE}Available components:${NC}"
+    echo
+    echo "  1. core-dbus              - Core D-Bus infrastructure (required)"
+    echo "  2. introspection-cache    - SQLite cache for fast queries"
+    echo "  3. mcp-server             - AI agent integration + web UI"
+    echo
+    echo "  4. Install all (recommended)"
+    echo "  0. Exit"
+    echo
+
+    read -p "Select component [1-4]: " choice
+
+    case "$choice" in
+        1)
+            deploy_stage "core-dbus"
+            verify_stage "core-dbus"
+            ;;
+        2)
+            # Check dependencies
+            if [[ ! -d "$STAGING_BASE/stage-1-core-dbus" ]]; then
+                log_error "Dependency missing: core-dbus must be installed first"
+                return 1
+            fi
+            deploy_stage "introspection-cache"
+            verify_stage "introspection-cache"
+            ;;
+        3)
+            # Check dependencies
+            if [[ ! -d "$STAGING_BASE/stage-2-introspection-cache" ]]; then
+                log_error "Dependency missing: introspection-cache must be installed first"
+                return 1
+            fi
+            deploy_stage "mcp-server"
+            verify_stage "mcp-server"
+            ;;
+        4)
+            echo
+            log_info "Installing all components..."
+            deploy_stage "core-dbus"
+            verify_stage "core-dbus"
+            echo
+            deploy_stage "introspection-cache"
+            verify_stage "introspection-cache"
+            echo
+            deploy_stage "mcp-server"
+            verify_stage "mcp-server"
+            echo
+            log_success "All components installed!"
+            echo
+            echo "Access the web UI at: http://localhost:8080"
+            echo "Start MCP server: sudo dbus-mcp --port 8080 --enable-web"
+            ;;
+        0)
+            echo "Exiting"
+            return 0
+            ;;
+        *)
+            log_error "Invalid choice"
+            return 1
+            ;;
+    esac
+
+    echo
+    echo -e "${GREEN}Installation complete!${NC}"
+    echo
+    echo "Run 'op-dbus-stage status' to see deployed stages"
+    echo "Run 'op-dbus-stage snapshots' to see backup snapshots"
+    echo
+}
+
+# Main command dispatcher
+main() {
+    local cmd="${1:-help}"
+
+    case "$cmd" in
+        init)
+            check_root
+            init_staging
+            ;;
+        deploy)
+            shift
+            for component in "$@"; do
+                deploy_stage "$component"
+            done
+            ;;
+        verify)
+            verify_stage "${2:-}"
+            ;;
+        rollback)
+            rollback_stage "${2:-}"
+            ;;
+        interactive|install)
+            interactive_install
+            ;;
+        list)
+            list_stages
+            ;;
+        show)
+            show_stage "${2:-}"
+            ;;
+        snapshots)
+            list_snapshots
+            ;;
+        status)
+            list_stages
+            list_snapshots
+            ;;
+        help|--help|-h)
+            cat <<'EOF'
+op-dbus-stage v2 - Staged deployment with BTRFS snapshots
+
+ARCHITECTURE:
+  Staging folders organize component files cleanly
+  System uses symlinks pointing to staging folders
+  BTRFS snapshots capture staging state at each step
+
+DIRECTORY LAYOUT:
+  /var/lib/op-dbus/staging/
+  ├── stage-1-core-dbus/       (BTRFS subvolume)
+  ├── stage-2-introspection-cache/
+  ├── stage-5-mcp-server/
+  └── snapshots/
+      ├── pre-core-dbus-20251117-140522/
+      └── post-core-dbus-20251117-140534/
+
+USAGE:
+  op-dbus-stage init                Initialize staging environment
+  op-dbus-stage interactive         Interactive guided installation (recommended)
+  op-dbus-stage deploy COMPONENT    Deploy a component with snapshots
+  op-dbus-stage verify COMPONENT    Verify deployed component
+  op-dbus-stage rollback COMPONENT  Rollback a deployed component
+  op-dbus-stage list                List deployed stages
+  op-dbus-stage show COMPONENT      Show stage details
+  op-dbus-stage snapshots           List all snapshots
+  op-dbus-stage status              Show full status
+
+COMPONENTS:
+  core-dbus              Core D-Bus infrastructure
+  introspection-cache    D-Bus introspection SQLite cache
+  mcp-server             AI agent MCP server + web UI
+
+COMPONENT OVERLAPS (documented as acceptable):
+  - introspection-cache + numa-cache: Share caching infrastructure
+  - btrfs-cache + blockchain-state: Share BTRFS subvolume infrastructure
+  - network-layer + blockchain-state: Network state is checkpointed
+
+EXAMPLES:
+  # Interactive installation (easiest)
+  sudo op-dbus-stage interactive
+
+  # Manual installation
+  sudo op-dbus-stage init
+  sudo op-dbus-stage deploy core-dbus
+  sudo op-dbus-stage deploy introspection-cache
+  sudo op-dbus-stage deploy mcp-server
+
+  # Verify installation
+  sudo op-dbus-stage verify mcp-server
+
+  # Check status
+  op-dbus-stage status
+
+  # Rollback a component
+  sudo op-dbus-stage rollback mcp-server
+
+  # List snapshots for recovery
+  op-dbus-stage snapshots
+
+EOF
+            ;;
+        *)
+            log_error "Unknown command: $cmd"
+            echo "Run 'op-dbus-stage help' for usage"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

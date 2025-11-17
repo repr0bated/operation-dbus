@@ -1,0 +1,626 @@
+#!/bin/bash
+# op-dbus-stage - Staged deployment tool for operation-dbus
+# Creates BTRFS snapshots at each stage for safe incremental deployment
+
+set -euo pipefail
+
+# Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFEST="${SCRIPT_DIR}/STAGING-MANIFEST.yaml"
+STATE_FILE="/var/lib/op-dbus/staging-state.json"
+SNAPSHOT_BASE="/var/lib/op-dbus/snapshots"
+LOG_FILE="/var/log/op-dbus-staging.log"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Logging
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $*" | tee -a "$LOG_FILE"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "$LOG_FILE"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $*" | tee -a "$LOG_FILE"
+}
+
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $*" | tee -a "$LOG_FILE"
+}
+
+# Check if running as root
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        log_error "This script must be run as root (use sudo)"
+        exit 1
+    fi
+}
+
+# Initialize staging environment
+init_staging() {
+    log_info "Initializing staging environment..."
+
+    # Create directories
+    mkdir -p "$(dirname "$STATE_FILE")"
+    mkdir -p "$SNAPSHOT_BASE"
+    mkdir -p "$(dirname "$LOG_FILE")"
+
+    # Check BTRFS
+    if ! command -v btrfs &> /dev/null; then
+        log_warn "BTRFS tools not found - snapshots will be disabled"
+        SNAPSHOTS_ENABLED=false
+    else
+        # Check if snapshot base is on BTRFS
+        if btrfs filesystem show "$SNAPSHOT_BASE" &> /dev/null; then
+            log_success "BTRFS detected - snapshots enabled"
+            SNAPSHOTS_ENABLED=true
+        else
+            log_warn "Snapshot path is not on BTRFS - snapshots disabled"
+            SNAPSHOTS_ENABLED=false
+        fi
+    fi
+
+    # Initialize state file if it doesn't exist
+    if [[ ! -f "$STATE_FILE" ]]; then
+        cat > "$STATE_FILE" << 'JSON'
+{
+  "version": 1,
+  "installed_components": [],
+  "snapshots": [],
+  "current_stage": 0,
+  "last_updated": ""
+}
+JSON
+    fi
+}
+
+# Create BTRFS snapshot
+create_snapshot() {
+    local name="$1"
+    local description="${2:-No description}"
+
+    if [[ "$SNAPSHOTS_ENABLED" != "true" ]]; then
+        log_warn "Snapshots disabled - skipping snapshot: $name"
+        return 0
+    fi
+
+    local timestamp=$(date +%Y%m%d-%H%M%S)
+    local snapshot_name="${name}-${timestamp}"
+    local snapshot_path="${SNAPSHOT_BASE}/${snapshot_name}"
+
+    log_info "Creating snapshot: $snapshot_name"
+    log_info "Description: $description"
+
+    # Create snapshot of root subvolume (or specified paths)
+    # For simplicity, we'll snapshot the entire /var/lib/op-dbus directory
+    if [[ -d /var/lib/op-dbus ]] && btrfs subvolume show /var/lib/op-dbus &> /dev/null; then
+        btrfs subvolume snapshot /var/lib/op-dbus "$snapshot_path"
+        log_success "Snapshot created: $snapshot_path"
+
+        # Record snapshot in state
+        record_snapshot "$snapshot_name" "$description"
+        return 0
+    else
+        # Not a subvolume, create one first
+        log_warn "/var/lib/op-dbus is not a BTRFS subvolume, creating..."
+        if mkdir -p /var/lib/op-dbus-tmp && \
+           mv /var/lib/op-dbus/* /var/lib/op-dbus-tmp/ 2>/dev/null && \
+           btrfs subvolume create /var/lib/op-dbus && \
+           mv /var/lib/op-dbus-tmp/* /var/lib/op-dbus/ && \
+           rmdir /var/lib/op-dbus-tmp; then
+            # Now create the snapshot
+            btrfs subvolume snapshot /var/lib/op-dbus "$snapshot_path"
+            log_success "Snapshot created: $snapshot_path"
+            record_snapshot "$snapshot_name" "$description"
+            return 0
+        else
+            log_error "Failed to create subvolume"
+            return 1
+        fi
+    fi
+}
+
+# Record snapshot in state file
+record_snapshot() {
+    local name="$1"
+    local description="$2"
+    local timestamp=$(date -Iseconds)
+
+    # Use jq to update JSON (if available), otherwise use basic sed
+    if command -v jq &> /dev/null; then
+        local tmp_file=$(mktemp)
+        jq --arg name "$name" --arg desc "$description" --arg ts "$timestamp" \
+           '.snapshots += [{name: $name, description: $desc, timestamp: $ts}]' \
+           "$STATE_FILE" > "$tmp_file"
+        mv "$tmp_file" "$STATE_FILE"
+    fi
+}
+
+# List available components
+list_components() {
+    echo -e "\n${BLUE}=== Available Components ===${NC}\n"
+
+    cat << 'EOF'
+Stage 1: Core D-Bus Infrastructure
+  └─ core-dbus          Basic D-Bus introspection and connection management
+
+Stage 2: Introspection Cache
+  └─ introspection-cache    SQLite-based caching of D-Bus introspection data
+
+Stage 3: Advanced Caching
+  ├─ numa-cache         NUMA-aware cache optimization (multi-socket systems)
+  └─ btrfs-cache        BTRFS snapshot-based caching
+
+Stage 4: Network Layer
+  └─ network-layer      Open vSwitch and NetworkManager integration
+
+Stage 5: State Management
+  └─ blockchain-state   Merkle-tree based state snapshots
+
+Stage 6: AI & Automation
+  ├─ mcp-server         Model Context Protocol server for AI agents
+  └─ workflow-automation    Visual workflow builder
+
+EOF
+
+    echo -e "${BLUE}=== Pre-defined Profiles ===${NC}\n"
+    cat << 'EOF'
+  minimal           Core D-Bus + introspection cache
+  network-admin     Core + network management
+  developer         Core + MCP + workflows
+  full-stack        All components
+
+EOF
+}
+
+# Show component details
+show_component() {
+    local component="$1"
+
+    echo -e "\n${BLUE}=== Component: $component ===${NC}\n"
+
+    case "$component" in
+        core-dbus)
+            cat << 'EOF'
+Name: Core D-Bus Infrastructure
+Stage: 1
+Dependencies: None
+Overlaps: None
+
+Description:
+  Basic D-Bus introspection and connection management. This is the foundation
+  of the entire operation-dbus system.
+
+Files:
+  - src/mcp/system_introspection.rs
+  - src/introspection/*.rs
+  - Binary: op-dbus
+
+Configuration:
+  - /etc/op-dbus/state.json
+
+Requirements:
+  - D-Bus system bus available
+  - Rust toolchain (for building)
+
+Verification:
+  - D-Bus connection test
+  - op-dbus query command
+EOF
+            ;;
+        introspection-cache)
+            cat << 'EOF'
+Name: D-Bus Introspection Cache
+Stage: 2
+Dependencies: core-dbus
+Overlaps: numa-cache (both use caching infrastructure)
+
+Description:
+  SQLite-based caching of D-Bus introspection data. Dramatically improves
+  query performance from 100-500ms to 1-5ms.
+
+Files:
+  - src/mcp/introspection_cache.rs
+  - scripts/warm-dbus-cache.sh
+  - systemd/dbus-cache-warmup.service
+  - systemd/dbus-cache-warmup.timer
+
+Configuration:
+  - /var/cache/dbus-introspection.db
+
+Requirements:
+  - SQLite3
+  - Write access to /var/cache
+
+Verification:
+  - Cache file exists and is readable
+  - Systemd timer is active
+EOF
+            ;;
+        *)
+            log_error "Unknown component: $component"
+            return 1
+            ;;
+    esac
+    echo
+}
+
+# Install a component with snapshot support
+install_component() {
+    local component="$1"
+    local create_snapshots="${2:-true}"
+
+    log_info "Installing component: $component"
+
+    # Pre-installation snapshot
+    if [[ "$create_snapshots" == "true" ]]; then
+        create_snapshot "pre-${component}" "Before installing ${component}"
+    fi
+
+    # Component-specific installation
+    case "$component" in
+        core-dbus)
+            install_core_dbus
+            ;;
+        introspection-cache)
+            install_introspection_cache
+            ;;
+        network-layer)
+            install_network_layer
+            ;;
+        mcp-server)
+            install_mcp_server
+            ;;
+        *)
+            log_error "Unknown component: $component"
+            return 1
+            ;;
+    esac
+
+    local install_result=$?
+
+    if [[ $install_result -eq 0 ]]; then
+        # Post-installation snapshot
+        if [[ "$create_snapshots" == "true" ]]; then
+            create_snapshot "post-${component}" "After successfully installing ${component}"
+        fi
+
+        # Record installation
+        record_installation "$component"
+        log_success "Component installed: $component"
+    else
+        log_error "Failed to install: $component"
+        if [[ "$create_snapshots" == "true" ]]; then
+            create_snapshot "failed-${component}" "Installation failed for ${component}"
+        fi
+        return 1
+    fi
+}
+
+# Component-specific installation functions
+install_core_dbus() {
+    log_info "Installing core D-Bus infrastructure..."
+
+    # Build op-dbus binary
+    if [[ -f "${SCRIPT_DIR}/../Cargo.toml" ]]; then
+        cd "${SCRIPT_DIR}/.."
+        cargo build --release --bin op-dbus
+
+        # Install binary
+        cp target/release/op-dbus /usr/local/bin/
+        chmod +x /usr/local/bin/op-dbus
+
+        # Create config directory
+        mkdir -p /etc/op-dbus
+
+        # Create default state file if it doesn't exist
+        if [[ ! -f /etc/op-dbus/state.json ]]; then
+            cat > /etc/op-dbus/state.json << 'JSON'
+{
+  "version": 1,
+  "plugins": {}
+}
+JSON
+        fi
+
+        log_success "Core D-Bus infrastructure installed"
+        return 0
+    else
+        log_error "Cannot find Cargo.toml - are you in the right directory?"
+        return 1
+    fi
+}
+
+install_introspection_cache() {
+    log_info "Installing introspection cache..."
+
+    # Install warmup script
+    cp "${SCRIPT_DIR}/../scripts/warm-dbus-cache.sh" /usr/local/bin/
+    chmod +x /usr/local/bin/warm-dbus-cache.sh
+
+    # Install systemd units
+    cp "${SCRIPT_DIR}/../systemd/dbus-cache-warmup.service" /etc/systemd/system/
+    cp "${SCRIPT_DIR}/../systemd/dbus-cache-warmup.timer" /etc/systemd/system/
+
+    # Create cache directory
+    mkdir -p /var/cache
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    # Enable and start timer
+    systemctl enable dbus-cache-warmup.timer
+    systemctl start dbus-cache-warmup.timer
+
+    log_success "Introspection cache installed"
+    return 0
+}
+
+install_network_layer() {
+    log_info "Installing network layer..."
+
+    # Check for Open vSwitch
+    if ! command -v ovs-vsctl &> /dev/null; then
+        log_warn "Open vSwitch not found - installing..."
+        apt-get update && apt-get install -y openvswitch-switch
+    fi
+
+    # Install systemd units
+    cp "${SCRIPT_DIR}/../systemd/openvswitch.service" /etc/systemd/system/ 2>/dev/null || true
+
+    systemctl daemon-reload
+    systemctl enable openvswitch
+    systemctl start openvswitch
+
+    log_success "Network layer installed"
+    return 0
+}
+
+install_mcp_server() {
+    log_info "Installing MCP server..."
+
+    # Build MCP binary
+    cd "${SCRIPT_DIR}/.."
+    cargo build --release --bin dbus-mcp --features mcp
+
+    # Install binary
+    cp target/release/dbus-mcp /usr/local/bin/
+    chmod +x /usr/local/bin/dbus-mcp
+
+    # Create config
+    mkdir -p /etc/op-dbus
+    cat > /etc/op-dbus/mcp-config.json << 'JSON'
+{
+  "host": "0.0.0.0",
+  "port": 8080,
+  "enable_web": true
+}
+JSON
+
+    log_success "MCP server installed"
+    return 0
+}
+
+# Record component installation
+record_installation() {
+    local component="$1"
+    local timestamp=$(date -Iseconds)
+
+    if command -v jq &> /dev/null; then
+        local tmp_file=$(mktemp)
+        jq --arg comp "$component" --arg ts "$timestamp" \
+           '.installed_components += [{component: $comp, timestamp: $ts}] | .last_updated = $ts' \
+           "$STATE_FILE" > "$tmp_file"
+        mv "$tmp_file" "$STATE_FILE"
+    fi
+}
+
+# List snapshots
+list_snapshots() {
+    echo -e "\n${BLUE}=== BTRFS Snapshots ===${NC}\n"
+
+    if [[ ! -d "$SNAPSHOT_BASE" ]]; then
+        log_warn "No snapshots found"
+        return 0
+    fi
+
+    local count=0
+    for snapshot in "$SNAPSHOT_BASE"/*; do
+        if [[ -d "$snapshot" ]]; then
+            local name=$(basename "$snapshot")
+            local size=$(du -sh "$snapshot" 2>/dev/null | cut -f1)
+            echo -e "${GREEN}●${NC} $name ${YELLOW}[$size]${NC}"
+            ((count++))
+        fi
+    done
+
+    if [[ $count -eq 0 ]]; then
+        log_warn "No snapshots found"
+    else
+        echo -e "\nTotal snapshots: $count"
+    fi
+    echo
+}
+
+# Rollback to a snapshot
+rollback_snapshot() {
+    local snapshot_name="$1"
+    local snapshot_path="${SNAPSHOT_BASE}/${snapshot_name}"
+
+    if [[ ! -d "$snapshot_path" ]]; then
+        log_error "Snapshot not found: $snapshot_name"
+        return 1
+    fi
+
+    log_warn "Rolling back to snapshot: $snapshot_name"
+    read -p "This will restore the system state. Continue? (yes/no): " confirm
+
+    if [[ "$confirm" != "yes" ]]; then
+        log_info "Rollback cancelled"
+        return 0
+    fi
+
+    # Create a pre-rollback snapshot
+    create_snapshot "pre-rollback" "Before rolling back to ${snapshot_name}"
+
+    # Perform rollback
+    log_info "Restoring from snapshot..."
+
+    # Move current state aside
+    mv /var/lib/op-dbus /var/lib/op-dbus.rollback-backup
+
+    # Restore snapshot
+    btrfs subvolume snapshot "$snapshot_path" /var/lib/op-dbus
+
+    log_success "Rollback complete"
+    log_info "Previous state backed up to: /var/lib/op-dbus.rollback-backup"
+    return 0
+}
+
+# Show deployment status
+show_status() {
+    echo -e "\n${BLUE}=== Staging Deployment Status ===${NC}\n"
+
+    if [[ -f "$STATE_FILE" ]] && command -v jq &> /dev/null; then
+        echo "Installed Components:"
+        jq -r '.installed_components[] | "  ✓ \(.component) (installed: \(.timestamp))"' "$STATE_FILE"
+
+        echo -e "\nLast Updated:"
+        jq -r '.last_updated' "$STATE_FILE"
+
+        echo -e "\nSnapshots:"
+        jq -r '.snapshots | length' "$STATE_FILE" | xargs echo "  Total:"
+    else
+        log_warn "No staging state found"
+    fi
+
+    echo
+}
+
+# Main command dispatcher
+main() {
+    local command="${1:-help}"
+
+    case "$command" in
+        init)
+            check_root
+            init_staging
+            ;;
+        list)
+            list_components
+            ;;
+        show)
+            show_component "${2:-}"
+            ;;
+        install)
+            check_root
+            init_staging
+            shift
+            for component in "$@"; do
+                install_component "$component" true
+            done
+            ;;
+        install-profile)
+            check_root
+            init_staging
+            local profile="${2:-minimal}"
+            case "$profile" in
+                minimal)
+                    install_component core-dbus true
+                    install_component introspection-cache true
+                    ;;
+                network-admin)
+                    install_component core-dbus true
+                    install_component introspection-cache true
+                    install_component network-layer true
+                    ;;
+                developer)
+                    install_component core-dbus true
+                    install_component introspection-cache true
+                    install_component mcp-server true
+                    ;;
+                full-stack)
+                    log_info "Installing full stack..."
+                    install_component core-dbus true
+                    install_component introspection-cache true
+                    install_component network-layer true
+                    install_component mcp-server true
+                    ;;
+                *)
+                    log_error "Unknown profile: $profile"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        snapshots)
+            list_snapshots
+            ;;
+        rollback)
+            check_root
+            rollback_snapshot "${2:-}"
+            ;;
+        status)
+            show_status
+            ;;
+        help|--help|-h)
+            cat << 'EOF'
+op-dbus-stage - Staged deployment tool for operation-dbus
+
+Usage: op-dbus-stage COMMAND [OPTIONS]
+
+Commands:
+  init                    Initialize staging environment
+  list                    List all available components
+  show COMPONENT          Show detailed information about a component
+  install COMPONENT...    Install one or more components (creates snapshots)
+  install-profile PROFILE Install a pre-defined profile
+  snapshots               List all BTRFS snapshots
+  rollback SNAPSHOT       Rollback to a previous snapshot
+  status                  Show current deployment status
+  help                    Show this help message
+
+Profiles:
+  minimal                 Core D-Bus + introspection cache
+  network-admin           Core + network management
+  developer               Core + MCP + workflows
+  full-stack              All components
+
+Examples:
+  # Install core components
+  sudo op-dbus-stage install core-dbus introspection-cache
+
+  # Install a profile
+  sudo op-dbus-stage install-profile developer
+
+  # List snapshots
+  op-dbus-stage snapshots
+
+  # Rollback to a snapshot
+  sudo op-dbus-stage rollback pre-mcp-server-20251117-143022
+
+  # Show deployment status
+  op-dbus-stage status
+
+EOF
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            echo "Run 'op-dbus-stage help' for usage information"
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
