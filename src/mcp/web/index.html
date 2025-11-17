@@ -288,93 +288,249 @@
             <!-- Discovery Section -->
             <section id="discovery" class="section">
                 <div class="section-header">
-                    <h2>Service Discovery</h2>
-                    <button class="btn btn-primary" onclick="runDiscovery()">
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                            <circle cx="7" cy="7" r="4" stroke="currentColor" stroke-width="2"/>
-                            <path d="M10 10L14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                        </svg>
-                        Run Discovery
-                    </button>
+                    <h2>🔍 D-Bus Discovery</h2>
+                    <div class="discovery-controls">
+                        <button class="btn btn-primary" onclick="window.mcp.discoverServices()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <circle cx="7" cy="7" r="4" stroke="currentColor" stroke-width="2"/>
+                                <path d="M10 10L14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Discover Services
+                        </button>
+                        <button class="btn btn-sm" onclick="window.mcp.expandAllServices()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M8 4V12M4 8H12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Expand All
+                        </button>
+                        <button class="btn btn-sm" onclick="window.mcp.collapseAllServices()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M4 8H12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Collapse All
+                        </button>
+                        <select id="discovery-view-mode" class="form-select form-select-sm" onchange="window.mcp.changeDiscoveryView(this.value)">
+                            <option value="tree">Tree View</option>
+                            <option value="list">List View</option>
+                            <option value="grid">Grid View</option>
+                        </select>
+                        <input type="text" id="discovery-filter" class="form-control form-control-sm" placeholder="Filter services..." oninput="window.mcp.filterServices(this.value)" style="width: 200px; display: inline-block;">
+                    </div>
+                </div>
+
+                <div class="discovery-stats" id="discovery-stats" style="margin-bottom: 20px; padding: 15px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; display: none;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                        <div class="stat-item">
+                            <div class="stat-label">Services</div>
+                            <div class="stat-value" id="stat-services">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Objects</div>
+                            <div class="stat-value" id="stat-objects">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Interfaces</div>
+                            <div class="stat-value" id="stat-interfaces">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Methods</div>
+                            <div class="stat-value" id="stat-methods">0</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="discovery-results" id="discovery-results">
-                    <div class="discovery-categories">
-                        <div class="category-section">
-                            <h3>Getting Started</h3>
-                            <div class="service-list">
-                                <div class="service-item">
-                                    <span class="service-name">Click "Run Discovery" to scan your system</span>
-                                    <span class="service-path">for services and interfaces</span>
-                                </div>
-                            </div>
+                    <div class="discovery-placeholder">
+                        <div class="placeholder-icon">🔍</div>
+                        <div class="placeholder-text">
+                            <h3>D-Bus Service Discovery</h3>
+                            <p>Click "Discover Services" to explore all D-Bus services on your system.</p>
+                            <p>You'll be able to:</p>
+                            <ul style="text-align: left; display: inline-block; margin-top: 10px;">
+                                <li>Browse services in an expandable tree</li>
+                                <li>Explore object paths and their hierarchies</li>
+                                <li>View interfaces, methods, properties, and signals</li>
+                                <li>Manually introspect specific services</li>
+                                <li>Filter and search across all discovered items</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- Workflow Section -->
+            <!-- Workflow Builder Section -->
             <section id="workflow" class="section">
                 <div class="section-header">
-                    <h2>🔗 System Workflow</h2>
+                    <h2>⚙️ Workflow Builder</h2>
                     <div class="workflow-controls">
-                        <button class="btn btn-sm" onclick="generateWorkflow()">
+                        <button class="btn btn-primary" onclick="window.mcp.createNewWorkflow()">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                 <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                             </svg>
-                            Generate Workflow
+                            New Workflow
                         </button>
-                        <button class="btn btn-sm" onclick="resetWorkflowView()">
+                        <button class="btn btn-sm btn-success" onclick="window.mcp.executeWorkflow()" id="btn-execute-workflow" disabled>
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                <path d="M14 8C14 11.3 11.3 14 8 14C5.5 14 3.3 12.6 2.3 10.5M2 8C2 4.7 4.7 2 8 2C10.5 2 12.7 3.4 13.7 5.5M11 5H14V2M2 14V11H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M5 3L13 8L5 13V3Z" fill="currentColor"/>
                             </svg>
-                            Reset View
+                            Execute
                         </button>
-                        <select id="workflow-layout" class="form-select form-select-sm" onchange="changeLayout()">
-                            <option value="force">Force Directed</option>
-                            <option value="hierarchical">Hierarchical</option>
-                            <option value="circular">Circular</option>
+                        <button class="btn btn-sm" onclick="window.mcp.validateWorkflow()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M13 4L6 11L3 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            Validate
+                        </button>
+                        <button class="btn btn-sm" onclick="window.mcp.clearWorkflowCanvas()">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M2 2L14 14M2 14L14 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Clear
+                        </button>
+                        <button class="btn btn-sm" onclick="window.mcp.saveWorkflow()">
+                            💾 Save
+                        </button>
+                        <button class="btn btn-sm" onclick="window.mcp.loadWorkflow()">
+                            📂 Load
+                        </button>
+                        <select id="workflow-zoom" class="form-select form-select-sm" onchange="window.mcp.setWorkflowZoom(this.value)">
+                            <option value="0.5">50%</option>
+                            <option value="0.75">75%</option>
+                            <option value="1" selected>100%</option>
+                            <option value="1.25">125%</option>
+                            <option value="1.5">150%</option>
                         </select>
                     </div>
                 </div>
 
-                <div class="workflow-container">
-                    <div id="workflow-canvas" class="workflow-canvas">
-                        <div class="workflow-placeholder">
-                            <div class="placeholder-icon">🔗</div>
-                            <div class="placeholder-text">
-                                <h3>System Workflow Visualization</h3>
-                                <p>Click "Generate Workflow" to create a visual representation of your system's services, dependencies, and relationships.</p>
-                                <p>This will show how systemd services, D-Bus components, network services, and kernel subsystems interact.</p>
+                <div class="workflow-builder">
+                    <!-- Left Sidebar: Node Palette -->
+                    <div class="workflow-palette">
+                        <div class="palette-header">
+                            <h3>Node Palette</h3>
+                            <input type="text" class="form-control form-control-sm" placeholder="Filter nodes..." id="node-filter" oninput="window.mcp.filterNodePalette(this.value)">
+                        </div>
+                        <div class="palette-content" id="node-palette">
+                            <div class="palette-category">
+                                <div class="palette-category-header" onclick="window.mcp.togglePaletteCategory('triggers')">
+                                    <span class="palette-toggle">▼</span>
+                                    <span>⚡ Triggers</span>
+                                </div>
+                                <div class="palette-category-items" id="palette-triggers">
+                                    <div class="palette-node" draggable="true" data-node-type="trigger-manual" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">▶️</span>
+                                        <span>Manual Start</span>
+                                    </div>
+                                    <div class="palette-node" draggable="true" data-node-type="trigger-signal" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">📡</span>
+                                        <span>D-Bus Signal</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="palette-category">
+                                <div class="palette-category-header" onclick="window.mcp.togglePaletteCategory('dbus')">
+                                    <span class="palette-toggle">▼</span>
+                                    <span>📞 D-Bus Calls</span>
+                                </div>
+                                <div class="palette-category-items" id="palette-dbus">
+                                    <div class="palette-node" draggable="true" data-node-type="dbus-method" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">🔧</span>
+                                        <span>Method Call</span>
+                                    </div>
+                                    <div class="palette-node" draggable="true" data-node-type="dbus-property-get" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">📋</span>
+                                        <span>Get Property</span>
+                                    </div>
+                                    <div class="palette-node" draggable="true" data-node-type="dbus-property-set" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">✏️</span>
+                                        <span>Set Property</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="palette-category">
+                                <div class="palette-category-header" onclick="window.mcp.togglePaletteCategory('logic')">
+                                    <span class="palette-toggle">▼</span>
+                                    <span>🔀 Logic</span>
+                                </div>
+                                <div class="palette-category-items" id="palette-logic">
+                                    <div class="palette-node" draggable="true" data-node-type="condition" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">❓</span>
+                                        <span>Condition</span>
+                                    </div>
+                                    <div class="palette-node" draggable="true" data-node-type="transform" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">🔄</span>
+                                        <span>Transform</span>
+                                    </div>
+                                    <div class="palette-node" draggable="true" data-node-type="delay" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">⏱️</span>
+                                        <span>Delay</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="palette-category">
+                                <div class="palette-category-header" onclick="window.mcp.togglePaletteCategory('output')">
+                                    <span class="palette-toggle">▼</span>
+                                    <span>📤 Output</span>
+                                </div>
+                                <div class="palette-category-items" id="palette-output">
+                                    <div class="palette-node" draggable="true" data-node-type="output-log" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">📝</span>
+                                        <span>Log Output</span>
+                                    </div>
+                                    <div class="palette-node" draggable="true" data-node-type="output-notification" ondragstart="window.mcp.onNodeDragStart(event)">
+                                        <span class="node-icon">🔔</span>
+                                        <span>Notification</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="workflow-legend">
-                        <h4>Legend</h4>
-                        <div class="legend-items">
-                            <div class="legend-item">
-                                <div class="legend-color" style="background: #3b82f6;"></div>
-                                <span>D-Bus Services</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color" style="background: #10b981;"></div>
-                                <span>Systemd Services</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color" style="background: #f59e0b;"></div>
-                                <span>Network Services</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color" style="background: #8b5cf6;"></div>
-                                <span>Kernel Components</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color" style="background: #ef4444;"></div>
-                                <span>Container Services</span>
+                    <!-- Center: Canvas -->
+                    <div class="workflow-canvas-container">
+                        <svg id="workflow-canvas" class="workflow-canvas"
+                             ondrop="window.mcp.onCanvasDrop(event)"
+                             ondragover="window.mcp.onCanvasDragOver(event)"
+                             onmousedown="window.mcp.onCanvasMouseDown(event)"
+                             onmousemove="window.mcp.onCanvasMouseMove(event)"
+                             onmouseup="window.mcp.onCanvasMouseUp(event)">
+                            <!-- Connections layer -->
+                            <g id="connections-layer"></g>
+                            <!-- Nodes layer -->
+                            <g id="nodes-layer"></g>
+                        </svg>
+                        <div class="canvas-hint" id="canvas-hint">
+                            <div class="placeholder-icon">⚙️</div>
+                            <h3>Drag & Drop to Build</h3>
+                            <p>Drag nodes from the palette onto the canvas</p>
+                            <p>Click and drag between node ports to connect them</p>
+                            <p>Click a node to edit its properties</p>
+                        </div>
+                    </div>
+
+                    <!-- Right Sidebar: Node Properties -->
+                    <div class="workflow-properties">
+                        <div class="properties-header">
+                            <h3>Node Properties</h3>
+                        </div>
+                        <div class="properties-content" id="node-properties">
+                            <div class="properties-placeholder">
+                                <p>Select a node to edit its properties</p>
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- Workflow Execution Output -->
+                <div class="workflow-output" id="workflow-output" style="display: none;">
+                    <div class="output-header">
+                        <h4>Execution Output</h4>
+                        <button class="btn btn-xs" onclick="document.getElementById('workflow-output').style.display='none'">✕</button>
+                    </div>
+                    <div class="output-content" id="workflow-output-content"></div>
                 </div>
             </section>
 

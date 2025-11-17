@@ -1179,3 +1179,371 @@ body {
         gap: 16px;
     }
 }
+/* Discovery Tree Styles */
+.discovery-tree {
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 13px;
+}
+
+.tree-node {
+    margin: 2px 0;
+}
+
+.tree-node-header {
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+    gap: 8px;
+}
+
+.tree-node-header:hover {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.service-node > .tree-node-header {
+    background: rgba(59, 130, 246, 0.05);
+    font-weight: 500;
+}
+
+.service-node > .tree-node-header:hover {
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.tree-toggle {
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.tree-icon {
+    flex-shrink: 0;
+    font-size: 16px;
+}
+
+.tree-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tree-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.badge-method {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.badge-property {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+}
+
+.badge-signal {
+    background: rgba(139, 92, 246, 0.15);
+    color: #8b5cf6;
+}
+
+.tree-type {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+.tree-access {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.1);
+    color: #6b7280;
+}
+
+.tree-children {
+    margin-left: 20px;
+    border-left: 1px solid rgba(107, 114, 128, 0.2);
+    padding-left: 8px;
+}
+
+.method-node .tree-node-header,
+.property-node .tree-node-header,
+.signal-node .tree-node-header {
+    cursor: default;
+    padding: 4px 8px;
+}
+
+.method-node .tree-node-header:hover,
+.property-node .tree-node-header:hover,
+.signal-node .tree-node-header:hover {
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.discovery-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.discovery-placeholder {
+    text-align: center;
+    padding: 60px 20px;
+    color: #9ca3af;
+}
+
+.stat-item {
+    text-align: center;
+}
+
+.stat-label {
+    font-size: 12px;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #3b82f6;
+    margin-top: 4px;
+}
+
+/* Workflow Builder Styles */
+.workflow-builder {
+    display: grid;
+    grid-template-columns: 250px 1fr 300px;
+    gap: 15px;
+    height: 600px;
+}
+
+.workflow-palette {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.palette-header {
+    padding: 15px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.palette-header h3 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.palette-content {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.palette-category {
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.palette-category-header {
+    padding: 10px 15px;
+    background: #f3f4f6;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    font-size: 13px;
+}
+
+.palette-category-header:hover {
+    background: #e5e7eb;
+}
+
+.palette-toggle {
+    font-size: 10px;
+    color: #6b7280;
+}
+
+.palette-category-items {
+    padding: 5px;
+}
+
+.palette-node {
+    padding: 8px 12px;
+    margin: 3px 0;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.palette-node:hover {
+    background: #f9fafb;
+    border-color: #3b82f6;
+    transform: translateX(4px);
+}
+
+.palette-node:active {
+    cursor: grabbing;
+}
+
+.node-icon {
+    font-size: 16px;
+}
+
+.workflow-canvas-container {
+    position: relative;
+    background: white;
+    border: 2px dashed #d1d5db;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.workflow-canvas {
+    width: 100%;
+    height: 100%;
+    background-image: 
+        linear-gradient(#e5e7eb 1px, transparent 1px),
+        linear-gradient(90deg, #e5e7eb 1px, transparent 1px);
+    background-size: 20px 20px;
+    cursor: default;
+}
+
+.canvas-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+.canvas-hint h3 {
+    margin: 10px 0;
+    color: #6b7280;
+}
+
+.workflow-node {
+    cursor: move;
+}
+
+.workflow-node:hover rect {
+    stroke: #3b82f6;
+    stroke-width: 2;
+}
+
+.node-port {
+    cursor: pointer;
+    transition: r 0.2s;
+}
+
+.node-port:hover {
+    r: 8;
+}
+
+.workflow-connection {
+    pointer-events: none;
+}
+
+.workflow-properties {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.properties-header {
+    padding: 15px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.properties-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.properties-content {
+    flex: 1;
+    padding: 15px;
+    overflow-y: auto;
+}
+
+.properties-placeholder {
+    text-align: center;
+    color: #9ca3af;
+    padding: 40px 20px;
+}
+
+.property-group {
+    margin-bottom: 15px;
+}
+
+.property-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #4b5563;
+    margin-bottom: 5px;
+}
+
+.property-actions {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.workflow-output {
+    margin-top: 15px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.output-header {
+    padding: 10px 15px;
+    background: #f3f4f6;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.output-header h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.output-content {
+    padding: 15px;
+    font-family: 'SF Mono', 'Monaco', monospace;
+    font-size: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.output-line {
+    padding: 4px 0;
+}
