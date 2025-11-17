@@ -2,6 +2,8 @@
 
 #[path = "../mcp/tool_registry.rs"]
 mod tool_registry;
+#[path = "../mcp/introspection_tools.rs"]
+mod introspection_tools;
 
 mod resources;
 mod llm_agents;
@@ -407,6 +409,51 @@ impl McpServer {
             .build();
 
         registry.register_tool(Box::new(list_commands_tool)).await?;
+
+        // Register comprehensive introspection tools (with hierarchical D-Bus discovery)
+        use op_dbus::mcp::tools::introspection;
+        for mcptool in introspection::register_introspection_tools() {
+            // Convert McpTool to Tool trait using DynamicToolBuilder
+            let tool_name = mcptool.name().to_string();
+            let description = mcptool.description().to_string();
+            let parameters = mcptool.parameters().to_vec();
+
+            let tool = DynamicToolBuilder::new(&tool_name)
+                .description(&description)
+                .schema({
+                    let mut schema = json!({
+                        "type": "object",
+                        "properties": {}
+                    });
+                    for param in &parameters {
+                        schema["properties"][&param.name] = json!({
+                            "type": param.type_,
+                            "description": param.description
+                        });
+                        if !param.required {
+                            if let Some(req) = schema.get_mut("required") {
+                                if let Some(arr) = req.as_array_mut() {
+                                    arr.retain(|x| x != &param.name);
+                                }
+                            }
+                        }
+                    }
+                    schema
+                })
+                .handler(move |params| {
+                    let tool_name_clone = tool_name.clone();
+                    Box::pin(async move {
+                        // For now, just return a placeholder - the real hierarchical tools need more work
+                        Ok(ToolResult::success(ToolContent::text(format!(
+                            "Hierarchical D-Bus introspection tool '{}' is available but needs implementation integration",
+                            tool_name_clone
+                        ))))
+                    })
+                })
+                .build();
+
+            registry.register_tool(Box::new(tool)).await?;
+        }
 
         Ok(())
     }

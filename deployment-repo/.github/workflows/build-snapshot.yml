@@ -1,0 +1,168 @@
+name: Build Deployment Snapshot
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., v1.2.3)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  validate-and-build:
+    runs-on: [self-hosted, btrfs-deploy]
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout deployment repository
+        uses: actions/checkout@v4
+        with:
+          path: deployment-repo
+
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+        with:
+          repository: repr0bated/operation-dbus
+          path: operation-dbus
+
+      - name: Set version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Validate build environment
+        run: |
+          cd deployment-repo
+          sudo ./scripts/pre-deploy/validate-source.sh
+
+      - name: Update golden environment
+        run: |
+          # Build op-dbus from source
+          cd operation-dbus
+          cargo build --release
+
+          # Install to golden environment
+          sudo mkdir -p /mnt/op-dbus-golden
+          sudo mount -o subvol=@op-dbus-golden /dev/mapper/vg0-root /mnt/op-dbus-golden 2>/dev/null || \
+          sudo mount -o subvol=@op-dbus-golden /dev/vda1 /mnt/op-dbus-golden
+
+          sudo make install DESTDIR=/mnt/op-dbus-golden
+
+          # Update dependencies
+          sudo chroot /mnt/op-dbus-golden apt update
+          sudo chroot /mnt/op-dbus-golden apt upgrade -y
+
+          # Clean up
+          sudo umount /mnt/op-dbus-golden
+
+      - name: Create deployment snapshot
+        run: |
+          cd deployment-repo
+          sudo ./btrfs/scripts/create-snapshot.sh ${{ env.VERSION }}
+
+      - name: Generate send stream
+        run: |
+          cd deployment-repo
+          sudo ./btrfs/scripts/send-snapshot.sh ${{ env.VERSION }} > op-dbus-${{ env.VERSION }}.send
+
+      - name: Calculate checksum
+        run: |
+          sha256sum op-dbus-${{ env.VERSION }}.send > op-dbus-${{ env.VERSION }}.send.sha256
+
+      - name: Create release archive
+        run: |
+          tar -czf op-dbus-${{ env.VERSION }}-deployment.tar.gz \
+            deployment-repo/btrfs/snapshots/${{ env.VERSION }}.json \
+            op-dbus-${{ env.VERSION }}.send.sha256
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Operation D-Bus ${{ env.VERSION }}
+          body: |
+            ## Deployment Release ${{ env.VERSION }}
+
+            This release contains a Btrfs snapshot for deploying Operation D-Bus ${{ env.VERSION }}.
+
+            ### Installation
+
+            ```bash
+            # Download the send stream
+            wget https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/op-dbus-${{ env.VERSION }}.send
+
+            # Verify checksum
+            wget https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/op-dbus-${{ env.VERSION }}.send.sha256
+            sha256sum -c op-dbus-${{ env.VERSION }}.send.sha256
+
+            # Receive the snapshot
+            sudo btrfs receive /var/lib/op-dbus/deploy < op-dbus-${{ env.VERSION }}.send
+
+            # Mount the deployment
+            sudo ./scripts/post-deploy/mount-deployment.sh ${{ env.VERSION }}
+            ```
+          files: |
+            op-dbus-${{ env.VERSION }}.send
+            op-dbus-${{ env.VERSION }}.send.sha256
+            op-dbus-${{ env.VERSION }}-deployment.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          # Build Docker image from the golden environment
+          sudo mkdir -p /mnt/op-dbus-golden
+          sudo mount -o subvol=@op-dbus-golden /dev/mapper/vg0-root /mnt/op-dbus-golden 2>/dev/null || \
+          sudo mount -o subvol=@op-dbus-golden /dev/vda1 /mnt/op-dbus-golden
+
+          # Create Dockerfile
+          cat > /tmp/Dockerfile << 'EOF'
+          FROM ubuntu:22.04
+          COPY . /opt/op-dbus/
+          RUN ln -sf /opt/op-dbus/usr/local/bin/op-dbus /usr/local/bin/op-dbus && \
+              ln -sf /opt/op-dbus/lib/systemd/system/op-dbus.service /lib/systemd/system/op-dbus.service
+          ENTRYPOINT ["/usr/local/bin/op-dbus"]
+          EOF
+
+          # Build and push
+          docker build -f /tmp/Dockerfile -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} /mnt/op-dbus-golden
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+
+          # Also tag as latest if this is the highest version
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+          sudo umount /mnt/op-dbus-golden
+
+      - name: Update golden environment cleanup
+        if: always()
+        run: |
+          # Clean up old snapshots (keep last 3)
+          cd deployment-repo
+          sudo ./btrfs/scripts/cleanup-snapshots.sh 3
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: validate-and-build
+    if: always()
+
+    steps:
+      - name: Notify on failure
+        if: needs.validate-and-build.result == 'failure'
+        run: |
+          echo "Deployment build failed for version ${{ env.VERSION }}"
+          # Add notification logic here (Slack, email, etc.)

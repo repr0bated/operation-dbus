@@ -1,7 +1,8 @@
-//! MCP Chat Server - DeepSeek Integration
+//! MCP Chat Server - AI Integration
 //! Uses the existing chat_server.rs infrastructure
-//! 
-//! Run with: OLLAMA_API_KEY=your-key cargo run --bin mcp_chat
+//!
+//! Run with: OLLAMA_API_KEY=your-key OLLAMA_DEFAULT_MODEL=model-name cargo run --bin mcp_chat
+//! Example models: deepseek-v3.1:671b-cloud, llama2, mistral, etc.
 
 use axum::{response::Redirect, routing::get, Router};
 use std::net::SocketAddr;
@@ -19,17 +20,21 @@ use op_dbus::mcp::tool_registry::ToolRegistry;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    println!("🚀 Starting MCP Chat Server with DeepSeek Integration...\n");
+    println!("🚀 Starting MCP Chat Server with AI Integration...\n");
 
-    // Get API key from environment
+    // Get API key and model from environment
     let api_key = std::env::var("OLLAMA_API_KEY")
         .expect("OLLAMA_API_KEY must be set. Run: export OLLAMA_API_KEY=your-key");
 
-    println!("✅ OLLAMA_API_KEY loaded");
+    let model = std::env::var("OLLAMA_DEFAULT_MODEL")
+        .unwrap_or_else(|_| "llama2".to_string());
 
-    // Initialize Ollama client for DeepSeek Cloud
-    println!("🔌 Connecting to Ollama/DeepSeek...");
-    let ollama_client = OllamaClient::cloud(api_key);
+    println!("✅ OLLAMA_API_KEY loaded");
+    println!("✅ Using model: {}", model);
+
+    // Initialize Ollama client
+    println!("🔌 Connecting to Ollama...");
+    let ollama_client = OllamaClient::cloud(api_key).with_default_model(model.clone());
 
     // Test connection
     match ollama_client.health_check().await {
@@ -55,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
     let chat_state = ChatServerState::new(tool_registry, agent_registry)
         .with_ollama_client(ollama_client);
 
-    println!("✅ DeepSeek AI integrated");
+    println!("✅ AI integrated");
 
     // Web directory for UI
     let web_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -86,11 +91,11 @@ async fn main() -> anyhow::Result<()> {
     println!("   WebSocket: ws://server:8080/ws");
     println!("   POST /api/suggestions");
     println!("   POST /api/history");
-    println!("\n🤖 DeepSeek Model: deepseek-v3.1:671b-cloud");
+    println!("\n🤖 AI Model: {}", model);
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("\nFeatures:");
     println!("  ✓ Natural language command processing");
-    println!("  ✓ DeepSeek AI with full system context");
+    println!("  ✓ AI with full system context");
     println!("  ✓ Hardware introspection (CPU, BIOS, IOMMU)");
     println!("  ✓ ISP/Provider analysis");
     println!("  ✓ MCP tool execution");

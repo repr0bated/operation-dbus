@@ -1,4 +1,4 @@
-// Minimal DeepSeek chat server - bypasses broken mcp modules
+// Minimal AI chat server - bypasses broken mcp modules
 // Run with: cargo run --bin minimal_chat --features web
 
 use axum::{
@@ -15,7 +15,7 @@ use tower_http::services::ServeDir;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    println!("🚀 Starting Minimal DeepSeek Chat Server...");
+    println!("🚀 Starting Minimal AI Chat Server...");
 
     // Check for API key
     if std::env::var("OLLAMA_API_KEY").is_err() {

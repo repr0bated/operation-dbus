@@ -5,10 +5,24 @@ const path = require('path');
 const WebSocket = require('ws');
 const { createServer } = require('http');
 
+// Rate limiting for Ollama API calls
+let lastApiCall = 0;
+const MIN_API_INTERVAL = 5000; // 5 seconds between API calls (more conservative)
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 3;
+let backoffMultiplier = 1;
+let lastSuccessfulCall = 0;
+
 const app = express();
 const PORT = 8080;
 const BIND_IP = '0.0.0.0'; // Listen on all interfaces
-const OLLAMA_API_KEY = '1e4ffc3e35d14302ae8c38a3b88afbdf.6rcSE8GW_DsKPquVev9o7obK';
+const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || '';
+const OLLAMA_MODEL = process.env.OLLAMA_DEFAULT_MODEL || process.env.OLLAMA_MODEL || 'llama2';
+
+// Ollama Configuration
+const OLLAMA_USE_CLOUD = process.env.OLLAMA_USE_CLOUD === 'true' || process.env.OLLAMA_API_KEY;
+const OLLAMA_BASE_URL = OLLAMA_USE_CLOUD ? 'https://ollama.com' : 'http://localhost:11434';
+
 
 // Forbidden Commands List - ONLY OVS/OpenFlow and network configuration commands
 // These commands have native protocol alternatives via D-Bus/OVSDB that MUST be used instead
@@ -57,6 +71,67 @@ function isCommandForbidden(command) {
     }
 
     return false;
+}
+
+// Rate limiting function for Ollama API calls
+async function rateLimitedApiCall(apiCallFn, description = 'API call') {
+    try {
+        const now = Date.now();
+        const timeSinceLastSuccessfulCall = now - lastSuccessfulCall;
+
+        // Reset backoff if it's been a while since last success (5 minutes)
+        if (timeSinceLastSuccessfulCall > 300000 && backoffMultiplier > 1) {
+            console.log(`🔄 Resetting backoff multiplier (was ${backoffMultiplier}x) after ${timeSinceLastSuccessfulCall/1000}s`);
+            backoffMultiplier = 1;
+            consecutiveErrors = 0;
+        }
+
+        // Check if we're within rate limit
+        const timeSinceLastCall = now - lastApiCall;
+        const requiredInterval = MIN_API_INTERVAL * backoffMultiplier;
+
+        if (timeSinceLastCall < requiredInterval) {
+            const waitTime = requiredInterval - timeSinceLastCall;
+            console.log(`⏳ Rate limiting: Waiting ${waitTime}ms before ${description} (backoff: ${backoffMultiplier}x)`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+
+        console.log(`🚀 Making ${description} (backoff: ${backoffMultiplier}x, errors: ${consecutiveErrors})`);
+        lastApiCall = Date.now();
+
+        const result = await apiCallFn();
+
+        // Success - reset counters and update last successful call
+        consecutiveErrors = 0;
+        lastSuccessfulCall = Date.now();
+        backoffMultiplier = Math.max(1, backoffMultiplier - 0.5); // Gradually reduce backoff
+
+        console.log(`✅ ${description} successful`);
+        return result;
+
+    } catch (error) {
+        consecutiveErrors++;
+        console.error(`❌ ${description} failed (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}): ${error.message}`);
+
+        if (error.response?.status === 429) {
+            // Rate limited - exponential backoff
+            const oldMultiplier = backoffMultiplier;
+            backoffMultiplier = Math.min(20, backoffMultiplier * 2); // Cap at 20x
+            console.log(`📊 Rate limit hit - backoff: ${oldMultiplier}x → ${backoffMultiplier}x`);
+
+            // If we haven't exceeded max errors, retry with increased backoff
+            if (consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
+                console.log(`🔄 Retrying ${description} in ${MIN_API_INTERVAL * backoffMultiplier}ms...`);
+                await new Promise(resolve => setTimeout(resolve, MIN_API_INTERVAL * backoffMultiplier));
+                return await rateLimitedApiCall(apiCallFn, description);
+            } else {
+                console.log(`🚫 Max retries exceeded for ${description}`);
+            }
+        }
+
+        // Re-throw the error
+        throw error;
+    }
 }
 
 // 🔒 SYSTEM-WIDE FORBIDDEN COMMAND ENFORCEMENT 🔒
@@ -223,26 +298,65 @@ async function startMcpServer() {
         });
 
         let initialized = false;
+        let buffer = '';
 
         mcpProcess.stdout.on('data', (data) => {
-            if (!initialized) {
-                console.log('✅ MCP server started successfully');
-                initialized = true;
-                resolve();
+            // Accumulate data and look for initialization message
+            buffer += data.toString();
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                
+                // Look for init message or any valid JSON-RPC response
+                try {
+                    const msg = JSON.parse(line);
+                    if (!initialized) {
+                        console.log('✅ MCP server started successfully');
+                        console.log('📊 MCP Init:', msg);
+                        initialized = true;
+                        
+                        // Send initialize request
+                        const initRequest = {
+                            jsonrpc: '2.0',
+                            id: 'init',
+                            method: 'initialize',
+                            params: {
+                                protocolVersion: '2024-11-05',
+                                capabilities: {}
+                            }
+                        };
+                        mcpProcess.stdin.write(JSON.stringify(initRequest) + '\n');
+                        
+                        setTimeout(() => resolve(), 500);
+                    }
+                } catch (e) {
+                    // Not JSON, might be stderr output
+                    if (line.includes('MCP') || line.includes('loaded') || line.includes('resources')) {
+                        console.log('📋 MCP:', line);
+                    }
+                }
             }
         });
 
         mcpProcess.stderr.on('data', (data) => {
-            console.log('MCP stderr:', data.toString());
+            const msg = data.toString();
+            // Log important messages
+            if (msg.includes('loaded') || msg.includes('resources') || msg.includes('tools')) {
+                console.log('📋 MCP Info:', msg.trim());
+            }
         });
 
         mcpProcess.on('error', (error) => {
             console.error('Failed to start MCP server:', error);
+            mcpProcess = null;
             reject(error);
         });
 
         mcpProcess.on('close', (code) => {
             console.log(`MCP server exited with code ${code}`);
+            mcpProcess = null;
         });
 
         // Give it a moment to start
@@ -251,7 +365,7 @@ async function startMcpServer() {
                 console.log('MCP server started (timeout)');
                 resolve();
             }
-        }, 2000);
+        }, 3000);
     });
 }
 
@@ -373,31 +487,61 @@ async function performSystemDiscovery(includePackages = false, detectProvider = 
 }
 
 async function callMcpTool(method, params = {}) {
-    // Since MCP binary has build issues, implement core tools directly
-    if (method === 'tools/list') {
-        return {
-            tools: [
-                {
-                    name: 'discover_system',
-                    description: 'Introspect system hardware, CPU features, BIOS locks, and service configuration',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            include_packages: { type: 'boolean', description: 'Include installed packages' },
-                            detect_provider: { type: 'boolean', description: 'Detect ISP/cloud provider' }
-                        }
-                    }
-                }
-            ]
-        };
-    } else if (method === 'tools/call' && params.name === 'discover_system') {
-        return await performSystemDiscovery(
-            params.arguments?.include_packages,
-            params.arguments?.detect_provider
-        );
+    // Communicate with MCP binary via JSON-RPC 2.0
+    if (!mcpProcess) {
+        throw new Error('MCP server not running');
     }
 
-    throw new Error('Tool not implemented');
+    return new Promise((resolve, reject) => {
+        const requestId = Math.random().toString(36).substring(7);
+        
+        // Create JSON-RPC 2.0 request
+        const request = {
+            jsonrpc: '2.0',
+            id: requestId,
+            method: method,
+            params: params
+        };
+
+        console.log('🔄 MCP Request:', JSON.stringify(request));
+
+        // Set up response handler
+        const responseHandler = (data) => {
+            try {
+                const lines = data.toString().split('\n');
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    
+                    const response = JSON.parse(line);
+                    if (response.id === requestId) {
+                        mcpProcess.stdout.removeListener('data', responseHandler);
+                        
+                        if (response.error) {
+                            console.error('❌ MCP Error:', response.error);
+                            reject(new Error(response.error.message));
+                        } else {
+                            console.log('✅ MCP Response received');
+                            resolve(response.result);
+                        }
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to parse MCP response:', e);
+            }
+        };
+
+        mcpProcess.stdout.on('data', responseHandler);
+
+        // Send request to MCP
+        mcpProcess.stdin.write(JSON.stringify(request) + '\n');
+
+        // Timeout after 5 seconds
+        setTimeout(() => {
+            mcpProcess.stdout.removeListener('data', responseHandler);
+            reject(new Error('MCP request timeout'));
+        }, 5000);
+    });
 }
 
 // System tools endpoint - now gets real tools from MCP
@@ -668,6 +812,14 @@ app.post('/api/tools/execute', async (req, res) => {
 
         console.log(`🔧 Executing tool: ${tool}`, parameters);
 
+        // Add brief delay between tool executions to prevent rate limiting
+        if (lastApiCall > 0) {
+            const timeSinceLastCall = Date.now() - lastApiCall;
+            if (timeSinceLastCall < 500) { // 500ms minimum between tool calls
+                await new Promise(resolve => setTimeout(resolve, 500 - timeSinceLastCall));
+            }
+        }
+
         // ✅ Tool parameters are already checked system-wide by middleware
 
         let result;
@@ -683,7 +835,7 @@ app.post('/api/tools/execute', async (req, res) => {
                     // Standard format
                     Object.assign(mcpParams, parameters);
                 } else if (parameters.bridge) {
-                    // Alternative format that DeepSeek might use
+                    // Alternative format that the AI model might use
                     mcpParams.bridge_name = parameters.bridge;
                     mcpParams.config = { ...parameters };
                     delete mcpParams.config.bridge;
@@ -871,7 +1023,7 @@ app.post('/api/chat', async (req, res) => {
         const availableTools = toolsResponse.data.data.tools || [];
 
         // Create system prompt with tool awareness
-        const systemPrompt = `You are DeepSeek, an AI assistant that helps configure systems using native protocols.
+        const systemPrompt = `You are an AI assistant that helps configure systems using native protocols.
 
 🔒 **PROTOCOL ENFORCEMENT** 🔒
 For networking and system configuration, prefer native protocols over CLI tools:
@@ -882,37 +1034,50 @@ For networking and system configuration, prefer native protocols over CLI tools:
 Available Native Protocol Tools:
 ${availableTools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
 
-**CRITICAL CONFIGURATION RULE:** When users ask to configure or finish configuring ANY bridge, respond ONLY with this JSON:
-{"tool_call": {"name": "configure_bridge", "parameters": {"bridge": "ovsbr0", "system-id": "production-bridge-001", "datapath-id": "0000000000000001", "fail-mode": "secure", "protocols": ["OpenFlow13", "OpenFlow14", "OpenFlow15"], "external_ids": {"description": "Production Bridge", "managed_by": "operation-dbus"}}}}
+**TOOL CALLING INSTRUCTIONS:**
+When a user asks you to USE, EXECUTE, or RUN a tool, respond with ONLY a JSON object in this format:
+{"tool_call": {"name": "tool_name", "parameters": {...}}}
+
+**TOOL CALL EXAMPLES:**
+- For "discover my system": {"tool_call": {"name": "discover_system", "parameters": {}}}
+- For "list OVS bridges": {"tool_call": {"name": "list_ovs_bridges", "parameters": {}}}
+- For "get bridge info for ovsbr0": {"tool_call": {"name": "get_bridge_info", "parameters": {"bridge_name": "ovsbr0"}}}
+- For "configure bridge": {"tool_call": {"name": "configure_bridge", "parameters": {"bridge_name": "ovsbr0", ...}}}
+
+**IMPORTANT:** 
+- When asked to discover/analyze/inspect the system, call discover_system tool
+- When asked about bridges, call list_ovs_bridges or get_bridge_info
+- Respond with ONLY the JSON, no extra text
+- For general questions, respond normally with text
 
 **ALLOWED PROTOCOLS ONLY:**
 - D-Bus: dbus_introspect, dbus_call, systemd_manage
 - JSON-RPC: json_rpc_call, list_ovs_bridges, get_bridge_info, get_bridge_ports, configure_bridge
-- System Files: read_procfs, read_sysfs, kernel_parameters, device_info
+- System Files: read_procfs, read_sysfs, kernel_parameters, device_info`;
 
-**For analysis or other questions, provide normal responses. Never suggest forbidden commands.**`;
-
-        // Call Mistral-Small3.2 via LOCAL Ollama with tool awareness
-        const response = await axios.post('http://localhost:11434/api/chat', {
-            model: 'mistral-small3.2',
-            messages: [
-                {
-                    role: 'system',
-                    content: systemPrompt
+        // Call Ollama with tool awareness using rate limiting
+        const response = await rateLimitedApiCall(async () => {
+            return await axios.post(`${OLLAMA_BASE_URL}/api/chat`, {
+                model: OLLAMA_MODEL,
+                messages: [
+                    {
+                        role: 'system',
+                        content: systemPrompt
+                    },
+                    {
+                        role: 'user',
+                        content: message
+                    }
+                ],
+                stream: false
+            }, {
+                headers: {
+                    ...(OLLAMA_USE_CLOUD ? { 'Authorization': `Bearer ${OLLAMA_API_KEY}` } : {}),
+                    'Content-Type': 'application/json'
                 },
-                {
-                    role: 'user',
-                    content: message
-                }
-            ],
-            stream: false
-        }, {
-            headers: {
-                // 'Authorization': `Bearer ${OLLAMA_API_KEY}`,  // Not needed for local Ollama
-                'Content-Type': 'application/json'
-            },
-            timeout: 120000 // 120 seconds timeout for complex system analysis
-        });
+                timeout: 120000 // 120 seconds timeout for complex system analysis
+            });
+        }, 'Ollama chat API');
 
         console.log('🔍 Ollama response:', JSON.stringify(response.data).substring(0, 200));
 
@@ -921,9 +1086,9 @@ ${availableTools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
         }
 
         let aiResponse = response.data.message.content;
-        console.log(`🤖 DeepSeek: ${aiResponse.substring(0, 100)}...`);
+        console.log(`🤖 AI: ${aiResponse.substring(0, 100)}...`);
 
-        // Check if DeepSeek wants to use a tool
+        // Check if AI wants to use a tool
         let toolResult = null;
 
         // 🔒 VALIDATE AI RESPONSE BEFORE PROCESSING 🔒
@@ -1031,55 +1196,62 @@ ${availableTools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
                 `Tool: ${tr.tool}\n${tr.error ? `Error: ${tr.error}` : `Result: ${JSON.stringify(tr.result, null, 2).substring(0, 500)}...`}`
             ).join('\n\n');
 
-            const followUpResponse = await axios.post('http://localhost:11434/api/chat', {
-                model: 'mistral-small3.2',
-                messages: [
-                    {
-                        role: 'system',
-                        content: systemPrompt
+            const followUpResponse = await rateLimitedApiCall(async () => {
+                return await axios.post(`${OLLAMA_BASE_URL}/api/chat`, {
+                    model: OLLAMA_MODEL,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: systemPrompt
+                        },
+                        {
+                            role: 'user',
+                            content: message
+                        },
+                        {
+                            role: 'assistant',
+                            content: `I executed multiple tools and gathered comprehensive data:\n\n${resultsSummary}`
+                        },
+                        {
+                            role: 'user',
+                            content: 'Please analyze all this data and provide a comprehensive system and network analysis with insights and recommendations.'
+                        }
+                    ],
+                    stream: false
+                }, {
+                    headers: {
+                        ...(OLLAMA_USE_CLOUD ? { 'Authorization': `Bearer ${OLLAMA_API_KEY}` } : {}),
+                        'Content-Type': 'application/json'
                     },
-                    {
-                        role: 'user',
-                        content: message
-                    },
-                    {
-                        role: 'assistant',
-                        content: `I executed multiple tools and gathered comprehensive data:\n\n${resultsSummary}`
-                    },
-                    {
-                        role: 'user',
-                        content: 'Please analyze all this data and provide a comprehensive system and network analysis with insights and recommendations.'
-                    }
-                ],
-                stream: false
-            }, {
-                headers: {
-                    // 'Authorization': `Bearer ${OLLAMA_API_KEY}`,  // Not needed for local Ollama
-                    'Content-Type': 'application/json'
-                },
-                timeout: 45000 // 45 seconds for comprehensive analysis
-            });
+                    timeout: 45000 // 45 seconds for comprehensive analysis
+                });
+            }, 'Ollama follow-up analysis');
 
             aiResponse = followUpResponse.data.message.content;
             toolResult = toolResults;
-            console.log(`🤖 DeepSeek comprehensive analysis: ${aiResponse.substring(0, 100)}...`);
+            console.log(`🤖 AI comprehensive analysis: ${aiResponse.substring(0, 100)}...`);
         }
 
         // 🔒 VALIDATE CHAT RESPONSE BEFORE RETURNING 🔒
         // NOTE: AI responses are educational/explanatory text
-        // Validation disabled to allow DeepSeek to explain concepts
+        // Validation disabled to allow AI to explain concepts
         // Tool execution is still validated separately
 
         res.json({
             success: true,
             message: aiResponse,
             timestamp: Date.now(),
-            model: 'mistral-small3.2',
+            model: OLLAMA_MODEL,
             tools_used: toolResult ? [toolResult] : []
         });
 
     } catch (error) {
-        console.error('❌ DeepSeek API Error:', error.message);
+        const isRateLimit = error.response?.status === 429;
+        console.error(`${isRateLimit ? '⏳' : '❌'} AI API Error:`, error.message);
+
+        if (isRateLimit) {
+            console.log(`📊 Rate limit status - Backoff: ${backoffMultiplier}x, Consecutive errors: ${consecutiveErrors}`);
+        }
 
         // 🔒 VALIDATE ERROR RESPONSE BEFORE RETURNING 🔒
         try {
@@ -1096,7 +1268,7 @@ ${availableTools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
 
         res.status(500).json({
             success: false,
-            error: error.message || 'Failed to get response from DeepSeek',
+            error: error.message || 'Failed to get response from AI',
             timestamp: Date.now()
         });
     }
@@ -1945,7 +2117,7 @@ let discoveredServices = [
     // Default services shown initially
     { name: 'dbus-mcp', path: '/usr/local/bin', category: 'Application' },
     { name: 'operation-dbus', path: '/git/operation-dbus', category: 'Application' },
-    { name: 'deepseek-chat', path: '/usr/local/bin', category: 'Application' }
+    { name: 'ai-chat', path: '/usr/local/bin', category: 'Application' }
 ];
 
 // Discovery endpoints
@@ -2058,7 +2230,7 @@ app.get('/api/logs', (req, res) => {
             {
                 timestamp: new Date(Date.now() - 240000).toISOString(),
                 level: 'info',
-                message: 'Connected to DeepSeek AI service'
+                message: 'Connected to AI service'
             },
             {
                 timestamp: new Date(Date.now() - 180000).toISOString(),
@@ -2122,7 +2294,7 @@ app.get('/api/health', (req, res) => {
         server_ip: serverIP,
         uptime: process.uptime(),
         memory: process.memoryUsage(),
-        model: 'deepseek-chat',
+        model: process.env.OLLAMA_MODEL || OLLAMA_MODEL,
         version: '1.0.0'
     });
 });
@@ -2204,11 +2376,11 @@ server.listen(PORT, BIND_IP, () => {
     }
 
     console.log('╔══════════════════════════════════════╗');
-    console.log('║         DeepSeek Chat Server         ║');
+    console.log('║         AI Chat Server         ║');
     console.log('╚══════════════════════════════════════╝');
     console.log(`🌐 Server IP: ${serverIP}:${PORT}`);
     console.log(`🌐 Local access: http://localhost:${PORT}`);
-    console.log('🤖 DeepSeek Model: deepseek-chat');
+    console.log(`🤖 AI Model: ${OLLAMA_MODEL}`);
     console.log('🔌 WebSocket: Enabled for real-time updates');
     console.log('🚀 Server is running! Press Ctrl+C to stop');
     console.log();
@@ -2219,7 +2391,7 @@ server.listen(PORT, BIND_IP, () => {
 // Graceful shutdown
 process.on('SIGINT', () => {
     console.log();
-    console.log('👋 Shutting down DeepSeek Chat Server...');
+    console.log('👋 Shutting down AI Chat Server...');
     console.log('💾 Saving state...');
     console.log('🔌 Closing connections...');
     console.log('✅ Shutdown complete. Goodbye!');
@@ -2232,7 +2404,7 @@ process.on('SIGTERM', () => {
     process.exit(0);
 });
 
-console.log('🚀 Starting DeepSeek Chat Server...');
+console.log('🚀 Starting AI Chat Server...');
 console.log(`📍 Working directory: ${process.cwd()}`);
 console.log(`🔧 Node.js version: ${process.version}`);
 console.log();

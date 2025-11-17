@@ -1,0 +1,129 @@
+🔌 WebSocket server initialized on path: /ws
+🚀 Starting AI Chat Server...
+📍 Working directory: /git/operation-dbus
+🔧 Node.js version: v22.19.0
+
+╔══════════════════════════════════════╗
+║         AI Chat Server         ║
+╚══════════════════════════════════════╝
+🌐 Server IP: 80.209.240.244:8080
+🌐 Local access: http://localhost:8080
+🤖 AI Model: qwen3-vl:235b
+🔌 WebSocket: Enabled for real-time updates
+🚀 Server is running! Press Ctrl+C to stop
+
+📱 Access from any network-connected device!
+
+📋 MCP Info: Registering 364 embedded markdown resources
+MCP server started (timeout)
+🔄 MCP Request: {"jsonrpc":"2.0","id":"80dpql","method":"tools/list","params":{}}
+✅ MCP server started successfully
+📊 MCP Init: {
+  jsonrpc: '2.0',
+  id: '80dpql',
+  result: {
+    tools: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object]
+    ]
+  }
+}
+✅ MCP Response received
+🔧 Executing tool: list_commands {}
+🔄 MCP Request: {"jsonrpc":"2.0","id":"e7kgde","method":"tools/call","params":{"name":"list_commands","arguments":{}}}
+✅ MCP Response received
+✅ MCP tool executed: list_commands
+🔧 Executing tool: list_commands {}
+🔄 MCP Request: {"jsonrpc":"2.0","id":"30zm5m","method":"tools/call","params":{"name":"list_commands","arguments":{}}}
+✅ MCP Response received
+✅ MCP tool executed: list_commands
+🤖 User: system status
+🔄 MCP Request: {"jsonrpc":"2.0","id":"1viu3n","method":"tools/list","params":{}}
+✅ MCP Response received
+🚀 Making Ollama chat API (backoff: 1x, errors: 0)
+✅ Ollama chat API successful
+🔍 Ollama response: {"model":"qwen3-vl:235b","created_at":"2025-11-17T09:24:51.681371799Z","message":{"role":"assistant","content":"{\"tool_call\": {\"name\": \"discover_system\", \"parameters\": {}}}","thinking":"Okay, 
+🤖 AI: {"tool_call": {"name": "discover_system", "parameters": {}}}...
+🔧 Found tool call: discover_system
+🔧 Executing tool: discover_system
+🔧 Executing tool: discover_system {}
+🔄 MCP Request: {"jsonrpc":"2.0","id":"qmje45","method":"tools/call","params":{"name":"discover_system","arguments":{}}}
+✅ MCP Response received
+✅ MCP tool executed: discover_system
+✅ Tool discover_system executed successfully
+🚀 Making Ollama follow-up analysis (backoff: 1x, errors: 0)
+📋 Returning 3 discovered services
+🔍 Running service discovery...
+✅ Discovery completed: 6 services found
+🔄 MCP Request: {"jsonrpc":"2.0","id":"420usv","method":"tools/list","params":{}}
+✅ MCP Response received
+🤖 User: test
+🔄 MCP Request: {"jsonrpc":"2.0","id":"hzatn","method":"tools/list","params":{}}
+✅ MCP Response received
+🚀 Making Ollama chat API (backoff: 1x, errors: 0)
+✅ Ollama chat API successful
+🔍 Ollama response: {"model":"qwen3-vl:235b","created_at":"2025-11-17T09:25:35.724468024Z","message":{"role":"assistant","content":"The system is operational and ready for configuration requests. Please provide a specifi
+🤖 AI: The system is operational and ready for configuration requests. Please provide a specific task or qu...
+❌ Ollama follow-up analysis failed (1/3): timeout of 45000ms exceeded
+❌ AI API Error: timeout of 45000ms exceeded
+🔧 Executing tool: discover_system {}
+🔄 MCP Request: {"jsonrpc":"2.0","id":"mj477g","method":"tools/call","params":{"name":"discover_system","arguments":{}}}
+✅ MCP Response received
+✅ MCP tool executed: discover_system
+🔌 WebSocket client connected
+🔄 MCP Request: {"jsonrpc":"2.0","id":"lvthza","method":"tools/list","params":{}}
+✅ MCP Response received
+📋 Returning 6 discovered services
+🔄 MCP Request: {"jsonrpc":"2.0","id":"mbd7cs","method":"tools/list","params":{}}
+✅ MCP Response received
+MCP server exited with code null
+📋 MCP Info: Registering 364 embedded markdown resources
+MCP server started (timeout)
+🔄 MCP Request: {"jsonrpc":"2.0","id":"f84fh","method":"tools/list","params":{}}
+✅ MCP server started successfully
+📊 MCP Init: {
+  jsonrpc: '2.0',
+  id: 'f84fh',
+  result: {
+    tools: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object]
+    ]
+  }
+}
+✅ MCP Response received
+🔄 MCP Request: {"jsonrpc":"2.0","id":"vqptyc","method":"tools/list","params":{}}
+✅ MCP Response received
+🔧 Executing tool: introspect_dbus_hierarchical {}
+🔄 MCP Request: {"jsonrpc":"2.0","id":"pehaqp","method":"tools/call","params":{"name":"introspect_dbus_hierarchical","arguments":{}}}
+✅ MCP Response received
+✅ MCP tool executed: introspect_dbus_hierarchical
+📋 Returning 6 discovered services
+🔍 Running service discovery...
+✅ Discovery completed: 6 services found
+🤖 User: system status
+🔄 MCP Request: {"jsonrpc":"2.0","id":"oejog","method":"tools/list","params":{}}
+✅ MCP Response received
+🚀 Making Ollama chat API (backoff: 1x, errors: 1)
+✅ Ollama chat API successful
+🔍 Ollama response: {"model":"qwen3-vl:235b","created_at":"2025-11-17T09:32:59.914676856Z","message":{"role":"assistant","content":"{\"tool_call\": {\"name\": \"discover_system\", \"parameters\": {}}}","thinking":"Okay, 
+🤖 AI: {"tool_call": {"name": "discover_system", "parameters": {}}}...
+🔧 Found tool call: discover_system
+🔧 Executing tool: discover_system
+🔧 Executing tool: discover_system {}
+🔄 MCP Request: {"jsonrpc":"2.0","id":"7aacn","method":"tools/call","params":{"name":"discover_system","arguments":{}}}
+✅ MCP Response received
+✅ MCP tool executed: discover_system
+✅ Tool discover_system executed successfully
+🚀 Making Ollama follow-up analysis (backoff: 1x, errors: 0)
+✅ Ollama follow-up analysis successful
+🤖 AI comprehensive analysis: The system discovery tool (`discover_system`) returned limited data, indicating the hierarchical D-B...

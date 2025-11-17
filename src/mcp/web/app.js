@@ -35,7 +35,7 @@ class MCPControlCenter {
         // WebSocket will be implemented for real-time updates in the future
         console.log('MCP Control Center initialized');
         this.updateConnectionStatus('connected');
-        this.addActivity('MCP Control Center loaded - DeepSeek AI available');
+        this.addActivity('MCP Control Center loaded - AI AI available');
 
         // Optional: Try to connect to WebSocket for real-time updates
         try {
@@ -972,7 +972,7 @@ class MCPControlCenter {
         }
 
         try {
-            // Send to DeepSeek chat server
+            // Send to AI chat server
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: {

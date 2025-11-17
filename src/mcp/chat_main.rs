@@ -40,14 +40,14 @@ async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    info!("Starting DeepSeek Chat Server...");
+    info!("Starting AI Chat Server...");
 
-    // Create Ollama client for DeepSeek
+    // Create Ollama client for AI
     let ollama_client = if let Ok(api_key) = std::env::var("OLLAMA_API_KEY") {
-        info!("Using Ollama Cloud API with DeepSeek");
-        Some(Arc::new(OllamaClient::deepseek_cloud(api_key)))
+        info!("Using Ollama Cloud API with AI");
+        Some(Arc::new(OllamaClient::ai_cloud(api_key)))
     } else {
-        info!("OLLAMA_API_KEY not set. Set your Ollama API key to enable DeepSeek chat.");
+        info!("OLLAMA_API_KEY not set. Set your Ollama API key to enable AI chat.");
         info!("Get your API key from: https://ollama.com");
         None
     };
@@ -87,8 +87,8 @@ async fn main() -> Result<()> {
 
     // Start the server
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    info!("DeepSeek Chat Server listening on http://{}", addr);
-    info!("Open http://localhost:8080 in your browser to chat with DeepSeek");
+    info!("AI Chat Server listening on http://{}", addr);
+    info!("Open http://localhost:8080 in your browser to chat with AI");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
@@ -145,7 +145,7 @@ async fn handle_socket(socket: WebSocket, state: ChatState) {
 
                         // Generate AI response if Ollama client is available
                         if let Some(ollama_client) = &state.ollama_client {
-                            match ollama_client.deepseek_chat(&content).await {
+                            match ollama_client.ai_chat(&content).await {
                                 Ok(ai_response) => {
                                     let ai_msg = ChatMessage::Assistant {
                                         content: ai_response,
@@ -186,7 +186,7 @@ async fn handle_socket(socket: WebSocket, state: ChatState) {
                         } else {
                             // No Ollama client - send error message
                             let error_msg = ChatMessage::Error {
-                                content: "DeepSeek AI is not available. Please set OLLAMA_API_KEY environment variable.".to_string(),
+                                content: "AI AI is not available. Please set OLLAMA_API_KEY environment variable.".to_string(),
                                 timestamp: std::time::SystemTime::now()
                                     .duration_since(std::time::SystemTime::UNIX_EPOCH)
                                     .unwrap()

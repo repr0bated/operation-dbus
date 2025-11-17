@@ -1,6 +1,7 @@
-//! Simple DeepSeek Chat Server - Only uses working code
+//! Simple AI Chat Server - Only uses working code
 //! No broken zbus dependencies
-//! Run with: OLLAMA_API_KEY=your-key cargo run --bin chat_simple --release
+//! Run with: OLLAMA_API_KEY=your-key OLLAMA_DEFAULT_MODEL=model-name cargo run --bin chat_simple --release
+//! Example models: deepseek-v3.1:671b-cloud, llama2, mistral, etc.
 
 use axum::{
     extract::{Json, State},
@@ -54,14 +55,18 @@ struct StatusResponse {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    println!("🚀 DeepSeek Chat Server (Simple Mode)\n");
+    println!("🚀 AI Chat Server (Simple Mode)\n");
 
     let api_key = std::env::var("OLLAMA_API_KEY")
         .expect("OLLAMA_API_KEY not set");
 
-    println!("✅ API key loaded");
+    let model = std::env::var("OLLAMA_DEFAULT_MODEL")
+        .unwrap_or_else(|_| "llama2".to_string());
 
-    let ollama = Arc::new(OllamaClient::cloud(api_key));
+    println!("✅ API key loaded");
+    println!("✅ Using model: {}", model);
+
+    let ollama = Arc::new(OllamaClient::cloud(api_key).with_default_model(model));
     let context_provider = Arc::new(AiContextProvider::new());
 
     print!("📊 Gathering system context... ");
@@ -103,10 +108,10 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn handle_status(State(_state): State<AppState>) -> impl IntoResponse {
+async fn handle_status(State(state): State<AppState>) -> impl IntoResponse {
     Json(StatusResponse {
         status: "ok".to_string(),
-        model: "deepseek-v3.1:671b-cloud".to_string(),
+        model: state.ollama.default_model(),
     })
 }
 
@@ -128,10 +133,11 @@ async fn handle_chat(
 
     let history = state.history.read().await.clone();
 
+    let model = state.ollama.default_model();
     let response = state
         .ollama
         .chat_with_context(
-            "deepseek-v3.1:671b-cloud",
+            &model,
             &sys_ctx_text,
             &history,
             &req.message,
