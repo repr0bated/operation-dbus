@@ -2,7 +2,7 @@
 //! Exposes package management operations as MCP tools via D-Bus
 
 use serde::{Deserialize, Serialize};
-use zbus::{dbus_interface, ConnectionBuilder, SignalContext, Connection, Proxy};
+use zbus::{interface, connection::Builder, object_server::SignalEmitter, Connection, Proxy};
 use anyhow::{Context, Result};
 
 #[derive(Debug, Deserialize)]
@@ -249,7 +249,7 @@ impl PackageKitAgent {
     }
 }
 
-#[dbus_interface(name = "org.dbusmcp.Agent.PackageKit")]
+#[interface(name = "org.dbusmcp.Agent.PackageKit")]
 impl PackageKitAgent {
     /// Execute a package management task
     async fn execute(&self, task_json: String) -> zbus::fdo::Result<String> {
@@ -346,13 +346,13 @@ impl PackageKitAgent {
     }
 
     /// Signal emitted when task completes
-    #[dbus_interface(signal)]
-    async fn task_completed(signal_ctx: &SignalContext<'_>, result: String) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn task_completed(signal_emitter: &SignalEmitter<'_>, result: String) -> zbus::Result<()>;
 
     /// Signal emitted for package events
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     async fn package_event(
-        signal_ctx: &SignalContext<'_>,
+        signal_emitter: &SignalEmitter<'_>,
         event_type: String,
         package_id: String,
     ) -> zbus::Result<()>;
@@ -382,7 +382,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/PackageKit/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.PackageKit.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::session()?
+    let _conn = Builder::session()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()

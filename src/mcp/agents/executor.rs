@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::process::Command;
 use std::time::Duration;
 use uuid::Uuid;
-use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
+use zbus::{interface, connection::Builder, object_server::SignalEmitter};
 
 // Security configuration
 const ALLOWED_COMMANDS: &[&str] = &[
@@ -206,7 +206,7 @@ impl ExecutorAgent {
     }
 }
 
-#[dbus_interface(name = "org.dbusmcp.Agent.Executor")]
+#[interface(name = "org.dbusmcp.Agent.Executor")]
 impl ExecutorAgent {
     /// Execute a command safely
     async fn execute(&self, task_json: String) -> zbus::fdo::Result<String> {
@@ -264,8 +264,8 @@ impl ExecutorAgent {
     }
 
     /// Signal emitted when task completes
-    #[dbus_interface(signal)]
-    async fn task_completed(signal_ctx: &SignalContext<'_>, result: String) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn task_completed(signal_emitter: &SignalEmitter<'_>, result: String) -> zbus::Result<()>;
 }
 
 #[tokio::main]
@@ -289,7 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/Executor/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.Executor.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::system()?
+    let _conn = Builder::system()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use zbus::{dbus_interface, Connection, ConnectionBuilder, SignalContext};
+use zbus::{interface, Connection, connection::Builder, object_server::SignalEmitter};
 use anyhow::{Result, Context};
 
 /// Orchestrator for managing agents without tight coupling
@@ -120,7 +120,7 @@ impl Orchestrator {
     }
 }
 
-#[dbus_interface(name = "org.dbusmcp.Orchestrator")]
+#[interface(name = "org.dbusmcp.Orchestrator")]
 impl Orchestrator {
     /// Spawn a new agent instance dynamically
     async fn spawn_agent(
@@ -279,23 +279,23 @@ impl Orchestrator {
     }
     
     /// Signals
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     async fn agent_spawned(
-        signal_ctx: &SignalContext<'_>,
+        signal_emitter: signal_ctx: &object_server::SignalEmitterSignalEmitter<'_>,
         agent_id: String,
         agent_type: String,
     ) -> zbus::Result<()>;
     
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     async fn agent_died(
-        signal_ctx: &SignalContext<'_>,
+        signal_emitter: signal_ctx: &object_server::SignalEmitterSignalEmitter<'_>,
         agent_id: String,
         reason: String,
     ) -> zbus::Result<()>;
     
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     async fn task_completed(
-        signal_ctx: &SignalContext<'_>,
+        signal_emitter: signal_ctx: &object_server::SignalEmitterSignalEmitter<'_>,
         task_id: String,
         result: String,
     ) -> zbus::Result<()>;
@@ -338,7 +338,7 @@ async fn main() -> Result<()> {
     orchestrator.add_listener(Box::new(LoggingEventListener)).await;
     
     // Set up D-Bus connection
-    let connection = ConnectionBuilder::session()?
+    let connection = Builder::session()?
         .name("org.dbusmcp.Orchestrator")?
         .serve_at("/org/dbusmcp/Orchestrator", orchestrator)?
         .build()
