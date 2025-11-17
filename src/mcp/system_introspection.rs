@@ -2,10 +2,13 @@
 //! Automatically discovers and introspects all D-Bus services
 //! Generates MCP tool schemas for each discovered service
 
+use crate::mcp::introspection_cache::IntrospectionCache;
 use crate::mcp::introspection_parser::{IntrospectionParser, InterfaceInfo};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use zbus::{Connection, Proxy};
 
 /// Discovered D-Bus service with full introspection
@@ -28,16 +31,42 @@ pub struct SystemIntrospection {
 
 pub struct SystemIntrospector {
     connection: Connection,
+    cache: Option<Arc<Mutex<IntrospectionCache>>>,
 }
 
 impl SystemIntrospector {
-    /// Create new system introspector
+    /// Create new system introspector with caching
     pub async fn new() -> Result<Self> {
         let connection = Connection::system()
             .await
             .context("Failed to connect to system D-Bus")?;
 
-        Ok(Self { connection })
+        // Initialize cache at /var/cache/dbus-introspection.db
+        let cache_path = PathBuf::from("/var/cache/dbus-introspection.db");
+        let cache = match IntrospectionCache::new(&cache_path) {
+            Ok(c) => {
+                log::info!("D-Bus introspection cache enabled at {:?}", cache_path);
+                Some(Arc::new(Mutex::new(c)))
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize introspection cache, running without cache: {}", e);
+                None
+            }
+        };
+
+        Ok(Self { connection, cache })
+    }
+
+    /// Create new system introspector without caching (for testing)
+    pub async fn new_without_cache() -> Result<Self> {
+        let connection = Connection::system()
+            .await
+            .context("Failed to connect to system D-Bus")?;
+
+        Ok(Self {
+            connection,
+            cache: None,
+        })
     }
 
     /// List all D-Bus service names on the system bus
@@ -56,6 +85,7 @@ impl SystemIntrospector {
             .into_iter()
             .filter(|name| !name.starts_with(':'))
             .filter(|name| name.contains('.')) // Must be well-formed
+            .map(|name| name.to_string())
             .collect();
 
         Ok(services)
@@ -67,15 +97,31 @@ impl SystemIntrospector {
 
         let names = proxy.list_activatable_names().await?;
 
-        Ok(names.into_iter().collect())
+        Ok(names.into_iter().map(|name| name.to_string()).collect())
     }
 
-    /// Introspect a specific service at a given path
+    /// Introspect a specific service at a given path (with caching)
     pub async fn introspect_service_at_path(
         &self,
         service_name: &str,
         object_path: &str,
     ) -> Result<String> {
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            if let Ok(cache_guard) = cache.lock() {
+                if let Ok(Some(_cached_json)) = cache_guard.get_introspection_json(service_name, object_path, None) {
+                    log::debug!("Cache hit for {} at {}", service_name, object_path);
+                    // Convert JSON back to XML for compatibility
+                    // (Ideally we'd return JSON directly, but existing code expects XML)
+                    // For now, we'll do a D-Bus call anyway if cache exists but we need XML format
+                    // TODO: Refactor to use JSON throughout
+                }
+            }
+        }
+
+        // Cache miss or no cache - do D-Bus introspection
+        log::debug!("Cache miss for {} at {}, performing D-Bus introspection", service_name, object_path);
+
         let proxy = Proxy::new(
             &self.connection,
             service_name,
@@ -93,57 +139,69 @@ impl SystemIntrospector {
             .await
             .context(format!("Failed to introspect {} at {}", service_name, object_path))?;
 
+        // Store in cache for next time
+        if let Some(ref cache) = self.cache {
+            if let Ok(cache_guard) = cache.lock() {
+                if let Err(e) = cache_guard.store_introspection(service_name, object_path, &xml) {
+                    log::warn!("Failed to cache introspection for {} at {}: {}", service_name, object_path, e);
+                } else {
+                    log::debug!("Cached introspection for {} at {}", service_name, object_path);
+                }
+            }
+        }
+
         Ok(xml)
     }
 
     /// Discover object paths for a service by introspecting recursively
-    pub async fn discover_object_paths(
-        &self,
-        service_name: &str,
-        start_path: &str,
-    ) -> Result<Vec<String>> {
-        let mut paths = vec![start_path.to_string()];
-        let mut discovered = vec![start_path.to_string()];
+    pub fn discover_object_paths<'a>(
+        &'a self,
+        service_name: &'a str,
+        start_path: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut discovered = vec![start_path.to_string()];
 
-        // Try to introspect the starting path
-        match self.introspect_service_at_path(service_name, start_path).await {
-            Ok(xml) => {
-                // Extract child nodes from XML
-                let children = self.extract_child_nodes(&xml);
+            // Try to introspect the starting path
+            match self.introspect_service_at_path(service_name, start_path).await {
+                Ok(xml) => {
+                    // Extract child nodes from XML
+                    let children = self.extract_child_nodes(&xml);
 
-                for child in children {
-                    let child_path = if start_path == "/" {
-                        format!("/{}", child)
-                    } else {
-                        format!("{}/{}", start_path, child)
-                    };
+                    for child in children {
+                        let child_path = if start_path == "/" {
+                            format!("/{}", child)
+                        } else {
+                            format!("{}/{}", start_path, child)
+                        };
 
-                    discovered.push(child_path.clone());
+                        discovered.push(child_path.clone());
 
-                    // Recursively discover children (limited depth)
-                    if discovered.len() < 100 {
-                        // Safety limit
-                        match self.discover_object_paths(service_name, &child_path).await {
-                            Ok(sub_paths) => {
-                                for sub_path in sub_paths {
-                                    if !discovered.contains(&sub_path) {
-                                        discovered.push(sub_path);
+                        // Recursively discover children (limited depth)
+                        if discovered.len() < 100 {
+                            // Safety limit
+                            match self.discover_object_paths(service_name, &child_path).await {
+                                Ok(sub_paths) => {
+                                    for sub_path in sub_paths {
+                                        if !discovered.contains(&sub_path) {
+                                            discovered.push(sub_path);
+                                        }
                                     }
                                 }
-                            }
-                            Err(_) => {
-                                // Continue on error
+                                Err(_) => {
+                                    // Continue on error
+                                }
                             }
                         }
                     }
                 }
+                Err(_) => {
+                    // If introspection fails, return just the start path
+                }
             }
-            Err(_) => {
-                // If introspection fails, return just the start path
-            }
-        }
 
-        Ok(discovered)
+            Ok(discovered)
+        })
     }
 
     /// Extract child node names from introspection XML
@@ -246,7 +304,7 @@ impl SystemIntrospector {
         ];
 
         // Introspect priority services first
-        for service_name in priority_services {
+        for service_name in &priority_services {
             if service_names.contains(&service_name.to_string()) {
                 match self.introspect_service(service_name).await {
                     Ok(service) => {
@@ -355,6 +413,67 @@ impl SystemIntrospector {
         }
 
         tools
+    }
+
+    /// Query cached methods for a service/interface (fast lookup without D-Bus)
+    pub fn query_cached_methods(
+        &self,
+        service_name: &str,
+        interface_name: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        if let Some(ref cache) = self.cache {
+            if let Ok(cache_guard) = cache.lock() {
+                cache_guard.get_methods_json(service_name, interface_name)
+                    .map(Some)
+                    .or_else(|e| {
+                        log::debug!("Cache query failed for {}.{}: {}", service_name, interface_name, e);
+                        Ok(None)
+                    })
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Search cached methods by name pattern (fast search without D-Bus)
+    pub fn search_cached_methods(&self, pattern: &str) -> Result<Vec<serde_json::Value>> {
+        if let Some(ref cache) = self.cache {
+            if let Ok(cache_guard) = cache.lock() {
+                cache_guard.search_methods(pattern)
+            } else {
+                Ok(Vec::new())
+            }
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Get cache statistics
+    pub fn get_cache_stats(&self) -> Option<serde_json::Value> {
+        if let Some(ref cache) = self.cache {
+            if let Ok(cache_guard) = cache.lock() {
+                cache_guard.get_stats().ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Clear old cache entries (older than specified days)
+    pub fn clear_old_cache(&self, days: u64) -> Result<usize> {
+        if let Some(ref cache) = self.cache {
+            if let Ok(cache_guard) = cache.lock() {
+                cache_guard.clear_old_cache(days)
+            } else {
+                Ok(0)
+            }
+        } else {
+            Ok(0)
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::process::Command;
 use uuid::Uuid;
-use zbus::{dbus_interface, ConnectionBuilder, SignalContext};
+use zbus::{interface, connection::Builder, object_server::SignalEmitter};
 
 // Security configuration
 const ALLOWED_DIRECTORIES: &[&str] = &["/tmp", "/home", "/opt"];
@@ -23,7 +23,7 @@ struct GolangProAgent {
     agent_id: String,
 }
 
-#[dbus_interface(name = "org.dbusmcp.Agent.GolangPro")]
+#[interface(name = "org.dbusmcp.Agent.GolangPro")]
 impl GolangProAgent {
     /// Execute a Go development task safely
     async fn execute(&self, task_json: String) -> zbus::fdo::Result<String> {
@@ -80,8 +80,8 @@ impl GolangProAgent {
     }
 
     /// Signal emitted when task completes
-    #[dbus_interface(signal)]
-    async fn task_completed(signal_ctx: &SignalContext<'_>, result: String) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn task_completed(signal_emitter: &SignalEmitter<'_>, result: String) -> zbus::Result<()>;
 }
 
 impl GolangProAgent {
@@ -296,7 +296,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/GolangPro/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.GolangPro.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::system()?
+    let _conn = Builder::system()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()

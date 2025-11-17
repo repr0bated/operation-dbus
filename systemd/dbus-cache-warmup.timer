@@ -1,0 +1,18 @@
+[Unit]
+Description=D-Bus Introspection Cache Warmup Timer
+Documentation=https://github.com/repr0bated/operation-dbus
+Requires=dbus-cache-warmup.service
+
+[Timer]
+# Run on boot (with 2 minute delay to let services start)
+OnBootSec=2min
+
+# Run daily at 3 AM to refresh cache
+OnCalendar=daily
+OnCalendar=03:00
+
+# Run if the system was powered off when the timer should have run
+Persistent=true
+
+[Install]
+WantedBy=timers.target

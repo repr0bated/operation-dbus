@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "workflow": {
+    "name": "deploy-to-remote-server",
+    "description": "Deploy configured system to new server via BTRFS send/receive",
+    "nodes": [
+      {
+        "id": "validate-source",
+        "plugin": "systemd",
+        "inputs": [],
+        "outputs": ["source_valid", "source_snapshot"],
+        "config": {
+          "verify_units": [
+            "openvswitch-switch.service",
+            "lxc.service"
+          ],
+          "check_snapshot": "/snapshots/full-deployment"
+        }
+      },
+      {
+        "id": "prepare-target",
+        "plugin": "net",
+        "inputs": ["target_host", "target_device"],
+        "outputs": ["target_ready", "target_mounted"],
+        "depends_on": ["validate-source"],
+        "condition": "source_valid == true",
+        "config": {
+          "remote_operations": true,
+          "target": {
+            "host": "${target_host}",
+            "partition": "${target_device}",
+            "mount_point": "/mnt/@"
+          }
+        }
+      },
+      {
+        "id": "send-snapshot",
+        "plugin": "btrfs",
+        "inputs": ["source_snapshot", "target_host", "target_mounted"],
+        "outputs": ["snapshot_transferred"],
+        "depends_on": ["prepare-target"],
+        "condition": "target_ready == true",
+        "config": {
+          "operation": "send-receive",
+          "source": {
+            "snapshot": "/snapshots/full-deployment",
+            "subvolume": "@"
+          },
+          "target": {
+            "host": "${target_host}",
+            "receive_path": "/mnt/@"
+          },
+          "compression": "zstd",
+          "verify": true
+        }
+      },
+      {
+        "id": "apply-role-mask",
+        "plugin": "systemd",
+        "inputs": ["snapshot_transferred", "target_role"],
+        "outputs": ["role_masked"],
+        "depends_on": ["send-snapshot"],
+        "condition": "snapshot_transferred == true",
+        "config": {
+          "remote_operations": true,
+          "chroot": "/mnt/@",
+          "role_config": "states/role-masks.json",
+          "role": "${target_role}",
+          "operations": [
+            {"type": "mask_services"},
+            {"type": "remove_dirs"},
+            {"type": "update_state_file"}
+          ]
+        }
+      },
+      {
+        "id": "apply-host-specific-state",
+        "plugin": "net",
+        "inputs": ["role_masked", "host_config"],
+        "outputs": ["host_configured"],
+        "depends_on": ["apply-role-mask"],
+        "condition": "role_masked == true",
+        "config": {
+          "remote_operations": true,
+          "chroot": "/mnt/@",
+          "apply_state": {
+            "hostname": "${target_hostname}",
+            "interfaces": {
+              "ovsbr0": {
+                "ipv4": "${target_ip}"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "regenerate-machine-id",
+        "plugin": "systemd",
+        "inputs": ["host_configured"],
+        "outputs": ["machine_id_regenerated"],
+        "depends_on": ["apply-host-specific-state"],
+        "config": {
+          "remote_operations": true,
+          "chroot": "/mnt/@",
+          "operations": [
+            {"type": "remove", "path": "/etc/machine-id"},
+            {"type": "remove", "path": "/var/lib/dbus/machine-id"},
+            {"type": "touch", "path": "/etc/machine-id"}
+          ]
+        }
+      },
+      {
+        "id": "regenerate-ssh-keys",
+        "plugin": "file",
+        "inputs": ["machine_id_regenerated"],
+        "outputs": ["ssh_keys_cleared"],
+        "depends_on": ["regenerate-machine-id"],
+        "config": {
+          "remote_operations": true,
+          "chroot": "/mnt/@",
+          "operations": [
+            {"type": "remove", "pattern": "/etc/ssh/ssh_host_*"}
+          ]
+        }
+      },
+      {
+        "id": "install-bootloader",
+        "plugin": "systemd",
+        "inputs": ["ssh_keys_cleared", "target_device"],
+        "outputs": ["bootloader_installed"],
+        "depends_on": ["regenerate-ssh-keys"],
+        "config": {
+          "remote_operations": true,
+          "chroot": "/mnt/@",
+          "bootloader": {
+            "type": "systemd-boot",
+            "device": "${target_device}",
+            "esp_path": "/boot/efi"
+          }
+        }
+      },
+      {
+        "id": "verify-deployment",
+        "plugin": "systemd",
+        "inputs": ["bootloader_installed"],
+        "outputs": ["deployment_complete"],
+        "depends_on": ["install-bootloader"],
+        "config": {
+          "remote_operations": true,
+          "verify": {
+            "bootloader": true,
+            "fstab": true,
+            "network_config": true
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "required": [
+        "target_host",
+        "target_device",
+        "target_hostname",
+        "target_ip",
+        "target_role"
+      ],
+      "optional": [
+        "ssh_key_path",
+        "compression_level"
+      ]
+    },
+    "execution": {
+      "mode": "sequential",
+      "timeout": 3600,
+      "retry_on_failure": false
+    },
+    "error_handling": {
+      "on_failure": "cleanup",
+      "cleanup_actions": [
+        {"unmount": "/mnt/@"},
+        {"remove_partial_snapshot": true}
+      ]
+    }
+  },
+  "examples": {
+    "deploy_to_vps": {
+      "target_host": "vps.example.com",
+      "target_device": "/dev/sda",
+      "target_hostname": "privacy-vps-01",
+      "target_ip": "192.168.1.100/24",
+      "target_role": "privacy-vps"
+    },
+    "deploy_to_workstation": {
+      "target_host": "workstation.local",
+      "target_device": "/dev/nvme0n1",
+      "target_hostname": "privacy-client-01",
+      "target_ip": "10.0.0.10/24",
+      "target_role": "privacy-client"
+    },
+    "deploy_to_proxmox_node": {
+      "target_host": "192.168.1.20",
+      "target_device": "/dev/sda",
+      "target_hostname": "proxmox-node-02",
+      "target_ip": "10.0.0.2/24",
+      "target_role": "full"
+    },
+    "deploy_standalone_bridge": {
+      "target_host": "localhost",
+      "target_device": "/dev/sda",
+      "target_hostname": "ovs-bridge-01",
+      "target_ip": "10.0.0.50/24",
+      "target_role": "standalone"
+    }
+  }
+}

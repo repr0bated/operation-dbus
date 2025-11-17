@@ -6,14 +6,14 @@ use crate::state::{
 };
 use anyhow::Result;
 use std::sync::Arc;
-use zbus::{dbus_interface, ConnectionBuilder};
+use zbus::{interface, connection::Builder};
 
 /// D-Bus interface for the state manager
 pub struct StateManagerDBus {
     state_manager: Arc<StateManager>,
 }
 
-#[dbus_interface(name = "org.opdbus.StateManager")]
+#[interface(name = "org.opdbus.StateManager")]
 impl StateManagerDBus {
     /// Apply state from JSON string
     async fn apply_state(&self, state_json: String) -> zbus::fdo::Result<String> {
@@ -190,11 +190,11 @@ impl StateManagerDBus {
 
 /// Start the system bus D-Bus service
 pub async fn start_system_bus(state_manager: Arc<StateManager>) -> Result<()> {
-    let dbus_interface = StateManagerDBus { state_manager };
+    let interface = StateManagerDBus { state_manager };
 
-    let _connection = ConnectionBuilder::system()?
+    let _connection = Builder::system()?
         .name("org.opdbus")?
-        .serve_at("/org/opdbus/state", dbus_interface)?
+        .serve_at("/org/opdbus/state", interface)?
         .build()
         .await?;
 

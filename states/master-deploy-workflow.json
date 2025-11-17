@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "workflow": {
+    "name": "master-and-deploy",
+    "description": "Build golden master system and deploy to multiple targets",
+    "nodes": [
+      {
+        "id": "build-master",
+        "workflow": "full-system-workflow",
+        "inputs": [],
+        "outputs": ["master_ready", "snapshots_created"],
+        "config": {
+          "source_file": "states/full-system-workflow.json",
+          "execute_full": true
+        }
+      },
+      {
+        "id": "validate-master",
+        "plugin": "systemd",
+        "inputs": ["master_ready"],
+        "outputs": ["master_validated"],
+        "depends_on": ["build-master"],
+        "config": {
+          "verify_units": [
+            "openvswitch-switch.service",
+            "lxc.service",
+            "dbus-mcp-web.service"
+          ],
+          "verify_snapshots": [
+            "/snapshots/base-system",
+            "/snapshots/network-configured",
+            "/snapshots/full-deployment"
+          ]
+        }
+      },
+      {
+        "id": "deploy-to-targets",
+        "workflow": "deploy-to-remote-server",
+        "inputs": ["master_validated", "deployment_targets"],
+        "outputs": ["all_targets_deployed"],
+        "depends_on": ["validate-master"],
+        "condition": "master_validated == true",
+        "config": {
+          "source_file": "states/deploy-workflow.json",
+          "targets": "${deployment_targets}",
+          "parallel": true,
+          "max_concurrent": 3
+        }
+      },
+      {
+        "id": "verify-all-deployments",
+        "plugin": "systemd",
+        "inputs": ["all_targets_deployed", "deployment_targets"],
+        "outputs": ["deployment_verified"],
+        "depends_on": ["deploy-to-targets"],
+        "config": {
+          "verify_remote": true,
+          "targets": "${deployment_targets}",
+          "checks": [
+            "boot_successful",
+            "services_active",
+            "network_configured"
+          ]
+        }
+      }
+    ],
+    "parameters": {
+      "required": [
+        "deployment_targets"
+      ],
+      "optional": [
+        "master_config_override",
+        "deployment_strategy"
+      ]
+    },
+    "execution": {
+      "mode": "sequential_with_parallel_deploy",
+      "parallel_groups": [
+        ["deploy-to-targets"]
+      ]
+    }
+  },
+  "deployment_targets_example": [
+    {
+      "name": "privacy-vps-1",
+      "host": "vps1.example.com",
+      "device": "/dev/sda",
+      "hostname": "privacy-vps-01",
+      "ip": "192.168.1.100/24",
+      "role": "privacy-vps"
+    },
+    {
+      "name": "privacy-client-1",
+      "host": "workstation1.local",
+      "device": "/dev/nvme0n1",
+      "hostname": "privacy-client-01",
+      "ip": "10.0.0.10/24",
+      "role": "privacy-client"
+    },
+    {
+      "name": "proxmox-node-2",
+      "host": "192.168.1.20",
+      "device": "/dev/sda",
+      "hostname": "proxmox-02",
+      "ip": "10.0.0.2/24",
+      "role": "full"
+    }
+  ]
+}

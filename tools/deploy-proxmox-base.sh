@@ -4,14 +4,14 @@
 set -euo pipefail
 
 DEVICE="${1:-}"
-IMAGE_FILE="${2:-deploy/vm-100-disk-1.raw}"
+ARCHIVE_FILE="${2:-deploy/proxmox-op-dbus.tar.gz}"
 
 if [ -z "$DEVICE" ]; then
-    echo "Usage: $0 <device> [image-file]"
+    echo "Usage: $0 <device> [archive-file]"
     echo ""
     echo "Example:"
     echo "  $0 /dev/sda"
-    echo "  $0 /dev/nvme0n1 custom-image.raw"
+    echo "  $0 /dev/nvme0n1 custom-archive.tar.gz"
     echo ""
     echo "⚠️  WARNING: This will DESTROY all data on the device!"
     echo ""
@@ -23,8 +23,8 @@ if [ ! -b "$DEVICE" ]; then
     exit 1
 fi
 
-if [ ! -f "$IMAGE_FILE" ]; then
-    echo "❌ Error: Image file not found: $IMAGE_FILE"
+if [ ! -f "$ARCHIVE_FILE" ]; then
+    echo "❌ Error: Archive file not found: $ARCHIVE_FILE"
     echo ""
     echo "Run ./tools/download-proxmox-base.sh first"
     exit 1
@@ -42,8 +42,8 @@ echo "  Proxmox Base Image Deployment"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "Device:     $DEVICE"
-echo "Image:      $IMAGE_FILE"
-echo "Method:     Rsync to @ subvolume"
+echo "Archive:    $ARCHIVE_FILE"
+echo "Method:     Direct extraction to @ subvolume"
 echo ""
 echo "⚠️  WARNING: ALL DATA ON $DEVICE WILL BE DESTROYED!"
 echo ""
@@ -73,7 +73,6 @@ apt-get install -y \
     parted \
     dosfstools \
     btrfs-progs \
-    systemd-boot \
     rsync
 
 echo "✓ Dependencies installed"
@@ -151,20 +150,64 @@ mount "$ESP_PART" /mnt/target/boot/efi
 echo "✓ Mounted @ subvolume and ESP"
 
 echo ""
-echo "━━━ Step 5: Mounting Source Image ━━━"
+echo "━━━ Step 5: Extracting Raw Image ━━━"
 echo ""
 
-# Mount source image
-mkdir -p /mnt/source
-mount -o loop,ro "$IMAGE_FILE" /mnt/source
+# Extract the raw image to a temporary location on the target disk
+# This avoids using live environment memory
+TEMP_DIR="/mnt/target/.deploy-temp"
+mkdir -p "$TEMP_DIR"
 
-echo "✓ Source image mounted"
+echo "Extracting raw image from archive..."
+tar -xzf "$ARCHIVE_FILE" -C "$TEMP_DIR"
+
+# Find the extracted raw file
+RAW_FILE=$(find "$TEMP_DIR" -name "*.raw" -type f | head -n1)
+
+if [ -z "$RAW_FILE" ]; then
+    echo "❌ Error: No .raw file found in archive"
+    exit 1
+fi
+
+echo "✓ Extracted: $(basename "$RAW_FILE")"
+
+# Set up loop device with partition scanning
+echo "Setting up loop device..."
+LOOP_DEV=$(losetup -f -P --show "$RAW_FILE")
+echo "✓ Loop device: $LOOP_DEV"
+
+# Wait for partition devices to appear
+sleep 2
+partprobe "$LOOP_DEV" 2>/dev/null || true
+
+# Find the root partition (should be the @ subvolume on BTRFS)
+# The raw image likely has the root filesystem on partition 2
+ROOT_LOOP="${LOOP_DEV}p2"
+
+if [ ! -b "$ROOT_LOOP" ]; then
+    # Try without 'p' separator (some systems use /dev/loop0p1, others /dev/loop01)
+    ROOT_LOOP="${LOOP_DEV}2"
+fi
+
+if [ ! -b "$ROOT_LOOP" ]; then
+    echo "❌ Error: Cannot find root partition on loop device"
+    losetup -d "$LOOP_DEV"
+    exit 1
+fi
+
+echo "✓ Found root partition: $ROOT_LOOP"
+
+# Mount the @ subvolume from the raw image
+mkdir -p /mnt/source
+mount -o ro,subvol=@ "$ROOT_LOOP" /mnt/source
+
+echo "✓ Source @ subvolume mounted"
 
 echo ""
 echo "━━━ Step 6: Copying System (this will take several minutes) ━━━"
 echo ""
 
-# Rsync from source to target @ subvolume
+# Rsync from mounted image to target @ subvolume
 rsync -aHAXv --info=progress2 \
     --exclude='/boot/efi/*' \
     --exclude='/dev/*' \
@@ -174,13 +217,18 @@ rsync -aHAXv --info=progress2 \
     --exclude='/run/*' \
     --exclude='/mnt/*' \
     --exclude='/media/*' \
+    --exclude='/.deploy-temp/*' \
     /mnt/source/ /mnt/target/
 
 echo "✓ System copied to @ subvolume"
 
-# Unmount source
+# Unmount and cleanup
 umount /mnt/source
 rmdir /mnt/source
+losetup -d "$LOOP_DEV"
+rm -rf "$TEMP_DIR"
+
+echo "✓ Cleanup complete"
 
 echo ""
 echo "━━━ Step 7: Installing netboot.xyz ━━━"

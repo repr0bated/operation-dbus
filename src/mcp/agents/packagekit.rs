@@ -2,7 +2,7 @@
 //! Exposes package management operations as MCP tools via D-Bus
 
 use serde::{Deserialize, Serialize};
-use zbus::{dbus_interface, ConnectionBuilder, SignalContext, Connection, Proxy};
+use zbus::{interface, connection::Builder, object_server::SignalEmitter, Connection, Proxy};
 use anyhow::{Context, Result};
 
 #[derive(Debug, Deserialize)]
@@ -69,11 +69,12 @@ impl PackageKitAgent {
     /// Get transaction proxy
     async fn get_transaction_proxy(&self, transaction_path: &str) -> Result<Proxy<'static>> {
         let conn = Connection::system().await?;
+        let path_owned = transaction_path.to_string();
 
         Proxy::new(
             &conn,
             "org.freedesktop.PackageKit",
-            transaction_path,
+            path_owned,
             "org.freedesktop.PackageKit.Transaction",
         )
         .await
@@ -89,7 +90,7 @@ impl PackageKitAgent {
         let search_terms = vec![query];
 
         proxy
-            .call::<_, ()>("SearchNames", &(filter, search_terms))
+            .call::<_, _, ()>("SearchNames", &(filter, search_terms))
             .await
             .context("Failed to call SearchNames")?;
 
@@ -114,7 +115,7 @@ impl PackageKitAgent {
         let names: Vec<&str> = package_names.iter().map(|s| s.as_str()).collect();
 
         proxy
-            .call::<_, ()>("Resolve", &(filter, names.clone()))
+            .call::<_, _, ()>("Resolve", &(filter, names.clone()))
             .await
             .context("Failed to resolve package names")?;
 
@@ -142,7 +143,7 @@ impl PackageKitAgent {
         let names: Vec<&str> = package_names.iter().map(|s| s.as_str()).collect();
 
         proxy
-            .call::<_, ()>("Resolve", &(filter, names.clone()))
+            .call::<_, _, ()>("Resolve", &(filter, names.clone()))
             .await
             .context("Failed to resolve package names")?;
 
@@ -167,7 +168,7 @@ impl PackageKitAgent {
         let filter: u64 = 1 << 2; // FILTER_INSTALLED bit
 
         proxy
-            .call::<_, ()>("GetPackages", &(filter,))
+            .call::<_, _, ()>("GetPackages", &(filter,))
             .await
             .context("Failed to call GetPackages")?;
 
@@ -188,7 +189,7 @@ impl PackageKitAgent {
         let filter: u64 = 0; // No filter
 
         proxy
-            .call::<_, ()>("GetUpdates", &(filter,))
+            .call::<_, _, ()>("GetUpdates", &(filter,))
             .await
             .context("Failed to call GetUpdates")?;
 
@@ -209,7 +210,7 @@ impl PackageKitAgent {
         let force: bool = true;
 
         proxy
-            .call::<_, ()>("RefreshCache", &(force,))
+            .call::<_, _, ()>("RefreshCache", &(force,))
             .await
             .context("Failed to call RefreshCache")?;
 
@@ -232,7 +233,7 @@ impl PackageKitAgent {
         let names: Vec<&str> = package_names.iter().map(|s| s.as_str()).collect();
 
         proxy
-            .call::<_, ()>("Resolve", &(filter, names.clone()))
+            .call::<_, _, ()>("Resolve", &(filter, names.clone()))
             .await
             .context("Failed to resolve package names")?;
 
@@ -248,7 +249,7 @@ impl PackageKitAgent {
     }
 }
 
-#[dbus_interface(name = "org.dbusmcp.Agent.PackageKit")]
+#[interface(name = "org.dbusmcp.Agent.PackageKit")]
 impl PackageKitAgent {
     /// Execute a package management task
     async fn execute(&self, task_json: String) -> zbus::fdo::Result<String> {
@@ -345,13 +346,13 @@ impl PackageKitAgent {
     }
 
     /// Signal emitted when task completes
-    #[dbus_interface(signal)]
-    async fn task_completed(signal_ctx: &SignalContext<'_>, result: String) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn task_completed(signal_emitter: &SignalEmitter<'_>, result: String) -> zbus::Result<()>;
 
     /// Signal emitted for package events
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     async fn package_event(
-        signal_ctx: &SignalContext<'_>,
+        signal_emitter: &SignalEmitter<'_>,
         event_type: String,
         package_id: String,
     ) -> zbus::Result<()>;
@@ -381,7 +382,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = format!("/org/dbusmcp/Agent/PackageKit/{}", agent_id.replace('-', "_"));
     let service_name = format!("org.dbusmcp.Agent.PackageKit.{}", agent_id.replace('-', "_"));
 
-    let _conn = ConnectionBuilder::session()?
+    let _conn = Builder::session()?
         .name(service_name.as_str())?
         .serve_at(path.as_str(), agent)?
         .build()

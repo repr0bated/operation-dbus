@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use crate::introspection::{SystemIntrospector, CpuFeatureAnalyzer};
 use crate::isp_migration::IspMigrationAnalyzer;
+use crate::mcp::system_introspection::SystemIntrospector as DbusIntrospector;
 
 /// MCP Tool: Discover system hardware and configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,6 +321,219 @@ impl CompareHardwareTool {
     }
 }
 
+/// MCP Tool: Query cached D-Bus methods for a service/interface
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryCachedDbusMethodsTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Vec<ToolParameter>,
+}
+
+impl QueryCachedDbusMethodsTool {
+    pub fn new() -> Self {
+        Self {
+            name: "query_cached_dbus_methods".to_string(),
+            description: "Fast query for D-Bus methods from cache (no D-Bus call overhead)".to_string(),
+            parameters: vec![
+                ToolParameter {
+                    name: "service_name".to_string(),
+                    type_: "string".to_string(),
+                    description: "D-Bus service name (e.g., org.freedesktop.systemd1)".to_string(),
+                    required: true,
+                },
+                ToolParameter {
+                    name: "interface_name".to_string(),
+                    type_: "string".to_string(),
+                    description: "D-Bus interface name (e.g., org.freedesktop.systemd1.Manager)".to_string(),
+                    required: true,
+                },
+            ],
+        }
+    }
+
+    pub async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        let service_name = params
+            .get("service_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("service_name parameter required"))?;
+
+        let interface_name = params
+            .get("interface_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("interface_name parameter required"))?;
+
+        let introspector = DbusIntrospector::new().await?;
+
+        match introspector.query_cached_methods(service_name, interface_name)? {
+            Some(methods) => Ok(serde_json::json!({
+                "service": service_name,
+                "interface": interface_name,
+                "methods": methods,
+                "source": "cache"
+            })),
+            None => Ok(serde_json::json!({
+                "service": service_name,
+                "interface": interface_name,
+                "methods": [],
+                "source": "cache_miss",
+                "message": "No cached data found. Run introspection first to populate cache."
+            })),
+        }
+    }
+}
+
+/// MCP Tool: Search D-Bus methods by pattern
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchDbusMethodsTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Vec<ToolParameter>,
+}
+
+impl SearchDbusMethodsTool {
+    pub fn new() -> Self {
+        Self {
+            name: "search_dbus_methods".to_string(),
+            description: "Search cached D-Bus methods by name pattern across all services".to_string(),
+            parameters: vec![
+                ToolParameter {
+                    name: "pattern".to_string(),
+                    type_: "string".to_string(),
+                    description: "Search pattern (case-sensitive, SQL LIKE syntax with %)".to_string(),
+                    required: true,
+                },
+            ],
+        }
+    }
+
+    pub async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        let pattern = params
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("pattern parameter required"))?;
+
+        let introspector = DbusIntrospector::new().await?;
+        let results = introspector.search_cached_methods(pattern)?;
+
+        Ok(serde_json::json!({
+            "pattern": pattern,
+            "results": results,
+            "count": results.len()
+        }))
+    }
+}
+
+/// MCP Tool: Get introspection cache statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetCacheStatsTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Vec<ToolParameter>,
+}
+
+impl GetCacheStatsTool {
+    pub fn new() -> Self {
+        Self {
+            name: "get_introspection_cache_stats".to_string(),
+            description: "Get statistics about the D-Bus introspection cache".to_string(),
+            parameters: vec![],
+        }
+    }
+
+    pub async fn execute(&self, _params: HashMap<String, Value>) -> Result<Value> {
+        let introspector = DbusIntrospector::new().await?;
+
+        match introspector.get_cache_stats() {
+            Some(stats) => Ok(stats),
+            None => Ok(serde_json::json!({
+                "cache_enabled": false,
+                "message": "Introspection cache is not available"
+            })),
+        }
+    }
+}
+
+/// MCP Tool: Warm the introspection cache
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WarmCacheTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Vec<ToolParameter>,
+}
+
+impl WarmCacheTool {
+    pub fn new() -> Self {
+        Self {
+            name: "warm_introspection_cache".to_string(),
+            description: "Proactively cache common D-Bus services for faster future queries".to_string(),
+            parameters: vec![
+                ToolParameter {
+                    name: "services".to_string(),
+                    type_: "array".to_string(),
+                    description: "Optional list of service names. If empty, caches priority services".to_string(),
+                    required: false,
+                },
+            ],
+        }
+    }
+
+    pub async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        let introspector = DbusIntrospector::new().await?;
+
+        let services = if let Some(services_val) = params.get("services") {
+            if let Some(arr) = services_val.as_array() {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            } else {
+                get_priority_services()
+            }
+        } else {
+            get_priority_services()
+        };
+
+        let mut cached = Vec::new();
+        let mut failed = Vec::new();
+
+        for service_name in &services {
+            match introspector.introspect_service(service_name).await {
+                Ok(service) => {
+                    cached.push(serde_json::json!({
+                        "service": service_name,
+                        "object_paths": service.object_paths.len(),
+                        "interfaces": service.interfaces.len()
+                    }));
+                }
+                Err(e) => {
+                    failed.push(serde_json::json!({
+                        "service": service_name,
+                        "error": e.to_string()
+                    }));
+                }
+            }
+        }
+
+        Ok(serde_json::json!({
+            "cached": cached,
+            "failed": failed,
+            "total_attempted": services.len(),
+            "success_count": cached.len()
+        }))
+    }
+}
+
+/// Get list of priority D-Bus services to cache
+fn get_priority_services() -> Vec<String> {
+    vec![
+        "org.freedesktop.systemd1".to_string(),
+        "org.freedesktop.NetworkManager".to_string(),
+        "org.freedesktop.login1".to_string(),
+        "org.freedesktop.PackageKit".to_string(),
+        "org.freedesktop.UDisks2".to_string(),
+        "org.freedesktop.UPower".to_string(),
+    ]
+}
+
 /// Register all introspection tools
 pub fn register_introspection_tools() -> Vec<Box<dyn McpTool>> {
     vec![
@@ -328,6 +542,10 @@ pub fn register_introspection_tools() -> Vec<Box<dyn McpTool>> {
         Box::new(AnalyzeIspTool::new()),
         Box::new(GenerateIspRequestTool::new()),
         Box::new(CompareHardwareTool::new()),
+        Box::new(QueryCachedDbusMethodsTool::new()),
+        Box::new(SearchDbusMethodsTool::new()),
+        Box::new(GetCacheStatsTool::new()),
+        Box::new(WarmCacheTool::new()),
     ]
 }
 
@@ -407,6 +625,70 @@ impl McpTool for GenerateIspRequestTool {
 
 #[async_trait::async_trait]
 impl McpTool for CompareHardwareTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters(&self) -> &[ToolParameter] {
+        &self.parameters
+    }
+    async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        self.execute(params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl McpTool for QueryCachedDbusMethodsTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters(&self) -> &[ToolParameter] {
+        &self.parameters
+    }
+    async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        self.execute(params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl McpTool for SearchDbusMethodsTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters(&self) -> &[ToolParameter] {
+        &self.parameters
+    }
+    async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        self.execute(params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl McpTool for GetCacheStatsTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters(&self) -> &[ToolParameter] {
+        &self.parameters
+    }
+    async fn execute(&self, params: HashMap<String, Value>) -> Result<Value> {
+        self.execute(params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl McpTool for WarmCacheTool {
     fn name(&self) -> &str {
         &self.name
     }

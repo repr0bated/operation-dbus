@@ -283,16 +283,15 @@ async fn api_execute_tool(
 async fn api_list_agents(State(state): State<AppState>) -> impl IntoResponse {
     if let Some(orchestrator) = &state.orchestrator {
         match orchestrator
-            .call::<(), Vec<String>>("ListAgents", &())
+            .call::<&str, (), Vec<String>>("ListAgents", &())
             .await
         {
             Ok(agent_ids) => {
                 let mut agents = vec![];
                 for id in agent_ids {
-                    if let Ok(status_json) = orchestrator
-                        .call::<(String,), String>("GetAgentStatus", &(id.clone(),))
-                        .await
-                    {
+                    let params: (String,) = (id.clone(),);
+                    let result: Result<String, _> = orchestrator.call("GetAgentStatus", &params).await;
+                    if let Ok(status_json) = result {
                         if let Ok(status) = serde_json::from_str::<Value>(&status_json) {
                             agents.push(AgentInfo {
                                 id: id,
@@ -324,8 +323,9 @@ async fn api_spawn_agent(
     let config = payload["config"].to_string();
 
     if let Some(orchestrator) = &state.orchestrator {
+        let params: (String, String) = (agent_type.clone(), config);
         match orchestrator
-            .call::<(String, String), String>("SpawnAgent", &(agent_type.clone(), config))
+            .call::<&str, (String, String), String>("SpawnAgent", &params)
             .await
         {
             Ok(agent_id) => {
@@ -354,7 +354,7 @@ async fn api_kill_agent(
 ) -> impl IntoResponse {
     if let Some(orchestrator) = &state.orchestrator {
         match orchestrator
-            .call::<(String,), bool>("KillAgent", &(agent_id.clone(),))
+            .call("KillAgent", &(agent_id.clone(),))
             .await
         {
             Ok(success) => {
@@ -385,8 +385,9 @@ async fn api_send_task(
     Json(task): Json<Value>,
 ) -> impl IntoResponse {
     if let Some(orchestrator) = &state.orchestrator {
+        let params: (String, String) = (agent_id.clone(), task.to_string());
         match orchestrator
-            .call::<(String, String), String>("SendTask", &(agent_id.clone(), task.to_string()))
+            .call::<&str, (String, String), String>("SendTask", &params)
             .await
         {
             Ok(result) => Json(ApiResponse::success(json!({ "result": result }))),
@@ -525,16 +526,15 @@ async fn monitor_agents_task(state: AppState) {
 
         if let Some(orchestrator) = &state.orchestrator {
             if let Ok(agent_ids) = orchestrator
-                .call::<(), Vec<String>>("ListAgents", &())
+                .call::<&str, (), Vec<String>>("ListAgents", &())
                 .await
             {
                 let mut agents = vec![];
 
                 for id in agent_ids {
-                    if let Ok(status_json) = orchestrator
-                        .call::<(String,), String>("GetAgentStatus", &(id.clone(),))
-                        .await
-                    {
+                    let params: (String,) = (id.clone(),);
+                    let result: Result<String, _> = orchestrator.call("GetAgentStatus", &params).await;
+                    if let Ok(status_json) = result {
                         if let Ok(status) = serde_json::from_str::<Value>(&status_json) {
                             agents.push(AgentInfo {
                                 id: id,

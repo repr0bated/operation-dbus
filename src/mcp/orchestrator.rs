@@ -1,6 +1,6 @@
 //! Refactored orchestrator using agent registry for loose coupling
 
-use op_dbus::mcp::agent_registry::{load_default_specs, AgentRegistry};
+use crate::mcp::agent_registry::{load_default_specs, AgentRegistry};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use zbus::{dbus_interface, Connection, ConnectionBuilder, SignalContext};
+use zbus::{interface, Connection, connection::Builder, object_server::SignalEmitter};
 
 /// Orchestrator for managing agents without tight coupling
 pub struct Orchestrator {
@@ -121,7 +121,7 @@ impl Orchestrator {
     }
 }
 
-#[dbus_interface(name = "org.dbusmcp.Orchestrator")]
+#[interface(name = "org.dbusmcp.Orchestrator")]
 impl Orchestrator {
     /// Spawn a new agent instance dynamically
     async fn spawn_agent(
@@ -287,23 +287,23 @@ impl Orchestrator {
     }
 
     /// Signals
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     async fn agent_spawned(
-        signal_ctx: &SignalContext<'_>,
+        signal_emitter: &SignalEmitter<'_>,
         agent_id: String,
         agent_type: String,
     ) -> zbus::Result<()>;
 
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     async fn agent_died(
-        signal_ctx: &SignalContext<'_>,
+        signal_emitter: &SignalEmitter<'_>,
         agent_id: String,
         reason: String,
     ) -> zbus::Result<()>;
 
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     async fn task_completed(
-        signal_ctx: &SignalContext<'_>,
+        signal_emitter: &SignalEmitter<'_>,
         task_id: String,
         result: String,
     ) -> zbus::Result<()>;
@@ -348,7 +348,7 @@ async fn main() -> Result<()> {
         .await;
 
     // Set up D-Bus connection
-    let connection = ConnectionBuilder::session()?
+    let connection = Builder::session()?
         .name("org.dbusmcp.Orchestrator")?
         .serve_at("/org/dbusmcp/Orchestrator", orchestrator)?
         .build()

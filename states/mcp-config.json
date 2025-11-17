@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "mcp": {
+    "enabled": true,
+    "server": {
+      "binary": "/usr/local/bin/dbus-mcp-web",
+      "port": 8080,
+      "bind_address": "0.0.0.0"
+    },
+    "agents": {
+      "systemd": {
+        "enabled": true,
+        "binary": "/usr/local/bin/dbus-agent-systemd"
+      },
+      "file": {
+        "enabled": true,
+        "binary": "/usr/local/bin/dbus-agent-file"
+      },
+      "network": {
+        "enabled": true,
+        "binary": "/usr/local/bin/dbus-agent-network"
+      },
+      "packagekit": {
+        "enabled": true,
+        "binary": "/usr/local/bin/dbus-agent-packagekit"
+      }
+    },
+    "security": {
+      "command_whitelist": [
+        "ls", "ps", "df", "du", "top", "free", "uptime",
+        "whoami", "date", "hostname", "pwd", "echo"
+      ],
+      "allowed_directories": [
+        "/home", "/tmp", "/var/log", "/opt", "/etc/op-dbus"
+      ],
+      "forbidden_paths": [
+        "/etc/shadow", "/etc/passwd", "/root/.ssh"
+      ]
+    },
+    "limits": {
+      "max_file_size": 10485760,
+      "command_timeout": 30,
+      "max_output_size": 1048576
+    }
+  }
+}
