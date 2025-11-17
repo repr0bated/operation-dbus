@@ -1,0 +1,30 @@
+# RustRover SSH Configuration for Operation D-Bus
+# Save this file as ~/.ssh/config_rustrover or merge with ~/.ssh/config
+
+# Operation D-Bus Development Server
+Host operation-dbus
+    HostName proxmox.ghostbridge.tech
+    User jeremy
+    Port 22
+    IdentityFile ~/.ssh/id_rsa
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+    UserKnownHostsFile ~/.ssh/known_hosts_rustrover
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    ForwardAgent no
+    ForwardX11 no
+
+# Alternative connection using IP address
+Host operation-dbus-ip
+    HostName 80.209.240.244
+    User jeremy
+    Port 22
+    IdentityFile ~/.ssh/id_rsa
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+    UserKnownHostsFile ~/.ssh/known_hosts_rustrover
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    ForwardAgent no
+    ForwardX11 no

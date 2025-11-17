@@ -1,4 +1,7 @@
 //! Ollama HTTP client for AI chat integration
+//!
+//! This module provides a model-agnostic interface for communicating with
+//! Ollama (or compatible) API servers, supporting both local and cloud deployments.
 
 use anyhow::Result;
 use reqwest::Client;
@@ -62,6 +65,7 @@ pub struct OllamaClient {
     client: Client,
     base_url: String,
     api_key: Option<String>,
+    default_model: Option<String>,
 }
 
 impl Default for OllamaClient {
@@ -71,6 +75,20 @@ impl Default for OllamaClient {
 }
 
 impl OllamaClient {
+    /// Get the default model name from environment variable or configured value
+    pub fn default_model(&self) -> String {
+        self.default_model.clone()
+            .or_else(|| std::env::var("OLLAMA_DEFAULT_MODEL").ok())
+            .unwrap_or_else(|| "llama2".to_string())
+    }
+
+    /// Set the default model for this client
+    pub fn with_default_model(mut self, model: String) -> Self {
+        self.default_model = Some(model);
+        self
+    }
+
+
     /// Create a new Ollama client for local server
     pub fn new() -> Self {
         Self {
@@ -80,6 +98,7 @@ impl OllamaClient {
                 .unwrap_or_default(),
             base_url: "http://localhost:11434".to_string(),
             api_key: None,
+            default_model: None,
         }
     }
 
@@ -92,6 +111,7 @@ impl OllamaClient {
                 .unwrap_or_default(),
             base_url,
             api_key: None,
+            default_model: None,
         }
     }
 
@@ -104,6 +124,7 @@ impl OllamaClient {
                 .unwrap_or_default(),
             base_url: "https://ollama.com".to_string(),
             api_key: Some(api_key),
+            default_model: None,
         }
     }
 
@@ -116,6 +137,7 @@ impl OllamaClient {
                 .unwrap_or_default(),
             base_url: endpoint,
             api_key: Some(api_key),
+            default_model: None,
         }
     }
 
@@ -128,6 +150,7 @@ impl OllamaClient {
                 .unwrap_or_default(),
             base_url,
             api_key: Some(api_key),
+            default_model: None,
         }
     }
 
@@ -246,16 +269,6 @@ impl OllamaClient {
         self.chat(model, &messages, Some(0.7), None).await
     }
 
-    /// Create a client configured for DeepSeek cloud model
-    pub fn deepseek_cloud(api_key: String) -> Self {
-        Self::cloud(api_key)
-    }
-
-    /// Chat with DeepSeek model (convenience method)
-    pub async fn deepseek_chat(&self, user_message: &str) -> Result<String> {
-        self.simple_chat("deepseek-v3.1:671b-cloud", user_message).await
-    }
-
     /// Advanced chat with system context and conversation history
     pub async fn chat_with_context(
         &self,
@@ -287,9 +300,11 @@ impl OllamaClient {
         self.chat(model, &messages, temperature, None).await
     }
 
-    /// DeepSeek chat with full context and tool awareness
-    pub async fn deepseek_chat_with_tools(
+    /// Chat with full context and tool awareness
+    /// This method enhances the system context with available tools information
+    pub async fn chat_with_tools(
         &self,
+        model: &str,
         user_message: &str,
         system_context: &str,
         conversation_history: &[ChatMessage],
@@ -301,7 +316,7 @@ impl OllamaClient {
         );
 
         self.chat_with_context(
-            "deepseek-v3.1:671b-cloud",
+            model,
             &enhanced_context,
             conversation_history,
             user_message,

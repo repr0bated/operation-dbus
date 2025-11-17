@@ -1,0 +1,34 @@
+# Deployment artifacts
+*.send
+*.send.sha256
+*.tar.gz
+
+# Temporary files
+/tmp/
+/var/tmp/
+
+# Logs
+*.log
+
+# Build artifacts
+target/
+Cargo.lock
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Btrfs temporary mounts
+/mnt/op-dbus-*
+/tmp/op-dbus-*

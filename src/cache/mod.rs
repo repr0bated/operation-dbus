@@ -13,4 +13,3 @@ pub mod numa;
 pub mod snapshot_manager;
 
 pub use btrfs_cache::BtrfsCache;
-pub use numa::{NumaNode, NumaStats, NumaTopology};

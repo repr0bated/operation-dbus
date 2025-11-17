@@ -4,9 +4,11 @@
 mod cpu_features;
 pub use cpu_features::*;
 
+mod hierarchical;
+pub use hierarchical::*;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::process::Command;
 use zbus::Connection;
 
@@ -132,22 +134,17 @@ pub struct IntrospectionSummary {
     pub management_coverage: f32, // Percentage of services managed
 }
 
-pub struct SystemIntrospector {
-    /// Built-in plugins that op-dbus has
-    built_in_plugins: HashSet<String>,
+pub struct SystemIntrospector;
+
+impl Default for SystemIntrospector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SystemIntrospector {
     pub fn new() -> Self {
-        let mut built_in_plugins = HashSet::new();
-
-        // Built-in plugins
-        built_in_plugins.insert("systemd".to_string());
-        built_in_plugins.insert("login1".to_string());
-        built_in_plugins.insert("net".to_string()); // OVS
-        built_in_plugins.insert("lxc".to_string());
-
-        Self { built_in_plugins }
+        Self {}
     }
 
     /// Generate comprehensive introspection report
@@ -607,7 +604,7 @@ impl SystemIntrospector {
     /// Get all systemd units
     fn get_systemd_units(&self) -> Result<Vec<String>> {
         let output = Command::new("systemctl")
-            .args(&["list-units", "--type=service", "--all", "--no-pager", "--no-legend"])
+            .args(["list-units", "--type=service", "--all", "--no-pager", "--no-legend"])
             .output()
             .context("Failed to execute systemctl")?;
 
@@ -902,11 +899,8 @@ impl SystemIntrospector {
                 if let Some(plugin) = &service.recommended_plugin {
                     println!("    → Recommended plugin: {}", plugin);
                 }
-                match &service.management_status {
-                    ManagementStatus::Unmanaged { reason } => {
-                        println!("    Reason: {}", reason);
-                    }
-                    _ => {}
+                if let ManagementStatus::Unmanaged { reason } = &service.management_status {
+                    println!("    Reason: {}", reason);
                 }
             }
             println!();

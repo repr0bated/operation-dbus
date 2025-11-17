@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::process::Command;
 
+/// Type alias for complex feature check results
+type FeatureCheckResult = Result<Option<(CpuFeature, Option<BiosLock>, Option<Recommendation>)>>;
+
 /// CPU feature analysis report
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CpuFeatureAnalysis {
@@ -115,6 +118,12 @@ pub enum Priority {
 
 /// Analyzer for CPU features and BIOS locks
 pub struct CpuFeatureAnalyzer;
+
+impl Default for CpuFeatureAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl CpuFeatureAnalyzer {
     pub fn new() -> Self {
@@ -270,7 +279,7 @@ impl CpuFeatureAnalyzer {
         cpu_model: &CpuModel,
         flags: &[String],
         msr_available: bool,
-    ) -> Result<Option<(CpuFeature, Option<BiosLock>, Option<Recommendation>)>> {
+    ) -> FeatureCheckResult {
         let (feature_flag, feature_name, technical_name) = if cpu_model.vendor == "Intel" {
             ("vmx", "VT-x (Intel Virtualization)", "vmx")
         } else if cpu_model.vendor == "AMD" {
@@ -486,7 +495,7 @@ impl CpuFeatureAnalyzer {
         &self,
         flags: &[String],
         _msr_available: bool,
-    ) -> Result<Option<(CpuFeature, Option<BiosLock>, Option<Recommendation>)>> {
+    ) -> FeatureCheckResult {
         let sgx_supported = flags.contains(&"sgx".to_string());
 
         if !sgx_supported {

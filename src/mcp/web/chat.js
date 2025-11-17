@@ -43,7 +43,7 @@ class MCPChat {
     
     initWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/chat/ws`;
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
         
         this.ws = new WebSocket(wsUrl);
         

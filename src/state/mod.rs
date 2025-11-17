@@ -11,4 +11,3 @@ pub mod plugins;
 pub mod plugtree;
 
 pub use manager::StateManager;
-pub use plugin_workflow::{PluginWorkflowManager, WorkflowPluginNode};

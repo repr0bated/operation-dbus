@@ -1,4 +1,5 @@
 //! GNOME Keyring plugin - freedesktop.org Secret Service integration
+#![allow(dead_code)]
 //!
 //! Implements the org.freedesktop.secrets D-Bus service for secure credential storage.
 //! This allows applications like Cursor to store and retrieve passwords, API keys, etc.

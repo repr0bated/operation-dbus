@@ -1,3 +1,31 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo build:*)",
+      "Bash(rustc:*)",
+      "Bash(chmod:*)",
+      "Bash(/git/operation-dbus/test_deepseek.sh)",
+      "Bash(export OLLAMA_API_KEY:*)",
+      "Bash(echo:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo run:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(curl:*)",
+      "Bash(sudo ufw status:*)",
+      "Bash(sudo iptables:*)",
+      "Bash(sudo ss:*)",
+      "Bash(netstat:*)",
+      "Bash(ss:*)",
+      "Bash(printf \"Server process check:\\n\" ps aux)",
+      "Bash(printf \"\\nNetwork interfaces:\\n\" ip addr show)",
+      "Bash(printf \"\\nTesting local connection:\\n\" curl -s -I http://100.104.70.1:8080)",
+      "Bash(printf \"\\nListening ports:\\n\" ss -tlnp)",
+      "Bash(ip addr:*)",
+      "Bash(systemctl status:*)",
+      "Bash(sudo journalctl:*)"
+    ]
+  },
   "outputStyle": "Explanatory"
 }

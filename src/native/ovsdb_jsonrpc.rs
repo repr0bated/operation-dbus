@@ -30,7 +30,7 @@ impl OvsdbClient {
 
         // Check if Open_vSwitch table exists and has basic structure
         let dump = self.dump_open_vswitch().await?;
-        if dump.as_array().map_or(true, |arr| arr.is_empty()) {
+        if dump.as_array().is_none_or(|arr| arr.is_empty()) {
             log::warn!("OVSDB Open_vSwitch table appears empty - database may need initialization");
             // Note: We don't auto-initialize here as it should be done by systemd/ovs-vsctl init
         }
@@ -397,6 +397,7 @@ impl OvsdbClient {
     }
 
     /// Set interface type
+    #[allow(dead_code)]
     pub async fn set_interface_type(&self, interface_name: &str, interface_type: &str) -> Result<()> {
         let operations = json!([
             {

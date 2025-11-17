@@ -1,0 +1,7 @@
+Operation D-Bus Deployment Update
+
+- Updated deployment scripts
+- Modified Btrfs snapshot handling
+- Changed CI/CD pipeline
+
+Related issues: #123

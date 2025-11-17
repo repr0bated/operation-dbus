@@ -473,7 +473,9 @@ impl ChatServerState {
             // For now using empty history, but could be enhanced to pull from conversations
             let history: Vec<super::ollama::ChatMessage> = vec![];
 
-            match ollama_client.deepseek_chat_with_tools(
+            let model = ollama_client.default_model();
+            match ollama_client.chat_with_tools(
+                &model,
                 message,
                 &system_context,
                 &history,
@@ -490,9 +492,9 @@ impl ChatServerState {
                             .unwrap()
                             .as_secs(),
                         tools_used: if suggested_tools.is_empty() {
-                            vec!["deepseek".to_string()]
+                            vec!["ai".to_string()]
                         } else {
-                            let mut tools = vec!["deepseek".to_string()];
+                            let mut tools = vec!["ai".to_string()];
                             tools.extend(suggested_tools);
                             tools
                         },
@@ -699,7 +701,7 @@ impl ChatServerState {
                 • run compare_hardware config1_path=/path1 config2_path=/path2"
             }
             Some("ai") => {
-                "🤖 AI Assistant (DeepSeek) Capabilities:\n\
+                "🤖 AI Assistant Capabilities:\n\
                 \n\
                 The AI assistant has deep knowledge of:\n\
                 • Your system's hardware and capabilities\n\
@@ -746,7 +748,7 @@ impl ChatServerState {
                 • help introspection - System introspection tools\n\
                 • help ai - AI assistant capabilities\n\
                 \n\
-                AI Assistant (DeepSeek):\n\
+                AI Assistant:\n\
                 Ask questions naturally or use 'ai <question>':\n\
                 • 'ai what can you do?'\n\
                 • 'ai explain my hardware capabilities'\n\
