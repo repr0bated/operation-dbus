@@ -24,7 +24,7 @@ impl ResourceRegistry {
     pub fn new() -> Self {
         let mut resources = HashMap::new();
 
-        // Embed agent documentation
+        // Embed agent documentation and specifications
         resources.insert(
             "agent://agents/overview".to_string(),
             Resource {
@@ -34,6 +34,74 @@ impl ResourceRegistry {
                     .to_string(),
                 mime_type: "text/markdown".to_string(),
                 content: include_str!("../../AGENTS.md").to_string(),
+            },
+        );
+
+        // Individual agent specifications
+        resources.insert(
+            "agent://spec/executor".to_string(),
+            Resource {
+                uri: "agent://spec/executor".to_string(),
+                name: "Executor Agent Specification".to_string(),
+                description: "Secure command execution agent with whitelist-based security"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-EXECUTOR.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/systemd".to_string(),
+            Resource {
+                uri: "agent://spec/systemd".to_string(),
+                name: "Systemd Agent Specification".to_string(),
+                description: "systemd service management agent via systemctl".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-SYSTEMD.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/network".to_string(),
+            Resource {
+                uri: "agent://spec/network".to_string(),
+                name: "Network Agent Specification".to_string(),
+                description: "Network diagnostics and information gathering agent".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-NETWORK.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/file".to_string(),
+            Resource {
+                uri: "agent://spec/file".to_string(),
+                name: "File Agent Specification".to_string(),
+                description: "Secure file operations agent with path validation".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-FILE.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/monitor".to_string(),
+            Resource {
+                uri: "agent://spec/monitor".to_string(),
+                name: "Monitor Agent Specification".to_string(),
+                description: "System monitoring and metrics collection agent".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-MONITOR.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/packagekit".to_string(),
+            Resource {
+                uri: "agent://spec/packagekit".to_string(),
+                name: "PackageKit Agent Specification".to_string(),
+                description: "Package management agent via D-Bus PackageKit interface".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-PACKAGEKIT.md").to_string(),
             },
         );
 
@@ -162,6 +230,58 @@ impl ResourceRegistry {
                 description: "Final architecture design for the distributed system".to_string(),
                 mime_type: "text/markdown".to_string(),
                 content: include_str!("../../docs/FINAL-ARCHITECTURE.md").to_string(),
+            },
+        );
+
+        // Embed AI memory and context patterns
+        resources.insert(
+            "ai://prompt-templates".to_string(),
+            Resource {
+                uri: "ai://prompt-templates".to_string(),
+                name: "Prompt Templates and Context Patterns".to_string(),
+                description: "Prompt templates, RAG patterns, and context management strategies for AI"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/PROMPT-TEMPLATES.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "ai://memory-patterns".to_string(),
+            Resource {
+                uri: "ai://memory-patterns".to_string(),
+                name: "AI Memory and Context Management".to_string(),
+                description:
+                    "Memory hierarchy, context management, and knowledge retrieval patterns"
+                        .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/MEMORY-PATTERNS.md").to_string(),
+            },
+        );
+
+        // Embed public D-Bus and MCP specifications
+        resources.insert(
+            "spec://dbus/common-interfaces".to_string(),
+            Resource {
+                uri: "spec://dbus/common-interfaces".to_string(),
+                name: "Common D-Bus Interfaces Reference".to_string(),
+                description:
+                    "Public D-Bus interface specifications for systemd, NetworkManager, BlueZ, etc."
+                        .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/DBUS-COMMON-INTERFACES.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "spec://mcp/protocol".to_string(),
+            Resource {
+                uri: "spec://mcp/protocol".to_string(),
+                name: "MCP Protocol Specification".to_string(),
+                description:
+                    "Model Context Protocol (MCP) 2024-11-05 specification reference".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../docs/MCP-PROTOCOL-SPEC.md").to_string(),
             },
         );
 
