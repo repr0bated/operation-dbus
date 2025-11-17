@@ -345,3 +345,71 @@ impl DbusQueryEngine {
         &self.index.statistics
     }
 }
+
+/// Verification result comparing index to live D-Bus
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerificationResult {
+    pub timestamp: i64,
+    pub index_complete: bool,
+    pub index_services: usize,
+    pub live_services: usize,
+    pub missing_from_index: Vec<String>,
+    pub extra_in_index: Vec<String>,  // Services in index but not live
+    pub coverage_percent: f64,
+}
+
+impl DbusIndexer {
+    /// Verify index completeness against live D-Bus
+    pub async fn verify_completeness(&self) -> Result<VerificationResult> {
+        log::info!("🔍 Verifying index completeness against live D-Bus...");
+
+        // Get live services from D-Bus
+        let live_services = self.introspector.list_all_services().await?;
+        log::info!("   Live D-Bus services: {}", live_services.len());
+
+        // Load index
+        let index = self.load()?;
+        let index_services: Vec<String> = index.services.keys().cloned().collect();
+        log::info!("   Indexed services: {}", index_services.len());
+
+        // Find missing services (in live but not in index)
+        let missing: Vec<String> = live_services
+            .iter()
+            .filter(|s| !index_services.contains(s))
+            .cloned()
+            .collect();
+
+        // Find extra services (in index but not live)
+        let extra: Vec<String> = index_services
+            .iter()
+            .filter(|s| !live_services.contains(s))
+            .cloned()
+            .collect();
+
+        let coverage = if live_services.is_empty() {
+            100.0
+        } else {
+            ((index_services.len() - extra.len()) as f64 / live_services.len() as f64) * 100.0
+        };
+
+        let complete = missing.is_empty();
+
+        log::info!("   Coverage: {:.1}%", coverage);
+        if !missing.is_empty() {
+            log::warn!("   Missing {} services from index", missing.len());
+        }
+        if !extra.is_empty() {
+            log::info!("   {} services in index but not currently running", extra.len());
+        }
+
+        Ok(VerificationResult {
+            timestamp: chrono::Utc::now().timestamp(),
+            index_complete: complete,
+            index_services: index_services.len(),
+            live_services: live_services.len(),
+            missing_from_index: missing,
+            extra_in_index: extra,
+            coverage_percent: coverage,
+        })
+    }
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=Update D-Bus Index Snapshot
+Documentation=https://github.com/repr0bated/operation-dbus
+After=dbus.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/op-dbus index build
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=op-dbus-index
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=yes
+ReadWritePaths=/var/lib/op-dbus
+
+[Install]
+WantedBy=multi-user.target

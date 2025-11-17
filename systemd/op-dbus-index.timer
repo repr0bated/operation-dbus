@@ -1,0 +1,20 @@
+[Unit]
+Description=Daily D-Bus Index Update
+Documentation=https://github.com/repr0bated/operation-dbus
+
+[Timer]
+# Run daily at 2 AM
+OnCalendar=daily
+OnCalendar=02:00
+
+# Run 5 minutes after boot if missed
+OnBootSec=5min
+
+# Allow up to 1 hour variation for reduced system load
+RandomizedDelaySec=1h
+
+# Run immediately if last run was missed
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -210,6 +210,50 @@ enum IndexCommands {
         /// Second index (current)
         current: PathBuf,
     },
+
+    /// List all snapshots
+    Snapshots {
+        /// Index directory
+        #[arg(short, long, default_value = "/var/lib/op-dbus/@dbus-index")]
+        index: PathBuf,
+    },
+
+    /// Create a snapshot manually
+    Snapshot {
+        /// Index directory
+        #[arg(short, long, default_value = "/var/lib/op-dbus/@dbus-index")]
+        index: PathBuf,
+
+        /// Snapshot name (optional, defaults to timestamp)
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Tag this snapshot (prevents auto-deletion)
+        #[arg(short, long)]
+        tag: Option<String>,
+    },
+
+    /// Clean up old snapshots (apply retention policy)
+    Cleanup {
+        /// Index directory
+        #[arg(short, long, default_value = "/var/lib/op-dbus/@dbus-index")]
+        index: PathBuf,
+
+        /// Force cleanup without confirmation
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Verify index completeness against live D-Bus
+    Verify {
+        /// Index directory
+        #[arg(short, long, default_value = "/var/lib/op-dbus/@dbus-index")]
+        index: PathBuf,
+
+        /// Show detailed missing services
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1004,6 +1048,7 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
 
 async fn handle_index_command(cmd: IndexCommands) -> Result<()> {
     use crate::mcp::dbus_indexer::{DbusIndexer, DbusQueryEngine};
+    use crate::snapshot::{SnapshotManager, RetentionPolicy};
 
     match cmd {
         IndexCommands::Build { output } => {
@@ -1021,9 +1066,31 @@ async fn handle_index_command(cmd: IndexCommands) -> Result<()> {
             println!("   Services: {}", index.statistics.total_services);
             println!("   Objects: {}", index.statistics.total_objects);
             println!("   Methods: {}", index.statistics.total_methods);
+
+            // Auto-create snapshot with rolling-3 retention
+            println!();
+            println!("📸 Creating snapshot...");
+            let snapshots_dir = PathBuf::from("/var/lib/op-dbus/@snapshots/dbus-index");
+            let snapshot_mgr = SnapshotManager::with_policy(
+                &snapshots_dir,
+                RetentionPolicy::Rolling { keep: 3 }
+            );
+
+            match snapshot_mgr.create_snapshot(&output, None) {
+                Ok(snapshot_path) => {
+                    println!("   Snapshot: {}", snapshot_path.display());
+                    let snapshots = snapshot_mgr.list_snapshots()?;
+                    println!("   Total snapshots: {} (keeping last 3)", snapshots.len());
+                }
+                Err(e) => {
+                    log::warn!("Failed to create snapshot (non-fatal): {}", e);
+                    println!("   ⚠️  Snapshot failed (index still saved): {}", e);
+                }
+            }
+
             println!();
             println!("💡 Use 'op-dbus index search <query>' to search the index");
-            println!("💡 Use 'btrfs subvolume snapshot' to create versioned snapshots");
+            println!("💡 Use 'op-dbus index snapshots' to list all snapshots");
 
             Ok(())
         }
@@ -1126,6 +1193,161 @@ async fn handle_index_command(cmd: IndexCommands) -> Result<()> {
 
             if added.is_empty() && removed.is_empty() {
                 println!("No differences found");
+            }
+
+            Ok(())
+        }
+
+        IndexCommands::Snapshots { index } => {
+            let snapshots_dir = PathBuf::from("/var/lib/op-dbus/@snapshots/dbus-index");
+            let snapshot_mgr = SnapshotManager::new(&snapshots_dir);
+            let snapshots = snapshot_mgr.list_snapshots()?;
+
+            if snapshots.is_empty() {
+                println!("No snapshots found");
+                println!("💡 Run 'op-dbus index build' to create the first snapshot");
+            } else {
+                println!("=== D-Bus Index Snapshots ({}) ===\n", snapshots.len());
+                for snapshot in &snapshots {
+                    let dt = chrono::DateTime::from_timestamp(snapshot.created, 0)
+                        .map(|d| d.to_rfc3339())
+                        .unwrap_or_else(|| "Unknown".to_string());
+
+                    let tag_info = if snapshot.tagged {
+                        format!(" [TAGGED: {}]", snapshot.tag.as_ref().unwrap_or(&"golden".to_string()))
+                    } else {
+                        String::new()
+                    };
+
+                    println!("  {} - {}{}", snapshot.name, dt, tag_info);
+                }
+
+                println!();
+                println!("Total: {} snapshots", snapshots.len());
+                println!("Location: {}", snapshots_dir.display());
+            }
+
+            Ok(())
+        }
+
+        IndexCommands::Snapshot { index, name, tag } => {
+            println!("📸 Creating manual snapshot...");
+
+            let snapshots_dir = PathBuf::from("/var/lib/op-dbus/@snapshots/dbus-index");
+            let snapshot_mgr = SnapshotManager::with_policy(
+                &snapshots_dir,
+                RetentionPolicy::Rolling { keep: 3 }
+            );
+
+            let snapshot_path = snapshot_mgr.create_snapshot(&index, name.as_deref())?;
+            println!("   Created: {}", snapshot_path.display());
+
+            // Apply tag if provided
+            if let Some(tag_value) = tag {
+                let snapshot_name = snapshot_path.file_name().unwrap().to_string_lossy();
+                snapshot_mgr.tag_snapshot(&snapshot_name, &tag_value)?;
+                println!("   Tagged as: {}", tag_value);
+            }
+
+            let snapshots = snapshot_mgr.list_snapshots()?;
+            println!("   Total snapshots: {}", snapshots.len());
+
+            Ok(())
+        }
+
+        IndexCommands::Cleanup { index, force } => {
+            let snapshots_dir = PathBuf::from("/var/lib/op-dbus/@snapshots/dbus-index");
+            let snapshot_mgr = SnapshotManager::with_policy(
+                &snapshots_dir,
+                RetentionPolicy::Rolling { keep: 3 }
+            );
+
+            let snapshots = snapshot_mgr.list_snapshots()?;
+
+            if snapshots.len() <= 3 {
+                println!("✅ No cleanup needed - only {} snapshot(s) exist", snapshots.len());
+                return Ok(());
+            }
+
+            println!("🗑️  Cleanup Policy: Keep last 3 snapshots");
+            println!("   Current snapshots: {}", snapshots.len());
+            println!("   Will delete: {} old snapshot(s)", snapshots.len() - 3);
+            println!();
+
+            if !force {
+                print!("Continue? [y/N] ");
+                use std::io::{self, Write};
+                io::stdout().flush()?;
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if !input.trim().eq_ignore_ascii_case("y") {
+                    println!("Cancelled");
+                    return Ok(());
+                }
+            }
+
+            snapshot_mgr.apply_retention_policy()?;
+
+            let remaining = snapshot_mgr.list_snapshots()?;
+            println!("✅ Cleanup complete - {} snapshot(s) remaining", remaining.len());
+
+            Ok(())
+        }
+
+        IndexCommands::Verify { index, verbose } => {
+            println!("🔍 Verifying D-Bus index completeness...");
+            println!();
+
+            let indexer = DbusIndexer::new(&index).await?;
+            let result = indexer.verify_completeness().await?;
+
+            println!("=== D-Bus Index Verification ===\n");
+            println!("Timestamp:         {}",
+                chrono::DateTime::from_timestamp(result.timestamp, 0)
+                    .map(|d| d.to_rfc3339())
+                    .unwrap_or_else(|| "Unknown".to_string()));
+            println!("Live services:     {}", result.live_services);
+            println!("Indexed services:  {}", result.index_services);
+            println!("Coverage:          {:.1}%", result.coverage_percent);
+            println!();
+
+            if result.index_complete {
+                println!("✅ Index is COMPLETE - all live services are indexed");
+            } else {
+                println!("⚠️  Index is INCOMPLETE - {} service(s) missing", result.missing_from_index.len());
+
+                if verbose || result.missing_from_index.len() <= 10 {
+                    println!("\nMissing services:");
+                    for service in &result.missing_from_index {
+                        println!("  - {}", service);
+                    }
+                } else {
+                    println!("\nMissing services (showing first 10 of {}):", result.missing_from_index.len());
+                    for service in result.missing_from_index.iter().take(10) {
+                        println!("  - {}", service);
+                    }
+                    println!("\n   Use --verbose to see all missing services");
+                }
+            }
+
+            if !result.extra_in_index.is_empty() {
+                println!("\n📝 Note: {} service(s) in index but not currently running",
+                    result.extra_in_index.len());
+                println!("   (These were indexed previously but the services have stopped)");
+
+                if verbose && result.extra_in_index.len() <= 20 {
+                    println!("\nExtra services:");
+                    for service in &result.extra_in_index {
+                        println!("  - {}", service);
+                    }
+                }
+            }
+
+            println!();
+            if !result.index_complete {
+                println!("💡 Run 'op-dbus index build' to update the index");
             }
 
             Ok(())

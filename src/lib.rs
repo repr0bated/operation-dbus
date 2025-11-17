@@ -10,6 +10,7 @@ pub mod isp_migration;
 pub mod isp_support;
 pub mod native;
 pub mod nonnet_db;
+pub mod snapshot;
 pub mod state;
 
 // Loose coupling modules
