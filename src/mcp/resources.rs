@@ -105,6 +105,68 @@ impl ResourceRegistry {
             },
         );
 
+        // Memory and context management agents
+        resources.insert(
+            "agent://spec/memory-graph".to_string(),
+            Resource {
+                uri: "agent://spec/memory-graph".to_string(),
+                name: "Knowledge Graph Memory Agent".to_string(),
+                description: "Persistent memory using knowledge graph with entities, relations, and observations"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-MEMORY-GRAPH.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/memory-vector".to_string(),
+            Resource {
+                uri: "agent://spec/memory-vector".to_string(),
+                name: "Vector Memory Agent".to_string(),
+                description: "Semantic memory storage and retrieval using vector embeddings and Qdrant"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-MEMORY-VECTOR.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/memory-buffer".to_string(),
+            Resource {
+                uri: "agent://spec/memory-buffer".to_string(),
+                name: "Conversation Buffer Memory Agent".to_string(),
+                description: "Multiple conversation memory strategies: buffer, window, summary, and hybrid modes"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-MEMORY-BUFFER.md").to_string(),
+            },
+        );
+
+        // Utility agents
+        resources.insert(
+            "agent://spec/code-sandbox".to_string(),
+            Resource {
+                uri: "agent://spec/code-sandbox".to_string(),
+                name: "Code Sandbox Agent".to_string(),
+                description: "Secure sandboxed code execution for Python and JavaScript with resource limits"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-CODE-SANDBOX.md").to_string(),
+            },
+        );
+
+        resources.insert(
+            "agent://spec/web-scraper".to_string(),
+            Resource {
+                uri: "agent://spec/web-scraper".to_string(),
+                name: "Web Scraper Agent".to_string(),
+                description: "Browser automation and web scraping with structured data extraction via Playwright"
+                    .to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: include_str!("../../agents/AGENT-WEB-SCRAPER.md").to_string(),
+            },
+        );
+
         // Embed MCP documentation
         resources.insert(
             "mcp://docs/complete-guide".to_string(),
