@@ -4,6 +4,7 @@ const axios = require('axios');
 const path = require('path');
 const WebSocket = require('ws');
 const { createServer } = require('http');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Rate limiting for Ollama API calls
 let lastApiCall = 0;
@@ -16,6 +17,47 @@ let lastSuccessfulCall = 0;
 const app = express();
 const PORT = 8080;
 const BIND_IP = '0.0.0.0'; // Listen on all interfaces
+// AI API Configuration
+const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama'; // 'ollama', 'grok', 'gemini', 'huggingface', or 'cursor-agent'
+const GROK_API_KEY = process.env.GROK_API_KEY || '';
+const GROK_MODEL = process.env.GROK_MODEL || 'grok-beta';
+const GROK_BASE_URL = 'https://api.x.ai/v1';
+
+const GEMINI_API_KEY = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+let GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp'; // Mutable for runtime switching
+
+const HF_TOKEN = process.env.HF_TOKEN || process.env.HUGGINGFACE_TOKEN || '';
+let HF_MODEL = process.env.HF_MODEL || 'microsoft/DialoGPT-medium'; // Mutable for runtime switching
+
+// Available Gemini models (can be updated based on rate limits)
+const GEMINI_MODELS = [
+    { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash (Experimental)', tier: 'free', available: true },
+    { id: 'gemini-2.0-flash-thinking-exp-1219', name: 'Gemini 2.0 Flash Thinking', tier: 'free', available: true },
+    { id: 'gemini-exp-1206', name: 'Gemini Experimental (1206)', tier: 'free', available: true },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', tier: 'free', available: true },
+    { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B', tier: 'free', available: true },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', tier: 'free', available: true },
+];
+
+// Available Hugging Face models
+const HF_MODELS = [
+    { id: 'microsoft/DialoGPT-medium', name: 'DialoGPT Medium (Free)', tier: 'free', available: true },
+    { id: 'microsoft/DialoGPT-large', name: 'DialoGPT Large (Free)', tier: 'free', available: true },
+    { id: 'microsoft/DialoGPT-small', name: 'DialoGPT Small (Free)', tier: 'free', available: true },
+    { id: 'microsoft/phi-2', name: 'Phi-2 (Free)', tier: 'free', available: true },
+    { id: 'mistralai/Mistral-7B-Instruct-v0.1', name: 'Mistral 7B Instruct', tier: 'paid', available: true },
+    { id: 'meta-llama/Llama-2-7b-chat-hf', name: 'Llama 2 7B Chat', tier: 'paid', available: true },
+    { id: 'google/gemma-7b-it', name: 'Gemma 7B IT', tier: 'paid', available: true },
+    { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B Beta', tier: 'paid', available: true },
+    { id: 'microsoft/Orca-2-7b', name: 'Orca 2 7B', tier: 'paid', available: true },
+];
+
+// Initialize Gemini AI client
+let genAI = null;
+if (GEMINI_API_KEY) {
+    genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+}
+
 const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || '';
 const OLLAMA_MODEL = process.env.OLLAMA_DEFAULT_MODEL || process.env.OLLAMA_MODEL || 'llama2';
 
@@ -131,6 +173,132 @@ async function rateLimitedApiCall(apiCallFn, description = 'API call') {
 
         // Re-throw the error
         throw error;
+    }
+}
+
+// Unified AI API call function - supports Ollama, Grok, Gemini, and cursor-agent
+async function callAI(messages, systemPrompt) {
+    if (AI_PROVIDER === 'cursor-agent') {
+        // cursor-agent CLI relay (uses MCP, no API key needed)
+        const prompt = `${systemPrompt}\n\nUser: ${messages[0].content}`;
+        const { execSync } = require('child_process');
+
+        try {
+            const output = execSync(
+                `cursor-agent --print --approve-mcps --force "${prompt.replace(/"/g, '\\"')}"`,
+                { encoding: 'utf8', timeout: 600000, maxBuffer: 10 * 1024 * 1024 }
+            );
+
+            // Return in format compatible with extractAIContent
+            return { data: { cursor_response: output.trim() } };
+        } catch (error) {
+            throw new Error(`cursor-agent failed: ${error.message}`);
+        }
+    } else if (AI_PROVIDER === 'gemini') {
+        // Gemini API using official SDK
+        if (!genAI) {
+            throw new Error('Gemini API key not configured');
+        }
+
+        const prompt = `${systemPrompt}\n\nUser: ${messages[0].content}`;
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+
+        // Return in same format as axios for compatibility
+        return {
+            data: {
+                candidates: [{
+                    content: {
+                        parts: [{
+                            text: text
+                        }]
+                    }
+                }]
+            }
+        };
+    } else if (AI_PROVIDER === 'grok') {
+        // Grok API (OpenAI-compatible)
+        return await axios.post(`${GROK_BASE_URL}/chat/completions`, {
+            model: GROK_MODEL,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                ...messages
+            ],
+            temperature: 0.7
+        }, {
+            headers: {
+                'Authorization': `Bearer ${GROK_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 120000
+        });
+    } else if (AI_PROVIDER === 'huggingface') {
+        // Hugging Face Inference API
+        if (!HF_TOKEN) {
+            throw new Error('Hugging Face token not configured');
+        }
+
+        const conversation = messages.map(msg => {
+            if (msg.role === 'system') {
+                return `System: ${msg.content}`;
+            } else if (msg.role === 'user') {
+                return `User: ${msg.content}`;
+            } else {
+                return msg.content;
+            }
+        }).join('\n');
+
+        const prompt = `${systemPrompt}\n\n${conversation}\nAssistant:`;
+
+        return await axios.post(`https://api-inference.huggingface.co/models/${HF_MODEL}`, {
+            inputs: prompt,
+            parameters: {
+                max_new_tokens: 512,
+                temperature: 0.7,
+                return_full_text: false
+            }
+        }, {
+            headers: {
+                'Authorization': `Bearer ${HF_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 120000
+        });
+    } else {
+        // Ollama API
+        return await axios.post(`${OLLAMA_BASE_URL}/api/chat`, {
+            model: OLLAMA_MODEL,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                ...messages
+            ],
+            stream: false
+        }, {
+            headers: {
+                ...(OLLAMA_USE_CLOUD ? { 'Authorization': `Bearer ${OLLAMA_API_KEY}` } : {}),
+                'Content-Type': 'application/json'
+            },
+            timeout: 120000
+        });
+    }
+}
+
+// Extract AI response content from different API formats
+function extractAIContent(response) {
+    if (AI_PROVIDER === 'cursor-agent') {
+        return response.data.cursor_response;
+    } else if (AI_PROVIDER === 'gemini') {
+        return response.data.candidates[0].content.parts[0].text;
+    } else if (AI_PROVIDER === 'grok') {
+        return response.data.choices[0].message.content;
+    } else if (AI_PROVIDER === 'huggingface') {
+        // Hugging Face Inference API returns an array with generated_text
+        return response.data[0].generated_text;
+    } else {
+        return response.data.message.content;
     }
 }
 
@@ -291,8 +459,8 @@ async function startMcpServer() {
     return new Promise((resolve, reject) => {
         const { spawn } = require('child_process');
 
-        // Start the MCP server binary
-        mcpProcess = spawn('./target/release/dbus-mcp', [], {
+        // Start the MCP server binary with sudo
+        mcpProcess = spawn('sudo', ['./target/release/dbus-mcp'], {
             cwd: process.cwd(),
             stdio: ['pipe', 'pipe', 'pipe']
         });
@@ -1005,6 +1173,33 @@ app.post('/api/tools/execute', async (req, res) => {
     }
 });
 
+// Direct tool execution endpoint - NO AI needed!
+app.post('/api/exec', async (req, res) => {
+    try {
+        const { tool, params } = req.body;
+
+        console.log(`🔧 Direct tool execution: ${tool}`);
+
+        // Execute tool directly via MCP
+        const mcpResponse = await callMcpTool('tools/call', {
+            name: tool,
+            arguments: params || {}
+        });
+
+        res.json({
+            success: true,
+            result: mcpResponse
+        });
+
+    } catch (error) {
+        console.error('❌ Direct tool execution failed:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 app.post('/api/chat', async (req, res) => {
     try {
         const { message } = req.body;
@@ -1055,37 +1250,14 @@ When a user asks you to USE, EXECUTE, or RUN a tool, respond with ONLY a JSON ob
 - JSON-RPC: json_rpc_call, list_ovs_bridges, get_bridge_info, get_bridge_ports, configure_bridge
 - System Files: read_procfs, read_sysfs, kernel_parameters, device_info`;
 
-        // Call Ollama with tool awareness using rate limiting
+        // Call AI with tool awareness using rate limiting
         const response = await rateLimitedApiCall(async () => {
-            return await axios.post(`${OLLAMA_BASE_URL}/api/chat`, {
-                model: OLLAMA_MODEL,
-                messages: [
-                    {
-                        role: 'system',
-                        content: systemPrompt
-                    },
-                    {
-                        role: 'user',
-                        content: message
-                    }
-                ],
-                stream: false
-            }, {
-                headers: {
-                    ...(OLLAMA_USE_CLOUD ? { 'Authorization': `Bearer ${OLLAMA_API_KEY}` } : {}),
-                    'Content-Type': 'application/json'
-                },
-                timeout: 120000 // 120 seconds timeout for complex system analysis
-            });
-        }, 'Ollama chat API');
+            return await callAI([{ role: 'user', content: message }], systemPrompt);
+        }, `${AI_PROVIDER} chat API`);
 
-        console.log('🔍 Ollama response:', JSON.stringify(response.data).substring(0, 200));
+        console.log(`🔍 ${AI_PROVIDER} response:`, JSON.stringify(response.data).substring(0, 200));
 
-        if (!response.data || !response.data.message || !response.data.message.content) {
-            throw new Error(`Invalid Ollama response format: ${JSON.stringify(response.data)}`);
-        }
-
-        let aiResponse = response.data.message.content;
+        let aiResponse = extractAIContent(response);
         console.log(`🤖 AI: ${aiResponse.substring(0, 100)}...`);
 
         // Check if AI wants to use a tool
@@ -1223,7 +1395,7 @@ When a user asks you to USE, EXECUTE, or RUN a tool, respond with ONLY a JSON ob
                         ...(OLLAMA_USE_CLOUD ? { 'Authorization': `Bearer ${OLLAMA_API_KEY}` } : {}),
                         'Content-Type': 'application/json'
                     },
-                    timeout: 45000 // 45 seconds for comprehensive analysis
+                    timeout: 180000 // 180 seconds (3 minutes) for comprehensive analysis with large context
                 });
             }, 'Ollama follow-up analysis');
 
@@ -2123,62 +2295,43 @@ let discoveredServices = [
 // Discovery endpoints
 app.post('/api/discovery/run', async (req, res) => {
     try {
-        console.log('🔍 Running service discovery...');
+        console.log('🔍 Running full D-Bus introspection...');
 
-        // Simplified discovery for faster response
-        const newDiscoveredServices = [
-            {
-                name: 'org.freedesktop.systemd1',
-                path: '/',
-                category: 'System',
-                type: 'dbus-service',
-                status: 'active',
-                description: 'systemd service manager'
-            },
-            {
-                name: 'org.freedesktop.NetworkManager',
-                path: '/',
-                category: 'Network',
-                type: 'dbus-service',
-                status: 'active',
-                description: 'NetworkManager service'
-            },
-            {
-                name: 'org.freedesktop.DBus',
-                path: '/',
-                category: 'System',
-                type: 'dbus-service',
-                status: 'active',
-                description: 'D-Bus message bus'
-            },
-            {
-                name: 'org.freedesktop.login1',
-                path: '/',
-                category: 'System',
-                type: 'dbus-service',
-                status: 'active',
-                description: 'Login/session manager'
-            },
-            {
-                name: 'org.freedesktop.UDisks2',
-                path: '/',
-                category: 'System',
-                type: 'dbus-service',
-                status: 'active',
-                description: 'Storage device manager'
-            },
-            {
-                name: 'org.freedesktop.UPower',
-                path: '/',
-                category: 'System',
-                type: 'dbus-service',
-                status: 'active',
-                description: 'Power management'
-            }
-        ];
+        // Run the Rust introspection binary
+        const introspectBin = path.join(__dirname, 'target/release/dbus_introspect_all');
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        const { stdout, stderr } = await execAsync(`RUST_LOG=warn ${introspectBin}`, {
+            maxBuffer: 50 * 1024 * 1024, // 50MB buffer for large JSON
+            timeout: 60000 // 60 second timeout
+        });
+
+        // Parse the JSON output
+        const introspectionData = JSON.parse(stdout);
+
+        console.log(`✅ Introspection complete: ${introspectionData.total_services} services, ${introspectionData.total_interfaces} interfaces, ${introspectionData.total_methods} methods`);
+
+        // Convert to our discovery format
+        const newDiscoveredServices = introspectionData.services.map(service => ({
+            name: service.service_name,
+            path: service.object_paths[0] || '/',
+            category: service.service_name.includes('Network') ? 'Network' : 'System',
+            type: 'dbus-service',
+            status: 'active',
+            description: `D-Bus service with ${Object.keys(service.interfaces).length} objects`,
+            interfaces_count: Object.values(service.interfaces).reduce((sum, ifaces) => sum + ifaces.length, 0),
+            methods_count: Object.values(service.interfaces).reduce((sum, ifaces) =>
+                sum + ifaces.reduce((m, iface) => m + iface.methods.length, 0), 0)
+        }));
 
         // Update the discovered services
         discoveredServices = newDiscoveredServices;
+
+        // Cache the full introspection data
+        global.fullIntrospectionData = introspectionData;
+
         console.log(`✅ Discovery completed: ${discoveredServices.length} services found`);
 
         res.json({
@@ -2320,6 +2473,107 @@ app.get('/api/agents', (req, res) => {
     });
 });
 
+// Model selector endpoints
+app.get('/api/models', (req, res) => {
+    res.json({
+        success: true,
+        provider: AI_PROVIDER,
+        currentModel: GEMINI_MODEL,
+        availableModels: GEMINI_MODELS
+    });
+});
+
+app.post('/api/models/select', (req, res) => {
+    const { modelId } = req.body;
+
+    if (!modelId) {
+        return res.status(400).json({
+            success: false,
+            error: 'modelId is required'
+        });
+    }
+
+    const model = GEMINI_MODELS.find(m => m.id === modelId);
+    if (!model) {
+        return res.status(404).json({
+            success: false,
+            error: 'Model not found'
+        });
+    }
+
+    GEMINI_MODEL = modelId;
+    console.log(`🔄 Switched to model: ${model.name} (${modelId})`);
+
+    res.json({
+        success: true,
+        currentModel: GEMINI_MODEL,
+        modelName: model.name
+    });
+});
+
+// Switch model and provider endpoint
+app.post('/api/switch-model', (req, res) => {
+    const { provider, model } = req.body;
+
+    if (!provider || !model) {
+        return res.status(400).json({
+            success: false,
+            error: 'Both provider and model are required'
+        });
+    }
+
+    try {
+        // Update environment variables (these will be used on restart)
+        process.env.AI_PROVIDER = provider;
+
+        if (provider === 'gemini') {
+            const geminiModel = GEMINI_MODELS.find(m => m.id === model);
+            if (!geminiModel) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Gemini model not found'
+                });
+            }
+            GEMINI_MODEL = model;
+            process.env.GEMINI_MODEL = model;
+            console.log(`🔄 Switched to Gemini model: ${geminiModel.name} (${model})`);
+        } else if (provider === 'huggingface') {
+            const hfModel = HF_MODELS.find(m => m.id === model);
+            if (!hfModel) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Hugging Face model not found'
+                });
+            }
+            HF_MODEL = model;
+            process.env.HF_MODEL = model;
+            console.log(`🔄 Switched to Hugging Face model: ${hfModel.name} (${model})`);
+        } else if (provider === 'ollama') {
+            OLLAMA_MODEL = model;
+            process.env.OLLAMA_DEFAULT_MODEL = model;
+            console.log(`🔄 Switched to Ollama model: ${model}`);
+        } else {
+            return res.status(400).json({
+                success: false,
+                error: 'Unsupported provider'
+            });
+        }
+
+        res.json({
+            success: true,
+            provider: provider,
+            model: model,
+            message: `Switched to ${provider} model: ${model}`
+        });
+    } catch (error) {
+        console.error('Model switch error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // Create HTTP server
 const server = createServer(app);
 
@@ -2380,7 +2634,9 @@ server.listen(PORT, BIND_IP, () => {
     console.log('╚══════════════════════════════════════╝');
     console.log(`🌐 Server IP: ${serverIP}:${PORT}`);
     console.log(`🌐 Local access: http://localhost:${PORT}`);
-    console.log(`🤖 AI Model: ${OLLAMA_MODEL}`);
+    const currentModel = AI_PROVIDER === 'cursor-agent' ? 'CLI (via MCP)' : (AI_PROVIDER === 'gemini' ? GEMINI_MODEL : (AI_PROVIDER === 'grok' ? GROK_MODEL : (AI_PROVIDER === 'huggingface' ? HF_MODEL : OLLAMA_MODEL)));
+    console.log(`🤖 AI Provider: ${AI_PROVIDER}`);
+    console.log(`🤖 AI Model: ${currentModel}`);
     console.log('🔌 WebSocket: Enabled for real-time updates');
     console.log('🚀 Server is running! Press Ctrl+C to stop');
     console.log();

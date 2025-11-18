@@ -1,3 +1,6 @@
+#[path = "mcp/ollama.rs"]
+mod ollama;
+
 use anyhow::Result;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
@@ -6,7 +9,7 @@ use axum::{
     routing::get,
     Router,
 };
-use futures_util::{SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
@@ -16,8 +19,8 @@ use tower_http::{
 };
 use tracing::{info, error};
 
-// Import Ollama client from mcp module
-use op_dbus::mcp::ollama::OllamaClient;
+// Use local Ollama client
+use ollama::OllamaClient;
 
 // Chat message structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +48,7 @@ async fn main() -> Result<()> {
     // Create Ollama client for AI
     let ollama_client = if let Ok(api_key) = std::env::var("OLLAMA_API_KEY") {
         info!("Using Ollama Cloud API with AI");
-        Some(Arc::new(OllamaClient::ai_cloud(api_key)))
+        Some(Arc::new(OllamaClient::cloud(api_key)))
     } else {
         info!("OLLAMA_API_KEY not set. Set your Ollama API key to enable AI chat.");
         info!("Get your API key from: https://ollama.com");
@@ -147,7 +150,8 @@ async fn handle_socket(socket: WebSocket, state: ChatState) {
 
                         // Generate AI response if Ollama client is available
                         if let Some(ollama_client) = &state.ollama_client {
-                            match ollama_client.ai_chat(&content).await {
+                            let model = ollama_client.default_model();
+                            match ollama_client.simple_chat(&model, &content).await {
                                 Ok(ai_response) => {
                                     let ai_msg = ChatMessage::Assistant {
                                         content: ai_response,

@@ -76,7 +76,8 @@ create_stage_folder() {
     local stage_dir="${STAGING_BASE}/stage-${stage_num}-${component}"
 
     if [[ -d "$stage_dir" ]]; then
-        log_warn "Stage folder already exists: $stage_dir"
+        log_warn "Stage folder already exists: $stage_dir" >&2
+        echo "$stage_dir"
         return 0
     fi
 

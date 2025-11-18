@@ -1,5 +1,5 @@
 //! State management - declarative plugin system
-#[cfg(feature = "mcp")]
+#[cfg(any(feature = "mcp", feature = "web"))]
 pub mod auto_plugin;
 pub mod crypto;
 pub mod dbus_plugin_base;

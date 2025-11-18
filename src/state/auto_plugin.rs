@@ -6,7 +6,7 @@ use crate::state::plugin::{
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-#[cfg(feature = "mcp")]
+#[cfg(any(feature = "mcp", feature = "web"))]
 use crate::mcp::introspection_parser;
 use serde_json::Value;
 use std::collections::HashMap;

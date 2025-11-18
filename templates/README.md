@@ -1,89 +1,55 @@
-# LXC Templates for op-dbus
+# OVS Bridge State Templates
 
-## Netmaker-Ready Template
+## Overview
 
-The `debian-13-netmaker_custom.tar.zst` template includes:
-- ✅ Debian 13 (Trixie) base
-- ✅ netclient pre-installed
-- ✅ wireguard support
-- ✅ Ready for automatic mesh networking
+These templates demonstrate how to configure Open vSwitch (OVS) bridges using native OVSDB JSON-RPC protocol via the `op-dbus` state management system.
 
-## Creating the Template
+**Key Benefits:**
+- ✅ **Native Protocol**: Uses OVSDB JSON-RPC (not CLI tools)
+- ✅ **Persistence**: Configuration survives reboots (written to OVSDB + `/etc/network/interfaces`)
+- ✅ **Kernel Visibility**: Bridges appear in kernel once ports are attached
+- ✅ **Idempotent**: Safe to apply multiple times - only applies changes
+- ✅ **Atomic**: Changes are transactional via OVSDB
 
-### Option 1: Manual Preparation (Recommended)
-
-1. **Create a container manually in Proxmox:**
-   - ID: 9999 (temporary)
-   - Template: debian-13-standard
-   - Storage: local-btrfs
-   - Memory: 512MB
-
-2. **Install netclient inside the container:**
-   ```bash
-   pct start 9999
-   
-   # Inside container (via console or pct exec):
-   apt-get update
-   apt-get install -y curl gnupg ca-certificates wireguard jq
-   
-   # Add netmaker repository (modern method for Debian 13)
-   curl -fsSL https://apt.netmaker.org/gpg.key | gpg --dearmor -o /usr/share/keyrings/netmaker-archive-keyring.gpg
-   echo "deb [signed-by=/usr/share/keyrings/netmaker-archive-keyring.gpg] https://apt.netmaker.org/debian stable main" | tee /etc/apt/sources.list.d/netmaker.list
-   
-   apt-get update
-   apt-get install -y netclient
-   
-   # Verify
-   netclient --version
-   ```
-
-3. **Export as template:**
-   ```bash
-   sudo ./export-template.sh 9999
-   ```
-
-### Option 2: Automated Script
+## Prerequisites
 
 ```bash
-sudo ./create-netmaker-template.sh
+# Ensure OVS is installed and running
+sudo apt install openvswitch-switch
+sudo systemctl enable openvswitch-switch
+sudo systemctl start openvswitch-switch
+
+# Verify OVSDB socket exists
+ls -la /var/run/openvswitch/db.sock
 ```
 
-Note: May fail on Debian 13 due to deprecated `apt-key` command. Use Option 1 instead.
+## Available Templates
 
-## Using the Template
+Use: `op-dbus apply templates/<template-name>.json`
 
-The template is automatically used by op-dbus when creating containers:
+- **ovs-bridge-basic.json** - Simple bridge with one port and static IP
+- **ovs-bridge-multiple-ports.json** - Bridge with multiple ports (bonding/trunking)  
+- **ovs-bridge-with-internal-port.json** - Bridge with internal management port
+- **ovs-add-port-to-existing-bridge.json** - Add port to existing bridge
+- **ovs-bridge-with-dhcp.json** - Bridge with DHCP configuration
 
-```json
-{
-  "lxc": {
-    "containers": [{
-      "id": "100",
-      "veth": "vi100",
-      "bridge": "mesh",
-      "properties": {
-        "network_type": "netmaker",
-        "template": "local-btrfs:vztmpl/debian-13-netmaker_custom.tar.zst"
-      }
-    }]
-  }
-}
-```
+## Native OVSDB JSON-RPC vs CLI
 
-## Template Location
+### Adding a Port
 
-- **Path**: `/var/lib/pve/local-btrfs/template/cache/debian-13-netmaker_custom.tar.zst`
-- **Storage**: `local-btrfs`
-- **Size**: ~200-300MB (compressed)
-
-## Downloading Pre-built Template
-
-If available, download from releases:
-
+**❌ CLI (Forbidden)**:
 ```bash
-cd /var/lib/pve/local-btrfs/template/cache/
-curl -L https://github.com/repr0bated/operation-dbus/releases/download/v0.1.0/debian-13-netmaker_custom.tar.zst -o debian-13-netmaker_custom.tar.zst
+ovs-vsctl add-port ovsbr0 eth0
 ```
 
-*(Pre-built template not yet available - use manual preparation method)*
+**✅ Native OVSDB JSON-RPC (Automatic via net plugin)**:
+The `net` plugin automatically generates OVSDB transactions to add ports atomically.
 
+## Persistence
+
+Configuration persists across reboots via:
+1. **OVSDB** (`/var/lib/openvswitch/conf.db`)
+2. **/etc/network/interfaces** (IP configuration)
+3. **systemd** (`openvswitch-switch.service`)
+
+Bridges appear in kernel once ports are attached.

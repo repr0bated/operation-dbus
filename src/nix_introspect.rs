@@ -6,6 +6,8 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use futures::stream::TryStreamExt;
+use netlink_packet_route::address::AddressAttribute;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -506,7 +508,7 @@ async fn get_interface_ips(iface_name: &str) -> Result<Vec<String>> {
 
         while let Some(addr) = addr_handle.try_next().await? {
             for nla in addr.attributes {
-                if let rtnetlink::packet::address::AddressAttribute::Address(ip) = nla {
+                if let AddressAttribute::Address(ip) = nla {
                     addresses.push(format!("{}", std::net::IpAddr::from(ip)));
                 }
             }

@@ -1,0 +1,49 @@
+{
+  "_comment": "OVS Bridge with Internal Port Template",
+  "_description": "Creates an OVS bridge with uplink and internal port for management",
+  "_usage": "op-dbus apply templates/ovs-bridge-with-internal-port.json",
+  "_scenario": "Common for hypervisor setups where you need both external connectivity and internal management",
+
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "ports": ["eth0"],
+          "ipv4": {
+            "enabled": false
+          }
+        },
+        {
+          "name": "ovsbr0-int",
+          "type": "ovs-port",
+          "ports": [],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [
+              {
+                "ip": "192.168.100.1",
+                "prefix": 24
+              }
+            ]
+          },
+          "properties": {
+            "parent_bridge": "ovsbr0",
+            "port_type": "internal"
+          }
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "active_state": "active",
+          "enabled": true
+        }
+      }
+    }
+  }
+}

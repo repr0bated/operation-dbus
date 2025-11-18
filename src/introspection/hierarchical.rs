@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
 use zbus::{Connection, Proxy};
+use zbus::zvariant;
 use zbus_xml::Node;
-use zvariant;
 
 /// Hierarchical D-Bus introspection snapshot
 /// Stored as JSON in @cache/introspection/{timestamp}.json
@@ -313,7 +313,7 @@ impl HierarchicalIntrospector {
                     &path,
                 ).await?;
 
-                objects.insert(path, obj_data);
+                objects.insert(path.to_string(), obj_data);
             }
         } else {
             // Fall back to recursive introspection

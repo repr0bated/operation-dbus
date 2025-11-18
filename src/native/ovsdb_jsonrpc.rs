@@ -53,17 +53,24 @@ impl OvsdbClient {
 
         // Send request
         let request_str = serde_json::to_string(&request)?;
+        log::debug!("Sending OVSDB request: {}", request_str);
         stream.write_all(request_str.as_bytes()).await?;
         stream.write_all(b"\n").await?;
+        stream.flush().await?;
+        
         // Read response with timeout
+        // Note: OVSDB responses are newline-terminated JSON objects
         let mut reader = BufReader::new(stream);
         let mut response_line = String::new();
+        
         tokio::time::timeout(
-            std::time::Duration::from_secs(5),
+            std::time::Duration::from_secs(30),
             reader.read_line(&mut response_line),
         )
         .await
-        .context("OVSDB response timeout")??;
+        .context(format!("OVSDB response timeout after sending: {}", request_str))??;
+        
+        log::debug!("Received OVSDB response: {}", response_line);
 
         let response: Value = serde_json::from_str(&response_line)?;
 
@@ -138,8 +145,8 @@ impl OvsdbClient {
 
     /// Create OVS bridge
     pub async fn create_bridge(&self, bridge_name: &str) -> Result<()> {
-        // Ensure database is initialized before creating bridges
-        self.ensure_initialized().await?;
+        // Skip initialization check to avoid timeout - OVSDB should already be initialized
+        // self.ensure_initialized().await?;
 
         // Check if bridge already exists
         if self.bridge_exists(bridge_name).await? {

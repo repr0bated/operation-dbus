@@ -1,0 +1,32 @@
+{
+  "_comment": "OVS Bridge with DHCP Configuration",
+  "_description": "Creates an OVS bridge that gets IP from DHCP server",
+  "_usage": "op-dbus apply templates/ovs-bridge-with-dhcp.json",
+  "_persistence": "Configuration is written to OVSDB and /etc/network/interfaces - survives reboots",
+  "_note": "Bridge is visible to kernel once created and ports are attached",
+
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "ports": ["eth0"],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": true
+          }
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "active_state": "active",
+          "enabled": true
+        }
+      }
+    }
+  }
+}

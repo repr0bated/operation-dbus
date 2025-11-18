@@ -2,8 +2,6 @@
 // Run with: cargo run --bin minimal_chat --features web
 
 use axum::{
-    extract::{ws::WebSocketUpgrade, State},
-    response::Response,
     routing::get,
     Router,
 };

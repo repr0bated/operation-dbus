@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "dbus-mcp": {
+      "command": "sudo",
+      "args": ["/git/operation-dbus/target/release/dbus-mcp"],
+      "env": {
+        "RUST_LOG": "warn"
+      }
+    }
+  }
+}

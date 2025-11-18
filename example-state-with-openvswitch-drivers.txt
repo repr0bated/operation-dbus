@@ -1,0 +1,44 @@
+/etc/op-dbus/state.json
+{
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "driver": "openvswitch",
+          "ports": [
+            "ens1",
+            "ovsbr0-int"
+          ]
+        },
+        {
+          "name": "ovsbr0-int",
+          "type": "ovs-port",
+          "driver": "openvswitch",
+          "l3_driver": "rtnetlink",
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [
+              {
+                "ip": "80.209.240.244",
+                "prefix": 25
+              }
+            ],
+            "gateway": "80.209.240.129"
+          }
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "enabled": true,
+          "active_state": "active"
+        }
+      }
+    }
+  }
+}

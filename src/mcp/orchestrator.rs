@@ -1,6 +1,9 @@
 //! Refactored orchestrator using agent registry for loose coupling
 
-use crate::mcp::agent_registry::{load_default_specs, AgentRegistry};
+#[path = "../mcp/agent_registry.rs"]
+mod agent_registry;
+
+use agent_registry::{load_default_specs, AgentRegistry};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

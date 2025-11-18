@@ -6,7 +6,7 @@ use axum::{
     routing::get,
     Router,
 };
-use futures_util::{SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
     // Create Ollama client for AI
     let ollama_client = if let Ok(api_key) = std::env::var("OLLAMA_API_KEY") {
         info!("Using Ollama Cloud API with AI");
-        Some(Arc::new(OllamaClient::ai_cloud(api_key)))
+        Some(Arc::new(OllamaClient::cloud(api_key)))
     } else {
         info!("OLLAMA_API_KEY not set. Set your Ollama API key to enable AI chat.");
         info!("Get your API key from: https://ollama.com");
@@ -200,6 +200,7 @@ async fn handle_socket(socket: WebSocket, state: ChatState) {
                     }
                     _ => {} // Ignore other message types
                 }
+            }
             }
         }
     }

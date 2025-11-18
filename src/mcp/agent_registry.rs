@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -186,9 +185,15 @@ pub struct AgentRegistry {
     handles: Arc<RwLock<HashMap<String, AgentHandle>>>,
 }
 
+impl Default for AgentRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentRegistry {
     pub fn new() -> Self {
-        let mut registry = Self {
+        let registry = Self {
             specs: Arc::new(RwLock::new(HashMap::new())),
             instances: Arc::new(RwLock::new(HashMap::new())),
             factories: Arc::new(RwLock::new(Vec::new())),
@@ -293,7 +298,7 @@ impl AgentRegistry {
         drop(instances);
 
         // Generate instance ID
-        let instance_id = format!("{}-{}", agent_type, uuid::Uuid::new_v4().to_string());
+        let instance_id = format!("{}-{}", agent_type, uuid::Uuid::new_v4());
 
         // Find suitable factory
         let factories = self.factories.read().await;

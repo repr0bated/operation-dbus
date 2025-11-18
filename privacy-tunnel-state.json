@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "plugins": {
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "enabled": true,
+          "active_state": "active"
+        }
+      }
+    },
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "ports": [],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [{"ip": "10.0.0.1", "prefix": 24}],
+            "gateway": null
+          }
+        },
+        {
+          "name": "internal_100",
+          "type": "ovs-port",
+          "bridge": "ovsbr0",
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [{"ip": "10.0.0.100", "prefix": 24}],
+            "gateway": null
+          }
+        },
+        {
+          "name": "internal_101",
+          "type": "ovs-port",
+          "bridge": "ovsbr0",
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [{"ip": "10.0.0.101", "prefix": 24}],
+            "gateway": null
+          }
+        }
+      ]
+    },
+    "openflow": {
+      "enable_security_flows": true,
+      "obfuscation_level": 2,
+      "bridges": [
+        {
+          "name": "ovsbr0",
+          "flows": [
+            {
+              "table": 0,
+              "priority": 100,
+              "match_fields": {},
+              "actions": [{"type": "normal"}],
+              "idle_timeout": 0,
+              "hard_timeout": 0
+            }
+          ],
+          "socket_ports": [
+            {"name": "internal_100", "container_id": "100"},
+            {"name": "internal_101", "container_id": "101"}
+          ]
+        }
+      ]
+    }
+  }
+}

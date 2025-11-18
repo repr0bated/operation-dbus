@@ -1,10 +1,8 @@
-//! AI Context Provider
-//! Provides rich context to AI about the system state and capabilities
+// AI Context Provider
+// Provides rich context to AI about the system state and capabilities
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use serde_json::Value;
 
 /// Complete system context for AI
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,7 +323,7 @@ impl AiContextProvider {
     }
 
     async fn gather_restrictions_context(&self) -> Result<RestrictionsContext> {
-        let mut bios_locks = Vec::new();
+        let bios_locks = Vec::new();
         let mut provider_restrictions = Vec::new();
         let mut missing_features = Vec::new();
 

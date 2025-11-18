@@ -1,0 +1,30 @@
+{
+  "_comment": "Add Port to Existing OVS Bridge Template",
+  "_description": "Adds a new port to an already existing OVS bridge",
+  "_usage": "op-dbus apply templates/ovs-add-port-to-existing-bridge.json",
+  "_note": "This is idempotent - it will only add the port if it doesn't exist",
+  "_native_equivalent": "Uses OVSDB JSON-RPC transact - equivalent to: ovs-vsctl add-port ovsbr0 eth1",
+
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "ports": ["eth0", "eth1"],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [
+              {
+                "ip": "192.168.1.100",
+                "prefix": 24
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

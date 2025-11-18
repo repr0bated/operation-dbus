@@ -32,6 +32,10 @@ pub struct InterfaceConfig {
     #[serde(rename = "type")]
     pub if_type: InterfaceType,
 
+    /// L2 driver to use (e.g., "openvswitch", "linux-bridge")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub driver: Option<String>,
+
     // TUNABLE - Configuration that can change (blockchain tracks all changes)
     /// All tunable configuration in a single object
     #[serde(flatten)]
@@ -44,6 +48,10 @@ pub struct TunableConfig {
     /// Ports attached to this interface
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
+
+    /// L3 driver for IP configuration (e.g., "rtnetlink", "networkmanager")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub l3_driver: Option<String>,
 
     /// IPv4 configuration
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -305,8 +313,10 @@ impl NetStatePlugin {
             bridges.push(InterfaceConfig {
                 name: bridge_name,
                 if_type: InterfaceType::OvsBridge,
+                driver: Some("openvswitch".to_string()),
                 tunable: TunableConfig {
                     ports,
+                    l3_driver: None, // Bridges typically don't need L3 config
                     ipv4: None, // OVS bridges don't have IP config directly
                     ipv6: None,
                     controller: None,
@@ -431,6 +441,82 @@ impl NetStatePlugin {
         }
 
         log::info!("Finished apply_ovs_config for {}", config.name);
+        Ok(())
+    }
+
+    /// Apply OVS internal port configuration
+    pub async fn apply_ovs_port_config(&self, config: &InterfaceConfig) -> Result<()> {
+        let client = crate::native::OvsdbClient::new();
+        log::info!("Starting apply_ovs_port_config for {}", config.name);
+
+        // Internal ports are created as part of their parent bridge
+        // This function handles IP configuration only
+
+        // Determine L3 driver (default to rtnetlink)
+        let l3_driver = config.tunable.l3_driver.as_deref().unwrap_or("rtnetlink");
+
+        if l3_driver == "rtnetlink" {
+            // Bring interface up via native rtnetlink
+            if let Err(e) = crate::native::rtnetlink_helpers::link_up(&config.name).await {
+                log::warn!("Failed to bring port up: {}", e);
+            }
+
+            // Configure IPv4 if specified via rtnetlink
+            if let Some(ref ipv4) = config.tunable.ipv4 {
+                if ipv4.enabled {
+                    if let Some(ref addresses) = ipv4.address {
+                        for addr in addresses {
+                            match crate::native::rtnetlink_helpers::add_ipv4_address(
+                                &config.name,
+                                &addr.ip,
+                                addr.prefix,
+                            )
+                            .await
+                            {
+                                Ok(_) => {
+                                    log::info!(
+                                        "Added IP {}/{} to {} via rtnetlink",
+                                        addr.ip,
+                                        addr.prefix,
+                                        config.name
+                                    );
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "Failed to add IP {} (may already exist): {}",
+                                        addr.ip,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    // Configure gateway if specified
+                    if let Some(ref gateway) = ipv4.gateway {
+                        let _ = crate::native::rtnetlink_helpers::del_default_route().await;
+                        match crate::native::rtnetlink_helpers::add_default_route(&config.name, gateway)
+                            .await
+                        {
+                            Ok(_) => {
+                                log::info!("Added default route via {} via rtnetlink", gateway);
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to add default route: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update /etc/network/interfaces for persistence
+            self.update_interfaces_file(&config.name, None, &config.tunable.ipv4)
+                .await?;
+        } else {
+            log::warn!("Unsupported L3 driver '{}' for {}", l3_driver, config.name);
+        }
+
+        log::info!("Finished apply_ovs_port_config for {}", config.name);
         Ok(())
     }
 
@@ -753,8 +839,14 @@ impl StatePlugin for NetStatePlugin {
 
         // Restore old OVS configuration via D-Bus
         for iface in &old_config.interfaces {
-            if iface.if_type == InterfaceType::OvsBridge {
-                self.apply_ovs_config(iface).await?;
+            match iface.if_type {
+                InterfaceType::OvsBridge => {
+                    self.apply_ovs_config(iface).await?;
+                }
+                InterfaceType::OvsPort => {
+                    self.apply_ovs_port_config(iface).await?;
+                }
+                _ => {}
             }
         }
 

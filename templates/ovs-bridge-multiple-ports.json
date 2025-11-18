@@ -1,0 +1,38 @@
+{
+  "_comment": "OVS Bridge with Multiple Ports Template",
+  "_description": "Creates an OVS bridge with multiple physical ports (bonding/trunking)",
+  "_usage": "op-dbus apply templates/ovs-bridge-multiple-ports.json",
+  "_note": "Use this for network redundancy or VLAN trunking",
+
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "ports": ["eth0", "eth1", "eth2"],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [
+              {
+                "ip": "10.0.0.10",
+                "prefix": 24
+              }
+            ],
+            "gateway": "10.0.0.1"
+          }
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "active_state": "active",
+          "enabled": true
+        }
+      }
+    }
+  }
+}

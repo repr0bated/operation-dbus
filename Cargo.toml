@@ -124,11 +124,6 @@ path = "src/mcp/orchestrator.rs"
 required-features = ["mcp"]
 
 [[bin]]
-name = "dbus-mcp-web"
-path = "src/mcp/web_main.rs"
-required-features = ["mcp"]
-
-[[bin]]
 name = "dbus-agent-executor"
 path = "src/mcp/agents/executor.rs"
 required-features = ["mcp"]
@@ -207,11 +202,6 @@ path = "src/mcp/discovery.rs"
 required-features = ["mcp"]
 
 [[bin]]
-name = "dbus-mcp-discovery-enhanced"
-path = "src/mcp/discovery_enhanced.rs"
-required-features = ["mcp"]
-
-[[bin]]
 name = "introspection-parser"
 path = "src/mcp/introspection_parser.rs"
 required-features = ["mcp"]
@@ -236,6 +226,11 @@ required-features = ["mcp"]
 name = "nix-introspect"
 path = "src/nix_introspect.rs"
 required-features = ["mcp"]
+
+# OVS Bridge Creation Tool
+[[bin]]
+name = "create-ovs-bridge-with-uplink"
+path = "src/bin/create_ovs_bridge_with_uplink.rs"
 
 
 

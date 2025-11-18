@@ -4,6 +4,8 @@
 mod tool_registry;
 #[path = "../mcp/resources.rs"]
 mod resources;
+#[path = "../native/mod.rs"]
+mod native;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -117,7 +119,7 @@ impl McpServer {
                 },
                 "required": ["service"]
             }))
-            .handler(|params| {
+            .handler(|params| async move {
                 let service = params["service"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing service parameter"))?;
@@ -145,7 +147,7 @@ impl McpServer {
                 },
                 "required": ["path"]
             }))
-            .handler(|params| {
+            .handler(|params| async move {
                 let path = params["path"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing path parameter"))?;
@@ -167,7 +169,7 @@ impl McpServer {
                 "type": "object",
                 "properties": {}
             }))
-            .handler(|_params| {
+            .handler(|_params| async move {
                 Ok(ToolResult {
                     content: vec![ToolContent::json(json!({
                         "interfaces": [
@@ -194,7 +196,7 @@ impl McpServer {
                     }
                 }
             }))
-            .handler(|params| {
+            .handler(|params| async move {
                 let filter = params["filter"].as_str();
 
                 Ok(ToolResult {
@@ -229,7 +231,7 @@ impl McpServer {
                 },
                 "required": ["command"]
             }))
-            .handler(|params| {
+            .handler(|params| async move {
                 let command = params["command"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing command"))?;
@@ -243,6 +245,191 @@ impl McpServer {
             .build();
 
         registry.register_tool(Box::new(exec_command)).await?;
+
+        // Generic OVSDB JSON-RPC call tool
+        let json_rpc_call = DynamicToolBuilder::new("json_rpc_call")
+            .description("Execute generic JSON-RPC call to OVSDB")
+            .schema(json!({
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "description": "JSON-RPC method name (e.g., 'transact')"
+                    },
+                    "params": {
+                        "type": "array",
+                        "description": "JSON-RPC parameters array"
+                    }
+                },
+                "required": ["method", "params"]
+            }))
+            .handler(|params| async move {
+                let method = params["method"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing method parameter"))?
+                    .to_string();
+
+                let rpc_params = params["params"].clone();
+
+                // Build OVSDB JSON-RPC request
+                let request = json!({
+                    "method": method,
+                    "params": rpc_params,
+                    "id": 0
+                });
+
+                // Call via bash script (works reliably with socat)
+                let script_path = "/git/operation-dbus/ovsdb-rpc.sh";
+                let output = tokio::process::Command::new(script_path)
+                    .arg(request.to_string())
+                    .output()
+                    .await?;
+
+                if !output.status.success() {
+                    return Err(anyhow::anyhow!("OVSDB RPC failed: {}", String::from_utf8_lossy(&output.stderr)));
+                }
+
+                let response: Value = serde_json::from_slice(&output.stdout)?;
+
+                // Check for OVSDB error
+                if let Some(error) = response.get("error") {
+                    if !error.is_null() {
+                        return Err(anyhow::anyhow!("OVSDB error: {}", error));
+                    }
+                }
+
+                let result = response.get("result")
+                    .cloned()
+                    .unwrap_or(json!(null));
+
+                Ok(ToolResult {
+                    content: vec![ToolContent::text(serde_json::to_string_pretty(&result)?)],
+                    metadata: None,
+                })
+            })
+            .build();
+
+        registry.register_tool(Box::new(json_rpc_call)).await?;
+
+        // Create OVS bridge with full system integration
+        let create_ovs_bridge = DynamicToolBuilder::new("create_ovs_bridge")
+            .description("Create OVS bridge with OVSDB persistence, kernel visibility, and IP configuration")
+            .schema(json!({
+                "type": "object",
+                "properties": {
+                    "bridge_name": {
+                        "type": "string",
+                        "description": "Name of the bridge to create"
+                    },
+                    "ports": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: Ports to attach to bridge"
+                    },
+                    "ipv4_address": {
+                        "type": "string",
+                        "description": "Optional: IPv4 address (e.g., '192.168.1.100')"
+                    },
+                    "ipv4_prefix": {
+                        "type": "number",
+                        "description": "Optional: IPv4 prefix length (e.g., 24)"
+                    }
+                },
+                "required": ["bridge_name"]
+            }))
+            .handler(|params| async move {
+                let bridge_name = params["bridge_name"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing bridge_name"))?;
+
+                // Create bridge in OVSDB
+                let create_ops = json!([
+                    "Open_vSwitch",
+                    [{
+                        "op": "insert",
+                        "table": "Bridge",
+                        "row": {"name": bridge_name},
+                        "uuid-name": "new_bridge"
+                    }, {
+                        "op": "mutate",
+                        "table": "Open_vSwitch",
+                        "where": [],
+                        "mutations": [["bridges", "insert", ["set", [["named-uuid", "new_bridge"]]]]]
+                    }]
+                ]);
+
+                let request = json!({"method": "transact", "params": create_ops, "id": 0});
+                let output = tokio::process::Command::new("/git/operation-dbus/ovsdb-rpc.sh")
+                    .arg(request.to_string())
+                    .output()
+                    .await?;
+
+                if !output.status.success() {
+                    return Err(anyhow::anyhow!("Failed to create bridge in OVSDB"));
+                }
+
+                // Add ports if specified
+                if let Some(ports) = params["ports"].as_array() {
+                    for port in ports {
+                        if let Some(port_name) = port.as_str() {
+                            let add_port_ops = json!([
+                                "Open_vSwitch",
+                                [{
+                                    "op": "insert",
+                                    "table": "Interface",
+                                    "row": {"name": port_name, "type": ""},
+                                    "uuid-name": "new_iface"
+                                }, {
+                                    "op": "insert",
+                                    "table": "Port",
+                                    "row": {"name": port_name, "interfaces": ["named-uuid", "new_iface"]},
+                                    "uuid-name": "new_port"
+                                }, {
+                                    "op": "mutate",
+                                    "table": "Bridge",
+                                    "where": [["name", "==", bridge_name]],
+                                    "mutations": [["ports", "insert", ["set", [["named-uuid", "new_port"]]]]]
+                                }]
+                            ]);
+
+                            let port_request = json!({"method": "transact", "params": add_port_ops, "id": 0});
+                            tokio::process::Command::new("/git/operation-dbus/ovsdb-rpc.sh")
+                                .arg(port_request.to_string())
+                                .output()
+                                .await?;
+                        }
+                    }
+                }
+
+                // Bring interface up via native rtnetlink
+                if let Err(e) = crate::native::rtnetlink_helpers::link_up(bridge_name).await {
+                    log::warn!("Failed to bring bridge up: {}", e);
+                }
+
+                // Add IP if specified via native rtnetlink
+                if let (Some(ip), Some(prefix)) = (params.get("ipv4_address"), params.get("ipv4_prefix")) {
+                    if let (Some(ip_str), Some(prefix_num)) = (ip.as_str(), prefix.as_u64()) {
+                        if let Err(e) = crate::native::rtnetlink_helpers::add_ipv4_address(
+                            bridge_name,
+                            ip_str,
+                            prefix_num as u8
+                        ).await {
+                            log::warn!("Failed to add IP address: {}", e);
+                        }
+                    }
+                }
+
+                Ok(ToolResult {
+                    content: vec![ToolContent::text(format!(
+                        "Created OVS bridge '{}' with OVSDB persistence and kernel visibility",
+                        bridge_name
+                    ))],
+                    metadata: None,
+                })
+            })
+            .build();
+
+        registry.register_tool(Box::new(create_ovs_bridge)).await?;
 
         Ok(())
     }

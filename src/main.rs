@@ -18,6 +18,11 @@ use std::sync::Arc;
 use tokio::fs;
 use tracing::info;
 
+#[cfg(any(feature = "mcp", feature = "web"))]
+use op_dbus::mcp::dbus_indexer::{DbusIndexer, DbusQueryEngine};
+#[cfg(any(feature = "mcp", feature = "web"))]
+use op_dbus::snapshot::{SnapshotManager, RetentionPolicy};
+
 
 #[derive(Parser)]
 #[command(
@@ -134,6 +139,7 @@ enum Commands {
     },
 
     /// D-Bus index management (hierarchical abstraction layer)
+    #[cfg(any(feature = "mcp", feature = "web"))]
     #[command(subcommand)]
     Index(IndexCommands),
 }
@@ -169,6 +175,7 @@ enum CacheCommands {
     DeleteSnapshots,
 }
 
+#[cfg(any(feature = "mcp", feature = "web"))]
 #[derive(Subcommand)]
 enum IndexCommands {
     /// Build complete D-Bus index (unlimited scan)
@@ -898,6 +905,7 @@ async fn main() -> Result<()> {
 
         Commands::Cache(cmd) => handle_cache_command(cmd).await,
 
+        #[cfg(any(feature = "mcp", feature = "web"))]
         Commands::Index(cmd) => handle_index_command(cmd).await,
 
         Commands::Serve { bind, port } => {
@@ -1045,9 +1053,8 @@ async fn handle_cache_command(cmd: CacheCommands) -> Result<()> {
     }
 }
 
+#[cfg(any(feature = "mcp", feature = "web"))]
 async fn handle_index_command(cmd: IndexCommands) -> Result<()> {
-    use crate::mcp::dbus_indexer::{DbusIndexer, DbusQueryEngine};
-    use crate::snapshot::{SnapshotManager, RetentionPolicy};
 
     match cmd {
         IndexCommands::Build { output } => {

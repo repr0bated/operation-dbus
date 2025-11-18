@@ -1,0 +1,38 @@
+{
+  "_comment": "Basic OVS Bridge Configuration Template",
+  "_description": "Creates an OVS bridge with physical port and static IP",
+  "_usage": "op-dbus apply templates/ovs-bridge-basic.json",
+
+  "version": 1,
+  "plugins": {
+    "net": {
+      "interfaces": [
+        {
+          "name": "ovsbr0",
+          "type": "ovs-bridge",
+          "ports": ["eth0"],
+          "ipv4": {
+            "enabled": true,
+            "dhcp": false,
+            "address": [
+              {
+                "ip": "192.168.1.100",
+                "prefix": 24
+              }
+            ],
+            "gateway": "192.168.1.1",
+            "dns": ["8.8.8.8", "8.8.4.4"]
+          }
+        }
+      ]
+    },
+    "systemd": {
+      "units": {
+        "openvswitch-switch.service": {
+          "active_state": "active",
+          "enabled": true
+        }
+      }
+    }
+  }
+}

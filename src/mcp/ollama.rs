@@ -1,7 +1,7 @@
-//! Ollama HTTP client for AI chat integration
-//!
-//! This module provides a model-agnostic interface for communicating with
-//! Ollama (or compatible) API servers, supporting both local and cloud deployments.
+// Ollama HTTP client for AI chat integration
+//
+// This module provides a model-agnostic interface for communicating with
+// Ollama (or compatible) API servers, supporting both local and cloud deployments.
 
 use anyhow::Result;
 use reqwest::Client;
@@ -157,7 +157,7 @@ impl OllamaClient {
     /// Check if Ollama server is running
     pub async fn health_check(&self) -> Result<bool> {
         let response = self.client
-            .get(&format!("{}/api/version", self.base_url))
+            .get(format!("{}/api/version", self.base_url))
             .send()
             .await;
 
@@ -175,7 +175,7 @@ impl OllamaClient {
         }
 
         let mut request_builder = self.client
-            .get(&format!("{}/api/tags", self.base_url));
+            .get(format!("{}/api/tags", self.base_url));
 
         // Add authentication header for cloud API
         if let Some(ref api_key) = self.api_key {
@@ -209,7 +209,7 @@ impl OllamaClient {
         };
 
         self.client
-            .post(&format!("{}/api/pull", self.base_url))
+            .post(format!("{}/api/pull", self.base_url))
             .json(&request)
             .send()
             .await?
@@ -240,7 +240,7 @@ impl OllamaClient {
         };
 
         let mut request_builder = self.client
-            .post(&format!("{}/api/chat", self.base_url))
+            .post(format!("{}/api/chat", self.base_url))
             .json(&request);
 
         // Add authentication header for cloud API

@@ -15,7 +15,7 @@ pub mod agents {
 // Core MCP modules
 pub mod bridge;
 pub mod discovery;
-pub mod discovery_enhanced;
+// pub mod discovery_enhanced;  // File not found
 pub mod hybrid_dbus_bridge;
 pub mod hybrid_scanner;
 pub mod introspection_parser;
@@ -45,6 +45,9 @@ pub mod dbus_indexer;
 
 // Introspection cache with JSON/SQLite storage
 pub mod introspection_cache;
+
+// Introspection tools for MCP
+pub mod introspection_tools;
 
 // Embedded resources for MCP
 pub mod resources;

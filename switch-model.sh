@@ -79,19 +79,25 @@ case "$COMMAND" in
                 echo "Available Models:"
                 echo "$API_MODELS_LIST"
 
-                # Add additional high-rate-limit models
+                # Add additional high-rate-limit models (only supported ones)
                 echo "  [gemini-2.0-flash-lite]  Gemini 2.0 Flash Lite (0/10, 0/250K, 0/500)"
                 echo "  [gemini-2.0-flash]  Gemini 2.0 Flash (0/2K, 0/4M, Unlimited)"
-                echo "  [gemini-2.5-flash-lite]  Gemini 2.5 Flash Lite (0/4K, 0/4M, Unlimited)"
-                echo "  [gemini-2.0-flash-preview-image-generation]  Gemini 2.0 Flash Preview Image Generation (0/1K, 0/1M, 0/10K)"
-                echo "  [gemini-2.5-flash-preview-image]  Gemini 2.5 Flash Preview Image (0/500, 0/500K, 0/2K)"
-                echo "  [gemini-2.5-flash]  Gemini 2.5 Flash (0/1K, 0/1M, 0/10K)"
-                echo "  [gemini-2.5-flash-tts]  Gemini 2.5 Flash TTS (0/10, 0/10K, 0/100)"
-                echo "  [gemini-2.0-flash-live]  Gemini 2.0 Flash Live (Unlimited, 0/4M, Unlimited)"
-                echo "  [gemini-2.5-flash-live]  Gemini 2.5 Flash Live (Unlimited, 0/1M, Unlimited)"
-                echo "  [gemini-2.5-flash-native-audio-dialog]  Gemini 2.5 Flash Native Audio Dialog (Unlimited, 0/1M, Unlimited)"
-                echo "  [gemini-robotics-er-1.5-preview]  Gemini Robotics ER 1.5 Preview (0/1K, 0/2M, 0/10K)"
-                echo "  [computer-use-preview]  Computer Use Preview"
+                echo ""
+                echo "  💡 TIP: Use your free GPU time on Lightning AI/Paperspace for local models!"
+                echo "     Recommended: llama-2-7b-chat, mistral-7b-instruct, or phi-2"
+                echo ""
+                echo "  🖥️  LOCAL GPU MODELS (run on your Intel GPU with MKL optimization):"
+                echo "     • microsoft/phi-2 - Best for local use (2.7B params)"
+                echo "     • microsoft/DialoGPT-medium - Conversational (345M params)"
+                echo "     • distilgpt2 - Fast and lightweight"
+                echo ""
+                echo "  ☁️  PAPERSpace GRADIENT (Free GPUs):"
+                echo "     • Run: ./gpu-workflow.sh inference paperspace microsoft/phi-2"
+                echo "     • Free A4000 GPUs with 16GB VRAM"
+                echo "     • Perfect for notebooks and experimentation"
+                echo ""
+                echo "  🚀 Run: ./setup-intel-gpu-ml.sh for Intel GPU optimization"
+                echo "  🚀 Run: ./setup-paperspace.sh for Paperspace setup"
                 ;;
             ollama)
                 # Determine host based on whether we have API key
@@ -133,7 +139,7 @@ case "$COMMAND" in
         case "$PROVIDER" in
             gemini)
                 # Check if this is one of the high-rate-limit models that might not be in the API
-                HIGH_RATE_MODELS="gemini-2.0-flash-lite gemini-2.0-flash gemini-2.5-flash-lite gemini-2.0-flash-preview-image-generation gemini-2.5-flash-preview-image gemini-2.5-flash gemini-2.5-flash-tts gemini-2.0-flash-live gemini-2.5-flash-live gemini-2.5-flash-native-audio-dialog gemini-robotics-er-1.5-preview computer-use-preview"
+                HIGH_RATE_MODELS="gemini-2.0-flash-lite gemini-2.0-flash"
 
                 if echo "$HIGH_RATE_MODELS" | grep -q "$MODEL_ID"; then
                     # Direct model switch for high-rate-limit models
