@@ -15,7 +15,7 @@ fi
 echo "🧪 Testing all installed plugins..."
 echo ""
 
-# Get list of ChatGPT-generated plugins (built-in plugins use different query methods)
+# Get list of auto-generated plugins (built-in plugins use different query methods)
 PLUGINS=("sess" "dnsresolver" "pcidecl")
 
 SUCCESS_COUNT=0

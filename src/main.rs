@@ -497,9 +497,13 @@ async fn main() -> Result<()> {
         ("pcidecl", Arc::new(state::plugins::PciDeclPlugin::new())),
         ("packagekit", Arc::new(state::plugins::PackageKitPlugin::new())),
         #[cfg(feature = "openflow")]
+        ("openflow", Arc::new(state::plugins::OpenFlowPlugin::new())),
+        #[cfg(feature = "openflow")]
         ("privacy", Arc::new(state::plugins::PrivacyPlugin::new(Default::default()))),
         #[cfg(feature = "openflow")]
         ("netmaker", Arc::new(state::plugins::NetmakerPlugin::new(Default::default()))),
+        #[cfg(feature = "openflow")]
+        ("privacy_router", Arc::new(state::plugins::PrivacyRouterPlugin::new(Default::default()))),
     ];
 
     for (name, plugin) in plugins {

@@ -97,6 +97,18 @@ impl StateManager {
         plugins.get(plugin_name).cloned()
     }
 
+    /// List all registered plugin names
+    pub async fn list_plugin_names(&self) -> Vec<String> {
+        let plugins = self.plugins.read().await;
+        plugins.keys().cloned().collect()
+    }
+
+    /// List all registered plugins
+    pub async fn list_plugins(&self) -> Vec<Arc<dyn StatePlugin>> {
+        let plugins = self.plugins.read().await;
+        plugins.values().cloned().collect()
+    }
+
     /// Register a plugin as a workflow node
     pub fn register_plugin_as_workflow_node(&self, name: &str, plugin: Arc<dyn StatePlugin>) {
         let mut workflows = self.workflows.lock().unwrap();

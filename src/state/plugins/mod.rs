@@ -28,3 +28,7 @@ pub use netmaker::NetmakerPlugin;
 pub use openflow::OpenFlowPlugin;
 #[cfg(feature = "openflow")]
 pub use privacy::PrivacyPlugin;
+#[cfg(feature = "openflow")]
+pub mod privacy_router;
+#[cfg(feature = "openflow")]
+pub use privacy_router::PrivacyRouterPlugin;

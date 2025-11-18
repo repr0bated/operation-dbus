@@ -40,6 +40,13 @@ pub mod ollama;
 // Flow-based workflows
 pub mod workflows;
 
+// MCP client for discovering and connecting to hosted MCP servers
+pub mod mcp_client;
+pub mod mcp_discovery;
+
+// Bridge between plugin registry and tool registry
+pub mod plugin_tool_bridge;
+
 // D-Bus indexer for hierarchical abstraction
 pub mod dbus_indexer;
 

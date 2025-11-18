@@ -734,6 +734,11 @@ impl BtrfsCache {
         }
     }
 
+    /// Get cache directory path
+    pub fn cache_dir(&self) -> &PathBuf {
+        &self.cache_dir
+    }
+
     /// Helper method to apply NUMA affinity (CPU + memory)
     async fn apply_numa_affinity(
         &self,
