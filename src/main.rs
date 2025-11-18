@@ -142,6 +142,10 @@ enum Commands {
     #[cfg(any(feature = "mcp", feature = "web"))]
     #[command(subcommand)]
     Index(IndexCommands),
+
+    /// Deployment image management (BTRFS snapshots with symlink deduplication)
+    #[command(subcommand)]
+    Image(ImageCommands),
 }
 
 #[derive(Subcommand)]
@@ -287,6 +291,65 @@ enum BlockchainCommands {
 
     /// Search blockchain for changes
     Search { query: String },
+}
+
+#[derive(Subcommand)]
+enum ImageCommands {
+    /// Initialize deployment image directory
+    Init {
+        /// Base path for images (default: /var/lib/op-dbus/deployment)
+        #[arg(short, long)]
+        base: Option<PathBuf>,
+    },
+
+    /// Create a new deployment image
+    Create {
+        /// Image name (e.g., PROXMOX-DBUS_STAGE)
+        name: String,
+        /// Files to add to the image
+        #[arg(short, long, num_args = 1..)]
+        files: Vec<PathBuf>,
+        /// Base path for images (default: /var/lib/op-dbus/deployment)
+        #[arg(short, long)]
+        base: Option<PathBuf>,
+    },
+
+    /// List all deployment images
+    List {
+        /// Base path for images (default: /var/lib/op-dbus/deployment)
+        #[arg(short, long)]
+        base: Option<PathBuf>,
+    },
+
+    /// Show image details
+    Show {
+        /// Image name
+        name: String,
+        /// Base path for images (default: /var/lib/op-dbus/deployment)
+        #[arg(short, long)]
+        base: Option<PathBuf>,
+    },
+
+    /// Get streamable snapshot path for an image
+    Snapshot {
+        /// Image name
+        name: String,
+        /// Base path for images (default: /var/lib/op-dbus/deployment)
+        #[arg(short, long)]
+        base: Option<PathBuf>,
+    },
+
+    /// Delete an image and its snapshots
+    Delete {
+        /// Image name
+        name: String,
+        /// Base path for images (default: /var/lib/op-dbus/deployment)
+        #[arg(short, long)]
+        base: Option<PathBuf>,
+        /// Force deletion without confirmation
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -917,6 +980,139 @@ async fn main() -> Result<()> {
             };
 
             crate::webui::start_web_server(state_manager, config).await?;
+            Ok(())
+        }
+
+        Commands::Image(cmd) => handle_image_command(cmd).await,
+    }
+}
+
+async fn handle_image_command(cmd: ImageCommands) -> Result<()> {
+    use op_dbus::deployment::ImageManager;
+
+    let base_path = match &cmd {
+        ImageCommands::Init { base } |
+        ImageCommands::Create { base, .. } |
+        ImageCommands::List { base } |
+        ImageCommands::Show { base, .. } |
+        ImageCommands::Snapshot { base, .. } |
+        ImageCommands::Delete { base, .. } => {
+            base.clone().unwrap_or_else(|| PathBuf::from("/var/lib/op-dbus/deployment"))
+        }
+    };
+
+    let manager = ImageManager::new(&base_path);
+
+    match cmd {
+        ImageCommands::Init { .. } => {
+            println!("Initializing deployment image directory at: {}", base_path.display());
+            manager.init().await?;
+            println!("✅ Initialized deployment image directory");
+            Ok(())
+        }
+
+        ImageCommands::Create { name, files, .. } => {
+            if files.is_empty() {
+                anyhow::bail!("No files specified. Use --files to add files to the image");
+            }
+
+            println!("Creating deployment image: {}", name);
+            println!("Adding {} file(s)...", files.len());
+
+            let metadata = manager.create_image(&name, files).await?;
+
+            println!("\n✅ Image created successfully!");
+            println!("   Name: {}", metadata.name);
+            println!("   Path: {}", metadata.path.display());
+            println!("   Total size: {} bytes", metadata.total_size);
+            println!("   Unique files: {} bytes", metadata.unique_size);
+            println!("   Symlinked files: {} bytes", metadata.symlinked_size);
+            println!("   Files: {}", metadata.files.len());
+
+            Ok(())
+        }
+
+        ImageCommands::List { .. } => {
+            let images = manager.list_images().await?;
+
+            if images.is_empty() {
+                println!("No deployment images found");
+                println!("💡 Create an image with: op-dbus image create <name> --files <file1> <file2> ...");
+                return Ok(());
+            }
+
+            println!("=== Deployment Images ({}) ===\n", images.len());
+            for img in images {
+                let dt = chrono::DateTime::from_timestamp(img.created, 0)
+                    .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+
+                println!("{}", img.name);
+                println!("  Created: {}", dt);
+                println!("  Path: {}", img.path.display());
+                println!("  Size: {} bytes (unique: {}, symlinked: {})", 
+                    img.total_size, img.unique_size, img.symlinked_size);
+                println!("  Files: {}", img.files.len());
+                println!();
+            }
+
+            Ok(())
+        }
+
+        ImageCommands::Show { name, .. } => {
+            let metadata = manager.get_image(&name).await?;
+
+            println!("=== Image: {} ===\n", name);
+            println!("Path: {}", metadata.path.display());
+            println!("Created: {}", chrono::DateTime::from_timestamp(metadata.created, 0)
+                .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_else(|| "Unknown".to_string()));
+            println!("Total size: {} bytes", metadata.total_size);
+            println!("Unique size: {} bytes", metadata.unique_size);
+            println!("Symlinked size: {} bytes", metadata.symlinked_size);
+            println!("\nFiles ({}):", metadata.files.len());
+
+            for file in &metadata.files {
+                if file.is_symlink {
+                    println!("  {} -> {} (symlink, {} bytes)",
+                        file.path.display(),
+                        file.symlink_target.as_ref().unwrap().display(),
+                        file.size);
+                } else {
+                    println!("  {} ({} bytes, hash: {})",
+                        file.path.display(),
+                        file.size,
+                        file.hash.as_ref().map(|h| &h[..16]).unwrap_or("none"));
+                }
+            }
+
+            Ok(())
+        }
+
+        ImageCommands::Snapshot { name, .. } => {
+            let snapshot_path = manager.get_streamable_snapshot(&name).await?;
+            println!("{}", snapshot_path.display());
+            Ok(())
+        }
+
+        ImageCommands::Delete { name, force, .. } => {
+            if !force {
+                print!("Delete image '{}' and all its snapshots? [y/N] ", name);
+                use std::io::{self, Write};
+                io::stdout().flush()?;
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if !input.trim().eq_ignore_ascii_case("y") {
+                    println!("Cancelled");
+                    return Ok(());
+                }
+            }
+
+            println!("Deleting image: {}", name);
+            manager.delete_image(&name).await?;
+            println!("✅ Deleted image: {}", name);
             Ok(())
         }
     }

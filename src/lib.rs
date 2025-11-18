@@ -5,6 +5,7 @@
 // Core modules
 pub mod blockchain;
 pub mod cache;
+pub mod deployment;
 pub mod introspection;
 pub mod isp_migration;
 pub mod isp_support;
