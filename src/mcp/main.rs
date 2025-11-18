@@ -2,7 +2,7 @@
 
 #[path = "../mcp/tool_registry.rs"]
 mod tool_registry;
-#[path = "../mcp/resources.rs"]
+#[path = "../mcp/resources_enhanced.rs"]
 mod resources;
 #[path = "../native/mod.rs"]
 mod native;
