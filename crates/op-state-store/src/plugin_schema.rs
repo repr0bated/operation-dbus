@@ -1,0 +1,1480 @@
+//! Plugin Schema Registry
+//!
+//! Provides schema definitions for all state plugins, enabling:
+//! - Validation of plugin state against schemas
+//! - Schema versioning and migration
+//! - Documentation of plugin state structure
+//! - Auto-generation of state templates
+//! - JSON Schema export with propertyDependencies support
+//! - Flexible dialect support (2026 and future versions)
+
+use serde::{Deserialize, Serialize};
+use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
+use simd_json::ValueBuilder;
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// Default JSON Schema dialect (can be overridden per-schema)
+pub const DEFAULT_SCHEMA_DIALECT: &str = "https://json-schema.org/v1/2026";
+
+/// Known dialect identifiers
+pub mod dialects {
+    pub const DRAFT_07: &str = "http://json-schema.org/draft-07/schema#";
+    pub const V2026: &str = "https://json-schema.org/v1/2026";
+}
+
+/// Path to the json-schema-spec repository relative to workspace root
+const SCHEMA_SPEC_PATH: &str = "json-schema-spec";
+
+/// Schema field type
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldType {
+    String,
+    Integer,
+    Float,
+    Boolean,
+    Array(Box<FieldType>),
+    Object(HashMap<String, FieldSchema>),
+    Enum(Vec<String>),
+    Any,
+}
+
+/// Schema for a single field
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FieldSchema {
+    /// Field type
+    pub field_type: FieldType,
+    /// Whether the field is required
+    #[serde(default)]
+    pub required: bool,
+    /// Description of the field
+    #[serde(default)]
+    pub description: String,
+    /// Default value if not provided
+    #[serde(default)]
+    pub default: Option<Value>,
+    /// Example value for documentation
+    #[serde(default)]
+    pub example: Option<Value>,
+    /// Validation constraints
+    #[serde(default)]
+    pub constraints: Vec<Constraint>,
+    /// Unconditional readOnly - field cannot be modified
+    #[serde(default)]
+    pub read_only: bool,
+    /// Conditional readOnly via propertyDependencies
+    #[serde(default)]
+    pub read_only_when: Option<ReadOnlyCondition>,
+}
+
+/// Condition for conditional readOnly (via propertyDependencies)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReadOnlyCondition {
+    /// The property to check (e.g., "status", "running")
+    pub property: String,
+    /// The value that triggers readOnly (e.g., "locked", "true")
+    pub value: String,
+}
+
+/// Validation constraint
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Constraint {
+    /// Minimum value (for numbers) or length (for strings/arrays)
+    Min { value: f64 },
+    /// Maximum value (for numbers) or length (for strings/arrays)
+    Max { value: f64 },
+    /// Regex pattern (for strings)
+    Pattern { regex: String },
+    /// Value must be one of these
+    OneOf { values: Vec<Value> },
+    /// Reference to another field that must exist
+    RequiresField { field: String },
+    /// Custom validation function name
+    Custom { validator: String },
+}
+
+/// Plugin schema definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginSchema {
+    /// Plugin name
+    pub name: String,
+    /// Schema version
+    pub version: String,
+    /// Description
+    pub description: String,
+    /// Fields in the plugin state
+    pub fields: HashMap<String, FieldSchema>,
+    /// Dependencies on other plugins
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    /// Example state for documentation
+    #[serde(default)]
+    pub example: Option<Value>,
+    /// Paths that are always readOnly (e.g., ["/id", "/metadata"])
+    #[serde(default)]
+    pub immutable_paths: Vec<String>,
+    /// Schema tags (e.g., ["immutable"] for fully immutable schemas)
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// JSON Schema dialect to use (defaults to DEFAULT_SCHEMA_DIALECT)
+    #[serde(default = "default_dialect")]
+    pub dialect: String,
+}
+
+fn default_dialect() -> String {
+    DEFAULT_SCHEMA_DIALECT.to_string()
+}
+
+impl PluginSchema {
+    /// Create a new plugin schema builder
+    pub fn builder(name: &str) -> PluginSchemaBuilder {
+        PluginSchemaBuilder::new(name)
+    }
+
+    /// Validate a state value against this schema
+    pub fn validate(&self, state: &Value) -> ValidationResult {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        // Check required fields
+        for (field_name, field_schema) in &self.fields {
+            if field_schema.required {
+                if state.get(field_name).is_none() {
+                    errors.push(format!("Missing required field: {}", field_name));
+                }
+            }
+        }
+
+        // Validate present fields
+        if let Some(obj) = state.as_object() {
+            for (field_name, field_value) in obj {
+                if let Some(field_schema) = self.fields.get(field_name) {
+                    if let Err(e) = validate_field(field_name, field_value, field_schema) {
+                        errors.push(e);
+                    }
+                } else {
+                    warnings.push(format!("Unknown field: {}", field_name));
+                }
+            }
+        }
+
+        ValidationResult {
+            valid: errors.is_empty(),
+            errors,
+            warnings,
+        }
+    }
+
+    /// Generate a template state with default values
+    pub fn generate_template(&self) -> Value {
+        let mut template = simd_json::value::owned::Object::new();
+
+        for (field_name, field_schema) in &self.fields {
+            let value = if let Some(default) = &field_schema.default {
+                default.clone()
+            } else if let Some(example) = &field_schema.example {
+                example.clone()
+            } else {
+                default_for_type(&field_schema.field_type)
+            };
+            template.insert(field_name.clone(), value);
+        }
+
+        Value::Object(Box::new(template))
+    }
+
+    /// Convert to JSON Schema 2026 format (default)
+    ///
+    /// Includes support for:
+    /// - `readOnly` on individual fields
+    /// - `propertyDependencies` for conditional immutability
+    /// - Schema-level immutability via tags
+    pub fn to_json_schema(&self) -> Value {
+        let is_fully_immutable = self.tags.contains(&"immutable".to_string());
+        let mut properties = simd_json::value::owned::Object::new();
+        let mut required = Vec::new();
+        let mut property_dependencies: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+
+        for (field_name, field_schema) in &self.fields {
+            let mut field_json = field_type_to_json_schema_2026(&field_schema.field_type);
+
+            // Add description if present
+            if !field_schema.description.is_empty() {
+                if let Some(obj) = field_json.as_object_mut() {
+                    obj.insert("description".to_string(), json!(field_schema.description));
+                }
+            }
+
+            // Add readOnly if field is unconditionally immutable, in immutable_paths, or schema is fully immutable
+            let path = format!("/{}", field_name);
+            if field_schema.read_only || self.immutable_paths.contains(&path) || is_fully_immutable {
+                if let Some(obj) = field_json.as_object_mut() {
+                    obj.insert("readOnly".to_string(), json!(true));
+                }
+            }
+
+            // Collect propertyDependencies for conditional readOnly
+            if let Some(condition) = &field_schema.read_only_when {
+                property_dependencies
+                    .entry(condition.property.clone())
+                    .or_default()
+                    .entry(condition.value.clone())
+                    .or_default()
+                    .push(field_name.clone());
+            }
+
+            properties.insert(field_name.clone(), field_json);
+            if field_schema.required {
+                required.push(Value::String(field_name.clone()));
+            }
+        }
+
+        let mut schema = json!({
+            "$schema": &self.dialect,
+            "title": self.name,
+            "description": self.description,
+            "type": "object",
+            "properties": properties,
+            "required": required
+        });
+
+        // Add propertyDependencies if any conditional readOnly fields exist
+        if !property_dependencies.is_empty() {
+            let mut deps_json = simd_json::value::owned::Object::new();
+            for (prop, value_map) in property_dependencies {
+                let mut values_json = simd_json::value::owned::Object::new();
+                for (value, fields) in value_map {
+                    let mut props = simd_json::value::owned::Object::new();
+                    for field in fields {
+                        props.insert(field, json!({"readOnly": true}));
+                    }
+                    values_json.insert(value, json!({
+                        "properties": props
+                    }));
+                }
+                deps_json.insert(prop, Value::Object(Box::new(values_json)));
+            }
+            if let Some(obj) = schema.as_object_mut() {
+                obj.insert("propertyDependencies".to_string(), Value::Object(Box::new(deps_json)));
+            }
+        }
+
+        schema
+    }
+
+    /// Convert to JSON Schema draft-07 format (deprecated, for backward compatibility)
+    #[deprecated(since = "2.0.0", note = "Use to_json_schema() for JSON Schema 2026")]
+    pub fn to_json_schema_draft07(&self) -> Value {
+        let mut properties = simd_json::value::owned::Object::new();
+        let mut required = Vec::new();
+
+        for (field_name, field_schema) in &self.fields {
+            properties.insert(field_name.clone(), field_type_to_json_schema(&field_schema.field_type));
+            if field_schema.required {
+                required.push(Value::String(field_name.clone()));
+            }
+        }
+
+        json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": self.name,
+            "description": self.description,
+            "type": "object",
+            "properties": properties,
+            "required": required
+        })
+    }
+}
+
+/// Validation result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationResult {
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// Builder for creating plugin schemas
+pub struct PluginSchemaBuilder {
+    name: String,
+    version: String,
+    description: String,
+    fields: HashMap<String, FieldSchema>,
+    dependencies: Vec<String>,
+    example: Option<Value>,
+    immutable_paths: Vec<String>,
+    tags: Vec<String>,
+    dialect: String,
+}
+
+impl PluginSchemaBuilder {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            version: "1.0.0".to_string(),
+            description: String::new(),
+            fields: HashMap::new(),
+            dependencies: Vec::new(),
+            example: None,
+            immutable_paths: Vec::new(),
+            tags: Vec::new(),
+            dialect: DEFAULT_SCHEMA_DIALECT.to_string(),
+        }
+    }
+
+    pub fn version(mut self, version: &str) -> Self {
+        self.version = version.to_string();
+        self
+    }
+
+    pub fn description(mut self, description: &str) -> Self {
+        self.description = description.to_string();
+        self
+    }
+
+    pub fn field(mut self, name: &str, schema: FieldSchema) -> Self {
+        self.fields.insert(name.to_string(), schema);
+        self
+    }
+
+    pub fn string_field(self, name: &str, required: bool, description: &str) -> Self {
+        self.field(
+            name,
+            FieldSchema {
+                field_type: FieldType::String,
+                required,
+                description: description.to_string(),
+                default: None,
+                example: None,
+                constraints: Vec::new(),
+                read_only: false,
+                read_only_when: None,
+            },
+        )
+    }
+
+    pub fn integer_field(self, name: &str, required: bool, description: &str) -> Self {
+        self.field(
+            name,
+            FieldSchema {
+                field_type: FieldType::Integer,
+                required,
+                description: description.to_string(),
+                default: None,
+                example: None,
+                constraints: Vec::new(),
+                read_only: false,
+                read_only_when: None,
+            },
+        )
+    }
+
+    pub fn boolean_field(self, name: &str, required: bool, description: &str) -> Self {
+        self.field(
+            name,
+            FieldSchema {
+                field_type: FieldType::Boolean,
+                required,
+                description: description.to_string(),
+                default: None,
+                example: None,
+                constraints: Vec::new(),
+                read_only: false,
+                read_only_when: None,
+            },
+        )
+    }
+
+    pub fn array_field(self, name: &str, item_type: FieldType, required: bool, description: &str) -> Self {
+        self.field(
+            name,
+            FieldSchema {
+                field_type: FieldType::Array(Box::new(item_type)),
+                required,
+                description: description.to_string(),
+                default: None,
+                example: None,
+                constraints: Vec::new(),
+                read_only: false,
+                read_only_when: None,
+            },
+        )
+    }
+
+    pub fn object_field(self, name: &str, fields: HashMap<String, FieldSchema>, required: bool, description: &str) -> Self {
+        self.field(
+            name,
+            FieldSchema {
+                field_type: FieldType::Object(fields),
+                required,
+                description: description.to_string(),
+                default: None,
+                example: None,
+                constraints: Vec::new(),
+                read_only: false,
+                read_only_when: None,
+            },
+        )
+    }
+
+    pub fn dependency(mut self, plugin_name: &str) -> Self {
+        self.dependencies.push(plugin_name.to_string());
+        self
+    }
+
+    pub fn example(mut self, example: Value) -> Self {
+        self.example = Some(example);
+        self
+    }
+
+    /// Add a path that should always be readOnly (e.g., "/id")
+    pub fn immutable_path(mut self, path: &str) -> Self {
+        self.immutable_paths.push(path.to_string());
+        self
+    }
+
+    /// Add multiple immutable paths at once
+    pub fn immutable_paths(mut self, paths: &[&str]) -> Self {
+        self.immutable_paths.extend(paths.iter().map(|s| s.to_string()));
+        self
+    }
+
+    /// Add a tag to the schema (e.g., "immutable" for fully immutable)
+    pub fn tag(mut self, tag: &str) -> Self {
+        self.tags.push(tag.to_string());
+        self
+    }
+
+    /// Mark the entire schema as immutable
+    pub fn fully_immutable(self) -> Self {
+        self.tag("immutable")
+    }
+
+    /// Set the JSON Schema dialect (e.g., dialects::V2026)
+    pub fn dialect(mut self, dialect: &str) -> Self {
+        self.dialect = dialect.to_string();
+        self
+    }
+
+    pub fn build(self) -> PluginSchema {
+        PluginSchema {
+            name: self.name,
+            version: self.version,
+            description: self.description,
+            fields: self.fields,
+            dependencies: self.dependencies,
+            example: self.example,
+            immutable_paths: self.immutable_paths,
+            tags: self.tags,
+            dialect: self.dialect,
+        }
+    }
+}
+
+/// Registry of all plugin schemas with support for loading from files
+pub struct SchemaRegistry {
+    schemas: HashMap<String, PluginSchema>,
+    meta_schemas: HashMap<String, Value>,
+    spec_base_path: Option<PathBuf>,
+}
+
+impl SchemaRegistry {
+    /// Create a new schema registry with built-in schemas
+    pub fn new() -> Self {
+        let mut registry = Self {
+            schemas: HashMap::new(),
+            meta_schemas: HashMap::new(),
+            spec_base_path: None,
+        };
+        registry.register_builtin_schemas();
+        registry
+    }
+
+    /// Create a registry with a custom spec base path
+    pub fn with_spec_path(spec_path: impl AsRef<Path>) -> Self {
+        let mut registry = Self {
+            schemas: HashMap::new(),
+            meta_schemas: HashMap::new(),
+            spec_base_path: Some(spec_path.as_ref().to_path_buf()),
+        };
+        registry.register_builtin_schemas();
+        registry
+    }
+
+    /// Set the base path for the json-schema-spec repository
+    pub fn set_spec_path(&mut self, path: impl AsRef<Path>) {
+        self.spec_base_path = Some(path.as_ref().to_path_buf());
+    }
+
+    /// Load meta-schema from the spec repository
+    pub fn load_meta_schema(&mut self, dialect: &str) -> Result<(), SchemaLoadError> {
+        let spec_path = self.spec_base_path.clone()
+            .unwrap_or_else(|| PathBuf::from(SCHEMA_SPEC_PATH));
+
+        // Map dialect URL to file path
+        let meta_path = match dialect {
+            d if d.contains("2026") => spec_path.join("specs/meta/meta.json"),
+            _ => return Err(SchemaLoadError::UnsupportedDialect(dialect.to_string())),
+        };
+
+        let mut content = fs::read_to_string(&meta_path)
+            .map_err(|e| SchemaLoadError::IoError(meta_path.clone(), e.to_string()))?;
+
+        let schema: Value = unsafe { simd_json::from_str(&mut content) }
+            .map_err(|e| SchemaLoadError::ParseError(meta_path.clone(), e.to_string()))?;
+
+        self.meta_schemas.insert(dialect.to_string(), schema);
+        Ok(())
+    }
+
+    /// Get a loaded meta-schema
+    pub fn get_meta_schema(&self, dialect: &str) -> Option<&Value> {
+        self.meta_schemas.get(dialect)
+    }
+
+    /// Load a plugin schema from a JSON file
+    pub fn load_from_file(&mut self, path: impl AsRef<Path>) -> Result<String, SchemaLoadError> {
+        let path = path.as_ref();
+        let mut content = fs::read_to_string(path)
+            .map_err(|e| SchemaLoadError::IoError(path.to_path_buf(), e.to_string()))?;
+
+        let schema: PluginSchema = unsafe { simd_json::from_str(&mut content) }
+            .map_err(|e| SchemaLoadError::ParseError(path.to_path_buf(), e.to_string()))?;
+
+        let name = schema.name.clone();
+        self.register(schema);
+        Ok(name)
+    }
+
+    /// Load all schema files from a directory
+    pub fn load_from_directory(&mut self, dir: impl AsRef<Path>) -> Result<Vec<String>, SchemaLoadError> {
+        let dir = dir.as_ref();
+        let mut loaded = Vec::new();
+
+        let entries = fs::read_dir(dir)
+            .map_err(|e| SchemaLoadError::IoError(dir.to_path_buf(), e.to_string()))?;
+
+        for entry in entries {
+            let entry = entry
+                .map_err(|e| SchemaLoadError::IoError(dir.to_path_buf(), e.to_string()))?;
+            let path = entry.path();
+
+            if path.extension().map(|e| e == "json").unwrap_or(false) {
+                match self.load_from_file(&path) {
+                    Ok(name) => loaded.push(name),
+                    Err(e) => {
+                        tracing::warn!("Failed to load schema from {:?}: {}", path, e);
+                    }
+                }
+            }
+        }
+
+        Ok(loaded)
+    }
+
+    /// Export all schemas as JSON Schema documents
+    pub fn export_all(&self) -> HashMap<String, Value> {
+        self.schemas.iter()
+            .map(|(name, schema)| (name.clone(), schema.to_json_schema()))
+            .collect()
+    }
+
+    /// Export all schemas in draft-07 format (for backward compatibility)
+    #[allow(deprecated)]
+    pub fn export_all_draft07(&self) -> HashMap<String, Value> {
+        self.schemas.iter()
+            .map(|(name, schema)| (name.clone(), schema.to_json_schema_draft07()))
+            .collect()
+    }
+
+    /// Register a plugin schema
+    pub fn register(&mut self, schema: PluginSchema) {
+        self.schemas.insert(schema.name.clone(), schema);
+    }
+
+    /// Get a plugin schema by name
+    pub fn get(&self, name: &str) -> Option<&PluginSchema> {
+        self.schemas.get(name)
+    }
+
+    /// List all registered schema names
+    pub fn list(&self) -> Vec<&str> {
+        self.schemas.keys().map(|s| s.as_str()).collect()
+    }
+
+    /// Validate state for a plugin
+    pub fn validate(&self, plugin_name: &str, state: &Value) -> Option<ValidationResult> {
+        self.schemas.get(plugin_name).map(|schema| schema.validate(state))
+    }
+
+    /// Register all built-in plugin schemas
+    fn register_builtin_schemas(&mut self) {
+        // LXC Container Schema
+        self.register(create_lxc_schema());
+
+        // Network Schema
+        self.register(create_net_schema());
+
+        // OpenFlow Schema
+        self.register(create_openflow_schema());
+
+        // Systemd Schema
+        self.register(create_systemd_schema());
+
+        // Privacy Router Schema
+        self.register(create_privacy_router_schema());
+
+        // Netmaker Schema
+        self.register(create_netmaker_schema());
+    }
+}
+
+impl Default for SchemaRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Errors that can occur when loading schemas
+#[derive(Debug, Clone)]
+pub enum SchemaLoadError {
+    IoError(PathBuf, String),
+    ParseError(PathBuf, String),
+    UnsupportedDialect(String),
+}
+
+impl std::fmt::Display for SchemaLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IoError(path, msg) => write!(f, "IO error reading {:?}: {}", path, msg),
+            Self::ParseError(path, msg) => write!(f, "Parse error in {:?}: {}", path, msg),
+            Self::UnsupportedDialect(d) => write!(f, "Unsupported dialect: {}", d),
+        }
+    }
+}
+
+impl std::error::Error for SchemaLoadError {}
+
+// ============================================================================
+// Built-in Schema Definitions
+// ============================================================================
+
+fn create_lxc_schema() -> PluginSchema {
+    let container_fields = {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: true,
+            description: "Container VMID".to_string(),
+            default: None,
+            example: Some(json!("100")),
+            constraints: vec![Constraint::Pattern { regex: r"^\d+$".to_string() }],
+            read_only: true, // ID is immutable once created
+            read_only_when: None,
+        });
+        fields.insert("veth".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: false,
+            description: "Veth interface name".to_string(),
+            default: None,
+            example: Some(json!("vi100")),
+            constraints: Vec::new(),
+            read_only: false,
+            // veth becomes readOnly when container is running
+            read_only_when: Some(ReadOnlyCondition {
+                property: "running".to_string(),
+                value: "true".to_string(),
+            }),
+        });
+        fields.insert("bridge".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: false,
+            description: "OVS bridge name".to_string(),
+            default: Some(json!("ovs-br0")),
+            example: Some(json!("ovs-br0")),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("running".to_string(), FieldSchema {
+            field_type: FieldType::Boolean,
+            required: false,
+            description: "Whether container is running".to_string(),
+            default: Some(json!(false)),
+            example: Some(json!(true)),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("properties".to_string(), FieldSchema {
+            field_type: FieldType::Any,
+            required: false,
+            description: "Container properties (hostname, memory, cores, etc.)".to_string(),
+            default: Some(json!({})),
+            example: Some(json!({
+                "hostname": "my-container",
+                "memory": 512,
+                "cores": 2,
+                "template": "local:vztmpl/debian-13.tar.zst"
+            })),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields
+    };
+
+    PluginSchema::builder("lxc")
+        .version("2.0.0")
+        .description("LXC container management via native Proxmox API")
+        .array_field("containers", FieldType::Object(container_fields), true, "List of containers")
+        .example(json!({
+            "containers": [
+                {
+                    "id": "100",
+                    "veth": "vi100",
+                    "bridge": "ovs-br0",
+                    "running": true,
+                    "properties": {
+                        "hostname": "wireguard-gateway",
+                        "memory": 512,
+                        "cores": 1,
+                        "network_type": "bridge"
+                    }
+                }
+            ]
+        }))
+        .build()
+}
+
+fn create_net_schema() -> PluginSchema {
+    let interface_fields = {
+        let mut fields = HashMap::new();
+        fields.insert("name".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: true,
+            description: "Interface name".to_string(),
+            default: None,
+            example: Some(json!("eth0")),
+            constraints: Vec::new(),
+            read_only: true, // Interface name is identity
+            read_only_when: None,
+        });
+        fields.insert("type".to_string(), FieldSchema {
+            field_type: FieldType::Enum(vec![
+                "ethernet".to_string(),
+                "bridge".to_string(),
+                "veth".to_string(),
+                "vlan".to_string(),
+                "bond".to_string(),
+            ]),
+            required: true,
+            description: "Interface type".to_string(),
+            default: Some(json!("ethernet")),
+            example: Some(json!("ethernet")),
+            constraints: Vec::new(),
+            read_only: true, // Type cannot change after creation
+            read_only_when: None,
+        });
+        fields.insert("state".to_string(), FieldSchema {
+            field_type: FieldType::Enum(vec!["up".to_string(), "down".to_string()]),
+            required: false,
+            description: "Interface state".to_string(),
+            default: Some(json!("up")),
+            example: Some(json!("up")),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("addresses".to_string(), FieldSchema {
+            field_type: FieldType::Array(Box::new(FieldType::String)),
+            required: false,
+            description: "IP addresses".to_string(),
+            default: Some(json!([])),
+            example: Some(json!(["192.168.1.100/24"])),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields
+    };
+
+    PluginSchema::builder("net")
+        .version("1.0.0")
+        .description("Network interface management via rtnetlink")
+        .array_field("interfaces", FieldType::Object(interface_fields), true, "List of network interfaces")
+        .example(json!({
+            "interfaces": [
+                {
+                    "name": "eth0",
+                    "type": "ethernet",
+                    "state": "up",
+                    "addresses": ["192.168.1.100/24"]
+                }
+            ]
+        }))
+        .build()
+}
+
+fn create_openflow_schema() -> PluginSchema {
+    let bridge_fields = {
+        let mut fields = HashMap::new();
+        fields.insert("name".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: true,
+            description: "Bridge name".to_string(),
+            default: None,
+            example: Some(json!("ovs-br0")),
+            constraints: Vec::new(),
+            read_only: true, // Bridge name is identity
+            read_only_when: None,
+        });
+        fields.insert("datapath_id".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: false,
+            description: "Datapath ID".to_string(),
+            default: None,
+            example: Some(json!("0000000000000001")),
+            constraints: Vec::new(),
+            read_only: true, // Datapath ID is immutable
+            read_only_when: None,
+        });
+        fields.insert("protocols".to_string(), FieldSchema {
+            field_type: FieldType::Array(Box::new(FieldType::String)),
+            required: false,
+            description: "Supported OpenFlow protocols".to_string(),
+            default: Some(json!(["OpenFlow13"])),
+            example: Some(json!(["OpenFlow10", "OpenFlow13"])),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields
+    };
+
+    let flow_fields = {
+        let mut fields = HashMap::new();
+        fields.insert("priority".to_string(), FieldSchema {
+            field_type: FieldType::Integer,
+            required: true,
+            description: "Flow priority (higher = more specific)".to_string(),
+            default: Some(json!(100)),
+            example: Some(json!(100)),
+            constraints: vec![Constraint::Min { value: 0.0 }, Constraint::Max { value: 65535.0 }],
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("match".to_string(), FieldSchema {
+            field_type: FieldType::Any,
+            required: true,
+            description: "Flow match criteria".to_string(),
+            default: None,
+            example: Some(json!({"in_port": "vi100"})),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("actions".to_string(), FieldSchema {
+            field_type: FieldType::Array(Box::new(FieldType::Any)),
+            required: true,
+            description: "Actions to perform".to_string(),
+            default: None,
+            example: Some(json!([{"type": "output", "port": "vi101"}])),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields
+    };
+
+    PluginSchema::builder("openflow")
+        .version("1.0.0")
+        .description("OpenFlow flow table management")
+        .dependency("net")
+        .array_field("bridges", FieldType::Object(bridge_fields), true, "OVS bridges")
+        .array_field("flows", FieldType::Object(flow_fields), false, "OpenFlow rules")
+        .string_field("controller_endpoint", false, "OpenFlow controller endpoint")
+        .boolean_field("auto_discover_containers", false, "Auto-create flows for containers")
+        .example(json!({
+            "bridges": [
+                {
+                    "name": "ovs-br0",
+                    "protocols": ["OpenFlow13"]
+                }
+            ],
+            "flows": [
+                {
+                    "priority": 100,
+                    "match": {"in_port": "vi100"},
+                    "actions": [{"type": "output", "port": "vi101"}]
+                }
+            ],
+            "auto_discover_containers": true
+        }))
+        .build()
+}
+
+fn create_systemd_schema() -> PluginSchema {
+    let unit_fields = {
+        let mut fields = HashMap::new();
+        fields.insert("name".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: true,
+            description: "Unit name".to_string(),
+            default: None,
+            example: Some(json!("nginx.service")),
+            constraints: Vec::new(),
+            read_only: true, // Unit name is identity
+            read_only_when: None,
+        });
+        fields.insert("state".to_string(), FieldSchema {
+            field_type: FieldType::Enum(vec![
+                "active".to_string(),
+                "inactive".to_string(),
+                "failed".to_string(),
+            ]),
+            required: false,
+            description: "Desired unit state".to_string(),
+            default: Some(json!("active")),
+            example: Some(json!("active")),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("enabled".to_string(), FieldSchema {
+            field_type: FieldType::Boolean,
+            required: false,
+            description: "Whether unit is enabled at boot".to_string(),
+            default: Some(json!(true)),
+            example: Some(json!(true)),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields
+    };
+
+    PluginSchema::builder("systemd")
+        .version("1.0.0")
+        .description("Systemd unit management via D-Bus")
+        .array_field("units", FieldType::Object(unit_fields), true, "Systemd units")
+        .example(json!({
+            "units": [
+                {
+                    "name": "nginx.service",
+                    "state": "active",
+                    "enabled": true
+                }
+            ]
+        }))
+        .build()
+}
+
+fn create_privacy_router_schema() -> PluginSchema {
+    let wireguard_fields = {
+        let mut fields = HashMap::new();
+        fields.insert("enabled".to_string(), FieldSchema {
+            field_type: FieldType::Boolean,
+            required: true,
+            description: "Enable WireGuard tunnel".to_string(),
+            default: Some(json!(true)),
+            example: Some(json!(true)),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("container_id".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: false,
+            description: "Container VMID for WireGuard".to_string(),
+            default: Some(json!("100")),
+            example: Some(json!("100")),
+            constraints: Vec::new(),
+            read_only: false,
+            // Container ID becomes immutable when enabled
+            read_only_when: Some(ReadOnlyCondition {
+                property: "enabled".to_string(),
+                value: "true".to_string(),
+            }),
+        });
+        fields.insert("listen_port".to_string(), FieldSchema {
+            field_type: FieldType::Integer,
+            required: false,
+            description: "WireGuard listen port".to_string(),
+            default: Some(json!(51820)),
+            example: Some(json!(51820)),
+            constraints: vec![Constraint::Min { value: 1.0 }, Constraint::Max { value: 65535.0 }],
+            read_only: false,
+            read_only_when: None,
+        });
+        fields
+    };
+
+    let warp_fields = {
+        let mut fields = HashMap::new();
+        fields.insert("enabled".to_string(), FieldSchema {
+            field_type: FieldType::Boolean,
+            required: true,
+            description: "Enable Cloudflare WARP tunnel".to_string(),
+            default: Some(json!(true)),
+            example: Some(json!(true)),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("container_id".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: false,
+            description: "Container VMID for WARP".to_string(),
+            default: Some(json!("101")),
+            example: Some(json!("101")),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: Some(ReadOnlyCondition {
+                property: "enabled".to_string(),
+                value: "true".to_string(),
+            }),
+        });
+        fields
+    };
+
+    let xray_fields = {
+        let mut fields = HashMap::new();
+        fields.insert("enabled".to_string(), FieldSchema {
+            field_type: FieldType::Boolean,
+            required: true,
+            description: "Enable XRay tunnel".to_string(),
+            default: Some(json!(true)),
+            example: Some(json!(true)),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields.insert("container_id".to_string(), FieldSchema {
+            field_type: FieldType::String,
+            required: false,
+            description: "Container VMID for XRay".to_string(),
+            default: Some(json!("102")),
+            example: Some(json!("102")),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: Some(ReadOnlyCondition {
+                property: "enabled".to_string(),
+                value: "true".to_string(),
+            }),
+        });
+        fields.insert("protocol".to_string(), FieldSchema {
+            field_type: FieldType::Enum(vec![
+                "vless".to_string(),
+                "vmess".to_string(),
+                "trojan".to_string(),
+            ]),
+            required: false,
+            description: "XRay protocol".to_string(),
+            default: Some(json!("vless")),
+            example: Some(json!("vless")),
+            constraints: Vec::new(),
+            read_only: false,
+            read_only_when: None,
+        });
+        fields
+    };
+
+    PluginSchema::builder("privacy_router")
+        .version("1.0.0")
+        .description("Multi-hop privacy tunnel chain (WireGuard → WARP → XRay)")
+        .dependency("lxc")
+        .dependency("openflow")
+        .string_field("bridge_name", true, "OVS bridge for privacy network")
+        .object_field("wireguard", wireguard_fields, true, "WireGuard tunnel config")
+        .object_field("warp", warp_fields, true, "Cloudflare WARP config")
+        .object_field("xray", xray_fields, true, "XRay tunnel config")
+        .example(json!({
+            "bridge_name": "ovs-br0",
+            "wireguard": {
+                "enabled": true,
+                "container_id": "100",
+                "listen_port": 51820
+            },
+            "warp": {
+                "enabled": true,
+                "container_id": "101"
+            },
+            "xray": {
+                "enabled": true,
+                "container_id": "102",
+                "protocol": "vless"
+            }
+        }))
+        .build()
+}
+
+fn create_netmaker_schema() -> PluginSchema {
+    PluginSchema::builder("netmaker")
+        .version("1.0.0")
+        .description("Netmaker mesh network management")
+        .dependency("net")
+        .string_field("network_name", true, "Netmaker network name")
+        .string_field("interface", false, "WireGuard interface name (e.g., nm0)")
+        .string_field("server_url", false, "Netmaker server URL")
+        .string_field("enrollment_token", false, "Enrollment token for joining network")
+        .boolean_field("auto_enroll", false, "Auto-enroll containers in mesh")
+        .example(json!({
+            "network_name": "container-mesh",
+            "interface": "nm0",
+            "auto_enroll": true
+        }))
+        .build()
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+fn validate_field(name: &str, value: &Value, schema: &FieldSchema) -> Result<(), String> {
+    match &schema.field_type {
+        FieldType::String => {
+            if !value.is_str() {
+                return Err(format!("Field '{}' must be a string", name));
+            }
+        }
+        FieldType::Integer => {
+            if !value.is_i64() && !value.is_u64() {
+                return Err(format!("Field '{}' must be an integer", name));
+            }
+        }
+        FieldType::Float => {
+            if !value.is_f64() && !value.is_i64() {
+                return Err(format!("Field '{}' must be a number", name));
+            }
+        }
+        FieldType::Boolean => {
+            if !value.is_bool() {
+                return Err(format!("Field '{}' must be a boolean", name));
+            }
+        }
+        FieldType::Array(_) => {
+            if !value.is_array() {
+                return Err(format!("Field '{}' must be an array", name));
+            }
+        }
+        FieldType::Object(_) => {
+            if !value.is_object() {
+                return Err(format!("Field '{}' must be an object", name));
+            }
+        }
+        FieldType::Enum(valid_values) => {
+            if let Some(s) = value.as_str() {
+                if !valid_values.contains(&s.to_string()) {
+                    return Err(format!(
+                        "Field '{}' must be one of: {:?}",
+                        name, valid_values
+                    ));
+                }
+            } else {
+                return Err(format!("Field '{}' must be a string enum value", name));
+            }
+        }
+        FieldType::Any => {}
+    }
+
+    // Validate constraints
+    for constraint in &schema.constraints {
+        match constraint {
+            Constraint::Min { value: min } => {
+                if let Some(n) = value.as_f64() {
+                    if n < *min {
+                        return Err(format!("Field '{}' must be >= {}", name, min));
+                    }
+                }
+                if let Some(s) = value.as_str() {
+                    if (s.len() as f64) < *min {
+                        return Err(format!("Field '{}' length must be >= {}", name, min));
+                    }
+                }
+            }
+            Constraint::Max { value: max } => {
+                if let Some(n) = value.as_f64() {
+                    if n > *max {
+                        return Err(format!("Field '{}' must be <= {}", name, max));
+                    }
+                }
+                if let Some(s) = value.as_str() {
+                    if (s.len() as f64) > *max {
+                        return Err(format!("Field '{}' length must be <= {}", name, max));
+                    }
+                }
+            }
+            Constraint::Pattern { regex } => {
+                if let Some(s) = value.as_str() {
+                    if let Ok(re) = regex::Regex::new(regex) {
+                        if !re.is_match(s) {
+                            return Err(format!(
+                                "Field '{}' must match pattern: {}",
+                                name, regex
+                            ));
+                        }
+                    }
+                }
+            }
+            Constraint::OneOf { values } => {
+                if !values.contains(value) {
+                    return Err(format!("Field '{}' must be one of: {:?}", name, values));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn default_for_type(field_type: &FieldType) -> Value {
+    match field_type {
+        FieldType::String => json!(""),
+        FieldType::Integer => json!(0),
+        FieldType::Float => json!(0.0),
+        FieldType::Boolean => json!(false),
+        FieldType::Array(_) => json!([]),
+        FieldType::Object(_) => json!({}),
+        FieldType::Enum(values) => values.first().map(|s| json!(s)).unwrap_or(json!("")),
+        FieldType::Any => json!(null),
+    }
+}
+
+fn field_type_to_json_schema(field_type: &FieldType) -> Value {
+    match field_type {
+        FieldType::String => json!({"type": "string"}),
+        FieldType::Integer => json!({"type": "integer"}),
+        FieldType::Float => json!({"type": "number"}),
+        FieldType::Boolean => json!({"type": "boolean"}),
+        FieldType::Array(item_type) => json!({
+            "type": "array",
+            "items": field_type_to_json_schema(item_type)
+        }),
+        FieldType::Object(fields) => {
+            let mut properties = simd_json::value::owned::Object::new();
+            for (name, schema) in fields {
+                properties.insert(name.clone(), field_type_to_json_schema(&schema.field_type));
+            }
+            json!({
+                "type": "object",
+                "properties": properties
+            })
+        }
+        FieldType::Enum(values) => json!({
+            "type": "string",
+            "enum": values
+        }),
+        FieldType::Any => json!({}),
+    }
+}
+
+/// Convert field type to JSON Schema 2026 format with full metadata
+fn field_type_to_json_schema_2026(field_type: &FieldType) -> Value {
+    match field_type {
+        FieldType::String => json!({"type": "string"}),
+        FieldType::Integer => json!({"type": "integer"}),
+        FieldType::Float => json!({"type": "number"}),
+        FieldType::Boolean => json!({"type": "boolean"}),
+        FieldType::Array(item_type) => json!({
+            "type": "array",
+            "items": field_type_to_json_schema_2026(item_type)
+        }),
+        FieldType::Object(fields) => {
+            let mut properties = simd_json::value::owned::Object::new();
+            let mut required = Vec::new();
+            for (name, schema) in fields {
+                let mut field_json = field_type_to_json_schema_2026(&schema.field_type);
+                if !schema.description.is_empty() {
+                    if let Some(obj) = field_json.as_object_mut() {
+                        obj.insert("description".to_string(), json!(schema.description));
+                    }
+                }
+                if schema.read_only {
+                    if let Some(obj) = field_json.as_object_mut() {
+                        obj.insert("readOnly".to_string(), json!(true));
+                    }
+                }
+                properties.insert(name.clone(), field_json);
+                if schema.required {
+                    required.push(json!(name));
+                }
+            }
+            let mut result = json!({
+                "type": "object",
+                "properties": properties
+            });
+            if !required.is_empty() {
+                if let Some(obj) = result.as_object_mut() {
+                    obj.insert("required".to_string(), json!(required));
+                }
+            }
+            result
+        }
+        FieldType::Enum(values) => json!({
+            "type": "string",
+            "enum": values
+        }),
+        FieldType::Any => json!({}),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_schema_registry() {
+        let registry = SchemaRegistry::new();
+        assert!(registry.get("lxc").is_some());
+        assert!(registry.get("net").is_some());
+        assert!(registry.get("openflow").is_some());
+        assert!(registry.get("systemd").is_some());
+        assert!(registry.get("privacy_router").is_some());
+        assert!(registry.get("netmaker").is_some());
+    }
+
+    #[test]
+    fn test_lxc_validation() {
+        let registry = SchemaRegistry::new();
+        let schema = registry.get("lxc").unwrap();
+
+        // Valid state
+        let valid_state = json!({
+            "containers": [
+                {
+                    "id": "100",
+                    "veth": "vi100",
+                    "bridge": "ovs-br0",
+                    "running": true
+                }
+            ]
+        });
+        let result = schema.validate(&valid_state);
+        assert!(result.valid, "Errors: {:?}", result.errors);
+
+        // Missing required field
+        let invalid_state = json!({});
+        let result = schema.validate(&invalid_state);
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn test_template_generation() {
+        let registry = SchemaRegistry::new();
+        let schema = registry.get("lxc").unwrap();
+        let template = schema.generate_template();
+        assert!(template.get("containers").is_some());
+    }
+
+    #[test]
+    fn test_json_schema_export() {
+        let registry = SchemaRegistry::new();
+        let schema = registry.get("lxc").unwrap();
+        let json_schema = schema.to_json_schema();
+        assert_eq!(json_schema["title"], "lxc");
+        assert!(json_schema["properties"].is_object());
+    }
+
+    #[test]
+    fn test_json_schema_2026_dialect() {
+        let registry = SchemaRegistry::new();
+        let schema = registry.get("lxc").unwrap();
+        let json_schema = schema.to_json_schema();
+
+        // Check that 2026 dialect is used
+        assert_eq!(json_schema["$schema"], DEFAULT_SCHEMA_DIALECT);
+    }
+
+    #[test]
+    fn test_json_schema_property_dependencies() {
+        // Create a schema with conditional readOnly
+        let schema = PluginSchema::builder("test")
+            .version("1.0.0")
+            .description("Test schema")
+            .field("status", FieldSchema {
+                field_type: FieldType::String,
+                required: true,
+                description: "Status".to_string(),
+                default: None,
+                example: None,
+                constraints: Vec::new(),
+                read_only: false,
+                read_only_when: None,
+            })
+            .field("id", FieldSchema {
+                field_type: FieldType::String,
+                required: true,
+                description: "ID".to_string(),
+                default: None,
+                example: None,
+                constraints: Vec::new(),
+                read_only: false,
+                read_only_when: Some(ReadOnlyCondition {
+                    property: "status".to_string(),
+                    value: "locked".to_string(),
+                }),
+            })
+            .build();
+
+        let json_schema = schema.to_json_schema();
+
+        // Check that propertyDependencies is generated
+        assert!(json_schema.get("propertyDependencies").is_some());
+        let deps = &json_schema["propertyDependencies"];
+        assert!(deps["status"]["locked"]["properties"]["id"]["readOnly"].as_bool().unwrap_or(false));
+    }
+
+    #[test]
+    fn test_json_schema_immutable_paths() {
+        let schema = PluginSchema::builder("test")
+            .version("1.0.0")
+            .description("Test schema")
+            .string_field("id", true, "ID field")
+            .string_field("name", true, "Name field")
+            .immutable_path("/id")
+            .build();
+
+        let json_schema = schema.to_json_schema();
+
+        // Check that id has readOnly
+        assert!(json_schema["properties"]["id"]["readOnly"].as_bool().unwrap_or(false));
+        // name should not be readOnly
+        assert!(!json_schema["properties"]["name"]["readOnly"].as_bool().unwrap_or(false));
+    }
+
+    #[test]
+    fn test_json_schema_fully_immutable() {
+        let schema = PluginSchema::builder("test")
+            .version("1.0.0")
+            .description("Test schema")
+            .string_field("id", true, "ID field")
+            .string_field("name", true, "Name field")
+            .fully_immutable()
+            .build();
+
+        let json_schema = schema.to_json_schema();
+
+        // All fields should be readOnly
+        assert!(json_schema["properties"]["id"]["readOnly"].as_bool().unwrap_or(false));
+        assert!(json_schema["properties"]["name"]["readOnly"].as_bool().unwrap_or(false));
+    }
+
+    #[test]
+    fn test_schema_custom_dialect() {
+        let schema = PluginSchema::builder("test")
+            .version("1.0.0")
+            .description("Test schema")
+            .dialect(dialects::DRAFT_07)
+            .string_field("name", true, "Name")
+            .build();
+
+        let json_schema = schema.to_json_schema();
+        assert_eq!(json_schema["$schema"], dialects::DRAFT_07);
+    }
+}

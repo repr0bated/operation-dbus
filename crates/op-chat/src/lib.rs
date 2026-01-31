@@ -1,0 +1,30 @@
+//! op-chat: Chat Orchestration Layer
+//!
+//! This crate provides:
+//! - ChatActor: Central message processor
+//! - TrackedToolExecutor: Tool execution with tracking
+//! - ForcedExecutionOrchestrator: Hallucination detection
+//! - NLAdminOrchestrator: Natural language server administration
+//! - SessionManager: Conversation state management
+
+pub mod actor;
+pub mod forced_execution;
+pub mod nl_admin;
+pub mod orchestration;
+pub mod session;
+pub mod system_prompt;
+pub mod tool_executor;
+
+pub use actor::{ChatActor, ChatActorConfig, ChatActorHandle, RpcRequest, RpcResponse};
+pub use forced_execution::{
+    ForcedExecutionOrchestrator, HallucinationCheck, HallucinationIssue, HallucinationType,
+    IssueSeverity, ToolCall, ToolCallResult,
+};
+pub use nl_admin::{NLAdminOrchestrator, NLAdminResult, ExtractedToolCall, ToolExecutionResult};
+pub use orchestration::{
+    builtin_workstacks, GrpcAgentPool, Skill, SkillMetadata, SkillRegistry,
+    Workstack, WorkstackExecutor, WorkstackPhase, WorkstackResult,
+};
+pub use session::SessionManager;
+pub use system_prompt::{create_session_with_system_prompt, generate_system_prompt};
+pub use tool_executor::TrackedToolExecutor;
