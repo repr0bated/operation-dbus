@@ -20,16 +20,13 @@ pub mod record;
 
 pub use execution_context::{ExecutionContext, ExecutionResult};
 
-// ExecutionStatus is now in record.rs or we need to handle conflict.
-
-// If record.rs defines it, we should use that or alias.
-
 pub use execution_tracker::{ExecutionTracker, ExecutionEvent, ExecutionStats};
 
 pub use metrics::ExecutionMetrics;
 
 pub use telemetry::ExecutionTelemetry;
 
-pub use record::{ExecutionRecord, ExecutionTiming, ExecutionStatus, ExecutionRecordBuilder, hash_execution};
+pub use record::{ExecutionRecord, ExecutionTiming, ExecutionRecordBuilder, hash_execution};
+pub use record::ExecutionStatus as RecordExecutionStatus;
 
 
