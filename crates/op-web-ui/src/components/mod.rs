@@ -9,6 +9,7 @@ mod workflows_view;
 mod mcp_admin;
 mod plugin_config;
 mod system_log;
+mod workflow_builder;
 
 pub use chat::ChatInterface;
 pub use system_monitor::SystemMonitor;
@@ -19,3 +20,4 @@ pub use workflows_view::WorkflowsView;
 pub use mcp_admin::McpAdminView;
 pub use plugin_config::PluginConfigView;
 pub use system_log::SystemLogView;
+pub use workflow_builder::WorkflowBuilder;

@@ -28,20 +28,15 @@ pub mod chat;
 pub mod llm;
 pub mod admin;
 
-const FALLBACK_INDEX_HTML: &str = include_str!("../../static/fallback-chat.html");
-const STATIC_INDEX_HTML: &str = include_str!("../../static/index.html");
+// UI is embedded via rust-embed in embedded_ui.rs from ui/dist/
+use crate::embedded_ui::UiAssets;
 
 async fn index_handler() -> Html<String> {
-    // Priority 1: Check for WASM UI build (Leptos)
-    if let Ok(ui_html) = std::fs::read_to_string("crates/op-web/static/ui/index.html") {
-        tracing::info!("Serving Leptos WASM UI from static/ui/");
-        return Html(ui_html);
+    // Serve embedded UI from ui/dist/index.html
+    if let Some(content) = UiAssets::get("index.html") {
+        return Html(String::from_utf8_lossy(&content.data).to_string());
     }
-    
-    // Priority 2: Serve the rich static HTML UI (MCP Control Center)
-    // This is the deployed/production UI for op-web.ghostbridge.tech
-    tracing::info!("Serving static MCP Control Center UI");
-    Html(STATIC_INDEX_HTML.to_string())
+    Html("<h1>UI not found</h1>".to_string())
 }
 
 /// Create the complete router with all routes
@@ -124,47 +119,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .nest("/groups-admin", groups_admin::create_groups_admin_router())
         .nest("/admin", admin::admin_routes());
 
-    let mut needs_index_fallback = true;
-
-    // Serve static files (WASM frontend) from an explicit path if configured.
-    if let Ok(dir) = std::env::var("OP_WEB_STATIC_DIR") {
-        if std::path::Path::new(&dir).exists() {
-            tracing::info!("Serving static files from OP_WEB_STATIC_DIR: {}", dir);
-            let index_path = std::path::Path::new(&dir).join("index.html");
-            needs_index_fallback = !index_path.exists();
-            router = router.fallback_service(ServeDir::new(dir).append_index_html_on_directories(true));
-        } else {
-            tracing::warn!("OP_WEB_STATIC_DIR does not exist: {}", dir);
-        }
-    } else {
-        // Priority 1: Serve the rich static HTML UI (crates/op-web/static/)
-        // This contains the MCP Control Center (index.html, app.js, styles.css)
-        // Used for op-web.ghostbridge.tech via Caddy reverse proxy
-        let static_dir = "crates/op-web/static";
-        if std::path::Path::new(static_dir).exists() {
-            tracing::info!("Serving static files from: {} (MCP Control Center)", static_dir);
-            let index_path = std::path::Path::new(static_dir).join("index.html");
-            needs_index_fallback = !index_path.exists();
-            router = router.fallback_service(ServeDir::new(static_dir).append_index_html_on_directories(true));
-        } else {
-            // Fallback to other common build directories
-            let static_dirs = vec!["crates/op-web/static/ui", "static", "dist", "public", "chat-ui/build"];
-            for dir in static_dirs {
-                if std::path::Path::new(dir).exists() {
-                    tracing::info!("Serving static files from: {}", dir);
-                    let index_path = std::path::Path::new(dir).join("index.html");
-                    needs_index_fallback = !index_path.exists();
-                    router = router.fallback_service(ServeDir::new(dir).append_index_html_on_directories(true));
-                    break;
-                }
-            }
-        }
-    }
-
-    if needs_index_fallback {
-        tracing::warn!("Static index.html not found. Serving embedded chat UI for /.");
-        router = router.route("/", get(index_handler));
-    }
+    // Use embedded UI for all non-API routes
+    router = router.fallback(crate::embedded_ui::serve_embedded_ui);
 
     router
         .layer(Extension(state))

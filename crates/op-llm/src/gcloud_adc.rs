@@ -19,10 +19,22 @@ use crate::provider::{
     ProviderType, TokenUsage, ToolCallInfo, ToolChoice, ToolDefinition,
 };
 
-/// Cloud AI Companion base URL
-const CLOUD_AI_BASE: &str = "https://cloudaicompanion.googleapis.com/v1";
-const PROJECT_ID: &str = "geminidev-479406";
-const LOCATION: &str = "global";
+/// Cloud AI Companion base URL - configurable via GCP_BASE_URL
+fn cloud_ai_base() -> String {
+    std::env::var("GCP_BASE_URL")
+        .unwrap_or_else(|_| "https://cloudaicompanion.googleapis.com/v1".to_string())
+}
+
+fn project_id() -> String {
+    std::env::var("GCP_PROJECT")
+        .or_else(|_| std::env::var("GOOGLE_CLOUD_PROJECT"))
+        .unwrap_or_else(|_| "geminidev-479406".to_string())
+}
+
+fn location() -> String {
+    std::env::var("GCP_LOCATION")
+        .unwrap_or_else(|_| "global".to_string())
+}
 
 pub struct GCloudADCProvider {
     client: Client,
@@ -192,7 +204,7 @@ impl LlmProvider for GCloudADCProvider {
         let token = self.get_token().await?;
 
         let url = format!("{}/projects/{}/locations/{}/publishers/google/models/{}:generateContent", 
-            CLOUD_AI_BASE, PROJECT_ID, LOCATION, model);
+            cloud_ai_base(), project_id(), location(), model);
 
         let (contents, system_instruction) = self.convert_messages(&request.messages);
 

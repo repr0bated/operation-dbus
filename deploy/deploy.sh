@@ -108,14 +108,29 @@ deploy_component() {
     
     # Run cargo build - output goes directly to console for visibility
     # Only tee to log file if we have permission
-    if cargo build --release -p "$package" 2>&1; then
-        log_info "Cargo Build successful."
-        if type agent_store &>/dev/null; then
-             agent_store "post-build" "$package" "{\"status\":\"success\"}" "deployment" "post-build" "$package" "success" 2>/dev/null || true
+    if command -v cargo &> /dev/null; then
+        if cargo build --release -p "$package" 2>&1; then
+            log_info "Cargo Build successful."
+            if type agent_store &>/dev/null; then
+                 agent_store "post-build" "$package" "{\"status\":\"success\"}" "deployment" "post-build" "$package" "success" 2>/dev/null || true
+            fi
+        else
+            log_warn "Build failed for $package. Checking for existing binary..."
+        if [[ -f "target/release/$binary" ]]; then
+            log_info "Found existing binary at target/release/$binary. Proceeding..."
+        else
+            log_error "Build failed and no existing binary found for $binary. Cannot deploy."
+            return 1
+        fi
         fi
     else
-        log_error "Build failed for $package"
-        return 1
+        log_warn "Cargo not found. Skipping build step."
+        if [[ -f "target/release/$binary" ]]; then
+            log_info "Found existing binary at target/release/$binary. Proceeding with deployment..."
+        else
+            log_error "Cargo missing and no existing binary found for $binary. Cannot deploy."
+            return 1
+        fi
     fi
     
     # 2. Stop service

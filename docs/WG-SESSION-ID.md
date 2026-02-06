@@ -2207,7 +2207,9 @@ require_authentication = true
 allowed_users = ["root", "wg-auth"]
 unix_socket_mode = "0660"
 Summary
-Yes, custom JSON-RPC is significantly better than D-Bus while maintaining 100% FreeDesktop compatibility:
+Yes, custom JSON-RPC is significantly better than D-Bus while maintainin
+
+                                                    g 100% FreeDesktop compatibility:
 
 Performance: 10-100x faster with SIMD JSON parsing
 

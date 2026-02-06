@@ -100,15 +100,8 @@ impl WebServer {
             .route("/ws", get(ws_handler))
             .with_state(self.state.clone());
 
-        // Serve the Leptos UI static files
-        let ui_dir = "crates/op-web/static/ui";
-        if std::path::Path::new(ui_dir).exists() {
-            info!("Serving UI files from: {:?}", ui_dir);
-            app = app.nest_service("/", ServeDir::new(ui_dir));
-        } else if let Some(ref static_dir) = self.config.static_dir {
-            info!("Serving static files from: {:?}", static_dir);
-            app = app.nest_service("/", ServeDir::new(static_dir));
-        }
+        // Serve embedded UI (compiled into binary from ui/dist)
+        app = app.fallback(crate::embedded_ui::serve_embedded_ui);
 
         // Build middleware stack with consistent types
         let middleware = ServiceBuilder::new()
@@ -167,10 +160,4 @@ impl WebServer {
     }
 }
 
-/// Embedded static files for the web UI
-pub const INDEX_HTML: &str = include_str!("../static/index.html");
-
-/// Generate a simple index.html if no static directory is provided
-pub fn default_index_html() -> &'static str {
-    INDEX_HTML
-}
+// UI is embedded via rust-embed in embedded_ui.rs

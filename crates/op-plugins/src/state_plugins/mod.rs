@@ -23,6 +23,7 @@ pub mod gcloud_adc;
 pub mod keypair;
 pub mod proxy_server;
 pub mod systemd;
+pub mod service;
 // pub mod systemd_networkd;
 
 pub mod agent_config;

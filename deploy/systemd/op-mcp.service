@@ -6,7 +6,7 @@ Requires=op-dbus.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/sbin/op-mcp-server
+ExecStart=/usr/local/sbin/op-mcp-server --mode full --http 0.0.0.0:3001 --log-level debug
 Restart=on-failure
 RestartSec=5s
 
