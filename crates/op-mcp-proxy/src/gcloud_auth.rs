@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
 use tracing::{debug, info, warn};
 
 const OAUTH_SCOPES: &[&str] = &[
@@ -29,10 +29,12 @@ impl GCloudAuth {
             .map(|h| h.join(".antigravity-server"))
             .and_then(|dir| {
                 // Find any .token file in the directory
-                std::fs::read_dir(&dir).ok()?
+                std::fs::read_dir(&dir)
+                    .ok()?
                     .filter_map(|e| e.ok())
                     .find(|e| {
-                        e.path().extension()
+                        e.path()
+                            .extension()
                             .map(|ext| ext == "token")
                             .unwrap_or(false)
                     })
@@ -51,7 +53,7 @@ impl GCloudAuth {
     /// Get a valid OAuth token and its expiration time
     pub async fn get_token(&self) -> anyhow::Result<(String, DateTime<Utc>)> {
         // Try sources in order of preference
-        
+
         // 1. Environment variable (for testing)
         if let Ok(token) = std::env::var("GCLOUD_TOKEN") {
             info!("Using token from GCLOUD_TOKEN env var");
@@ -83,10 +85,10 @@ impl GCloudAuth {
 
     async fn try_antigravity_token(&self) -> Option<String> {
         let path = self.antigravity_token_path.as_ref()?;
-        
+
         let content = std::fs::read_to_string(path).ok()?;
         let token = content.trim().to_string();
-        
+
         if token.is_empty() {
             return None;
         }
@@ -102,12 +104,12 @@ impl GCloudAuth {
 
     async fn try_gcloud_cli(&self) -> Option<(String, DateTime<Utc>)> {
         let scopes = OAUTH_SCOPES.join(",");
-        
+
         let output = Command::new("gcloud")
             .args([
                 "auth",
                 "print-access-token",
-                &format!("--scopes={}", scopes)
+                &format!("--scopes={}", scopes),
             ])
             .output()
             .ok()?;
@@ -119,7 +121,7 @@ impl GCloudAuth {
         }
 
         let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        
+
         if token.is_empty() {
             return None;
         }
@@ -131,11 +133,7 @@ impl GCloudAuth {
     async fn try_adc(&self) -> Option<(String, DateTime<Utc>)> {
         // Try application-default credentials
         let output = Command::new("gcloud")
-            .args([
-                "auth",
-                "application-default",
-                "print-access-token"
-            ])
+            .args(["auth", "application-default", "print-access-token"])
             .output()
             .ok()?;
 
@@ -144,7 +142,7 @@ impl GCloudAuth {
         }
 
         let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        
+
         if token.is_empty() {
             return None;
         }
@@ -156,12 +154,12 @@ impl GCloudAuth {
     #[allow(dead_code)]
     pub async fn refresh_token(&self) -> anyhow::Result<(String, DateTime<Utc>)> {
         let scopes = OAUTH_SCOPES.join(",");
-        
+
         let output = Command::new("gcloud")
             .args([
                 "auth",
                 "print-access-token",
-                &format!("--scopes={}", scopes)
+                &format!("--scopes={}", scopes),
             ])
             .output()?;
 

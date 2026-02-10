@@ -42,19 +42,19 @@ impl ResourceRegistry {
         ];
         Self { resources }
     }
-    
+
     pub fn add_resource(&mut self, resource: ResourceInfo) {
         self.resources.push(resource);
     }
-    
+
     pub fn list_resources(&self) -> &[ResourceInfo] {
         &self.resources
     }
-    
+
     pub fn get_resource(&self, uri: &str) -> Option<&ResourceInfo> {
         self.resources.iter().find(|r| r.uri == uri)
     }
-    
+
     pub async fn read_resource(&self, uri: &str) -> Option<String> {
         match uri {
             "docs://system-prompt" => Some(self.generate_system_prompt().await),
@@ -62,7 +62,7 @@ impl ResourceRegistry {
             _ => None,
         }
     }
-    
+
     async fn generate_system_prompt(&self) -> String {
         // Try to get from op_chat if available
         #[cfg(feature = "op-chat")]
@@ -70,7 +70,7 @@ impl ResourceRegistry {
             let msg = op_chat::generate_system_prompt().await;
             return msg.content;
         }
-        
+
         #[cfg(not(feature = "op-chat"))]
         {
             "You are a helpful assistant with access to system tools.".to_string()

@@ -147,10 +147,18 @@ pub struct ToolSecurityProfile {
     pub warn_on_cli_alternatives: bool,
 }
 
-fn default_max_timeout() -> u64 { 300 } // 5 minutes for admin tasks
-fn default_max_output() -> usize { 10_000_000 } // 10MB for large outputs
-fn default_rate_limit() -> u32 { 120 } // 2 per second average
-fn default_true() -> bool { true }
+fn default_max_timeout() -> u64 {
+    300
+} // 5 minutes for admin tasks
+fn default_max_output() -> usize {
+    10_000_000
+} // 10MB for large outputs
+fn default_rate_limit() -> u32 {
+    120
+} // 2 per second average
+fn default_true() -> bool {
+    true
+}
 
 impl Default for ToolSecurityProfile {
     fn default() -> Self {
@@ -170,7 +178,7 @@ impl ToolSecurityProfile {
                 // Only truly critical paths that could break the system
                 // Even admins should use proper tools for these
             ],
-            max_timeout_secs: 300, // 5 minutes
+            max_timeout_secs: 300,        // 5 minutes
             max_output_bytes: 10_000_000, // 10MB
             rate_limit_per_minute: 120,
             audit_logging: true,
@@ -185,10 +193,13 @@ impl ToolSecurityProfile {
             name: "restricted".to_string(),
             access_level: AccessLevel::Restricted,
             custom_allowed_commands: Some(
-                ["ls", "cat", "head", "tail", "grep", "find", "ps", "df", "free", "date", "uptime"]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect(),
+                [
+                    "ls", "cat", "head", "tail", "grep", "find", "ps", "df", "free", "date",
+                    "uptime",
+                ]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             ),
             critical_forbidden_paths: vec![
                 PathBuf::from("/etc/shadow"),
@@ -208,9 +219,7 @@ impl ToolSecurityProfile {
         Self {
             name: name.to_string(),
             access_level: AccessLevel::Custom,
-            custom_allowed_commands: Some(
-                allowed_commands.iter().map(|s| s.to_string()).collect(),
-            ),
+            custom_allowed_commands: Some(allowed_commands.iter().map(|s| s.to_string()).collect()),
             ..Self::admin()
         }
     }
@@ -224,19 +233,34 @@ impl ToolSecurityProfile {
 /// We RECOMMEND using native tools but don't BLOCK the CLI
 pub const NATIVE_ALTERNATIVES: &[(&str, &str)] = &[
     // OVS
-    ("ovs-vsctl", "Consider using ovs_* native tools for better error handling"),
-    ("ovs-ofctl", "Consider using ovs_* native tools for structured responses"),
-    
+    (
+        "ovs-vsctl",
+        "Consider using ovs_* native tools for better error handling",
+    ),
+    (
+        "ovs-ofctl",
+        "Consider using ovs_* native tools for structured responses",
+    ),
     // Systemd
-    ("systemctl", "Consider using dbus_systemd_* tools for programmatic access"),
-    ("journalctl", "Consider using dbus_systemd_* tools for structured logs"),
-    
+    (
+        "systemctl",
+        "Consider using dbus_systemd_* tools for programmatic access",
+    ),
+    (
+        "journalctl",
+        "Consider using dbus_systemd_* tools for structured logs",
+    ),
     // Network
-    ("ip", "Consider using network_* native tools for structured output"),
+    (
+        "ip",
+        "Consider using network_* native tools for structured output",
+    ),
     ("nmcli", "Consider using D-Bus NetworkManager interface"),
-    
     // Package managers
-    ("apt", "Consider using packagekit_* tools for progress tracking"),
+    (
+        "apt",
+        "Consider using packagekit_* tools for progress tracking",
+    ),
     ("apt-get", "Consider using packagekit_* tools"),
     ("dnf", "Consider using packagekit_* tools"),
 ];
@@ -486,13 +510,17 @@ static SECURITY_VALIDATOR: std::sync::OnceLock<Arc<SecurityValidator>> = std::sy
 
 /// Initialize the global security validator (call once at startup)
 pub fn init_security_validator() {
-    SECURITY_VALIDATOR.set(Arc::new(SecurityValidator::with_admin_profile()))
+    SECURITY_VALIDATOR
+        .set(Arc::new(SecurityValidator::with_admin_profile()))
         .unwrap_or_else(|_| panic!("Security validator already initialized"));
 }
 
 /// Get the global security validator
 pub fn get_security_validator() -> Arc<SecurityValidator> {
-    SECURITY_VALIDATOR.get().expect("Security validator not initialized").clone()
+    SECURITY_VALIDATOR
+        .get()
+        .expect("Security validator not initialized")
+        .clone()
 }
 
 // ============================================================================
@@ -509,8 +537,14 @@ mod tests {
 
         // All commands should pass for admin
         assert!(validator.check_command("rm -rf /").await.is_ok());
-        assert!(validator.check_command("systemctl restart sshd").await.is_ok());
-        assert!(validator.check_command("curl http://example.com").await.is_ok());
+        assert!(validator
+            .check_command("systemctl restart sshd")
+            .await
+            .is_ok());
+        assert!(validator
+            .check_command("curl http://example.com")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -531,7 +565,7 @@ mod tests {
 
         // Should block rm
         assert!(validator.check_command("rm -rf /").await.is_err());
-        
+
         // Should allow ls
         assert!(validator.check_command("ls -la").await.is_ok());
     }
@@ -550,7 +584,10 @@ mod tests {
         let validator = SecurityValidator::with_admin_profile();
 
         // Path traversal always blocked
-        assert!(validator.validate_read_path("/tmp/../etc/shadow").await.is_err());
+        assert!(validator
+            .validate_read_path("/tmp/../etc/shadow")
+            .await
+            .is_err());
     }
 
     #[tokio::test]

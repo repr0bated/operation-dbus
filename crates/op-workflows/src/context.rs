@@ -7,11 +7,11 @@
 //! - Logging and metrics
 
 use anyhow::Result;
+use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
 
 /// Workflow execution context
 pub struct WorkflowContext {
@@ -114,7 +114,7 @@ impl WorkflowContext {
     pub async fn interpolate(&self, template: &str) -> String {
         let vars = self.variables.read().await;
         let mut result = template.to_string();
-        
+
         for (name, value) in vars.iter() {
             let pattern = format!("${{{}}}", name);
             let replacement = match value {
@@ -123,7 +123,7 @@ impl WorkflowContext {
             };
             result = result.replace(&pattern, &replacement);
         }
-        
+
         result
     }
 

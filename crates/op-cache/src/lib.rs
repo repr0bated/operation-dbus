@@ -17,10 +17,10 @@ pub mod numa;
 pub mod orchestrator;
 pub mod pattern_tracker;
 pub mod snapshot_manager;
-pub mod workstack_cache;
 pub mod workflow_cache;
 pub mod workflow_executor;
 pub mod workflow_tracker;
+pub mod workstack_cache;
 
 pub mod grpc;
 

@@ -9,16 +9,19 @@
 use super::{McpHandler, Transport};
 use crate::McpRequest;
 use anyhow::Result;
-use reqwest;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
     middleware,
-    response::{sse::{Event, Sse}, IntoResponse, Json},
+    response::{
+        sse::{Event, Sse},
+        IntoResponse, Json,
+    },
     routing::{get, post},
     Router,
 };
 use futures::stream::{self, Stream};
+use reqwest;
 use simd_json::{json, OwnedValue as Value};
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -29,7 +32,10 @@ use tracing::{debug, error, info, warn};
 
 /// Validate gcloud OAuth token via Google's tokeninfo API
 async fn validate_gcloud_token(token: &str) -> Result<(), StatusCode> {
-    let url = format!("https://oauth2.googleapis.com/tokeninfo?access_token={}", token);
+    let url = format!(
+        "https://oauth2.googleapis.com/tokeninfo?access_token={}",
+        token
+    );
 
     match reqwest::get(&url).await {
         Ok(response) => {
@@ -101,7 +107,7 @@ impl HttpTransport {
             enable_cors: true,
         }
     }
-    
+
     pub fn without_cors(mut self) -> Self {
         self.enable_cors = false;
         self
@@ -112,31 +118,34 @@ impl HttpTransport {
 impl Transport for HttpTransport {
     async fn serve<H: McpHandler + 'static>(self, handler: Arc<H>) -> Result<()> {
         info!(addr = %self.bind_addr, "Starting HTTP transport");
-        
+
         let (event_tx, _) = broadcast::channel(100);
         let state = Arc::new(HttpState { handler, event_tx });
-        
+
         let mut app = Router::new()
             .route("/", get(root_handler).post(mcp_handler::<H>))
             .route("/mcp", post(mcp_handler::<H>))
             .route("/message", post(mcp_handler::<H>))
             .route("/health", get(health_handler))
-            .route("/tools/list", get(tools_list_handler::<H>).post(tools_list_handler::<H>))
+            .route(
+                "/tools/list",
+                get(tools_list_handler::<H>).post(tools_list_handler::<H>),
+            )
             .route("/tools/call", post(tools_call_handler::<H>))
             .with_state(state);
-        
+
         if self.enable_cors {
             app = app.layer(
                 CorsLayer::new()
                     .allow_origin(Any)
                     .allow_methods(Any)
-                    .allow_headers(Any)
+                    .allow_headers(Any),
             );
         }
-        
+
         let listener = tokio::net::TcpListener::bind(&self.bind_addr).await?;
         info!(addr = %self.bind_addr, "HTTP transport listening");
-        
+
         axum::serve(listener, app).await?;
         Ok(())
     }
@@ -159,10 +168,10 @@ impl SseTransport {
 impl Transport for SseTransport {
     async fn serve<H: McpHandler + 'static>(self, handler: Arc<H>) -> Result<()> {
         info!(addr = %self.bind_addr, "Starting SSE transport");
-        
+
         let (event_tx, _) = broadcast::channel(100);
         let state = Arc::new(HttpState { handler, event_tx });
-        
+
         let app = Router::new()
             .route("/", get(sse_handler::<H>))
             .route("/sse", get(sse_handler::<H>))
@@ -172,13 +181,13 @@ impl Transport for SseTransport {
                 CorsLayer::new()
                     .allow_origin(Any)
                     .allow_methods(Any)
-                    .allow_headers(Any)
+                    .allow_headers(Any),
             )
             .with_state(state);
-        
+
         let listener = tokio::net::TcpListener::bind(&self.bind_addr).await?;
         info!(addr = %self.bind_addr, "SSE transport listening");
-        
+
         axum::serve(listener, app).await?;
         Ok(())
     }
@@ -197,7 +206,7 @@ impl HttpSseTransport {
             base_path: String::new(),
         }
     }
-    
+
     pub fn with_base_path(mut self, path: impl Into<String>) -> Self {
         self.base_path = path.into();
         self
@@ -208,30 +217,33 @@ impl HttpSseTransport {
 impl Transport for HttpSseTransport {
     async fn serve<H: McpHandler + 'static>(self, handler: Arc<H>) -> Result<()> {
         info!(addr = %self.bind_addr, "Starting HTTP+SSE transport");
-        
+
         let (event_tx, _) = broadcast::channel(100);
         let state = Arc::new(HttpState { handler, event_tx });
-        
+
         let app = Router::new()
             .route("/", get(root_handler).post(mcp_handler::<H>))
             .route("/sse", get(sse_handler::<H>))
             .route("/mcp", post(mcp_handler::<H>))
             .route("/message", post(mcp_handler::<H>))
             .route("/health", get(health_handler))
-            .route("/tools/list", get(tools_list_handler::<H>).post(tools_list_handler::<H>))
+            .route(
+                "/tools/list",
+                get(tools_list_handler::<H>).post(tools_list_handler::<H>),
+            )
             .route("/tools/call", post(tools_call_handler::<H>))
             .layer(middleware::from_fn(gcloud_auth_middleware))
             .layer(
                 CorsLayer::new()
                     .allow_origin(Any)
                     .allow_methods(Any)
-                    .allow_headers(Any)
+                    .allow_headers(Any),
             )
             .with_state(state);
-        
+
         let listener = tokio::net::TcpListener::bind(&self.bind_addr).await?;
         info!(addr = %self.bind_addr, "HTTP+SSE transport listening");
-        
+
         axum::serve(listener, app).await?;
         Ok(())
     }
@@ -294,22 +306,21 @@ async fn sse_handler<H: McpHandler + 'static>(
     State(state): State<Arc<HttpState<H>>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     info!("SSE client connected");
-    
+
     // Build initial events
     let initial_events = vec![
-        Event::default()
-            .event("endpoint")
-            .data("/mcp"),
-        Event::default()
-            .event("connected")
-            .data(json!({
+        Event::default().event("endpoint").data("/mcp"),
+        Event::default().event("connected").data(
+            json!({
                 "server": "op-mcp",
                 "version": crate::SERVER_VERSION
-            }).to_string()),
+            })
+            .to_string(),
+        ),
     ];
-    
+
     let initial_stream = stream::iter(initial_events.into_iter().map(Ok));
-    
+
     // Keepalive stream
     let keepalive_stream = stream::unfold(0u64, |counter| async move {
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -318,25 +329,25 @@ async fn sse_handler<H: McpHandler + 'static>(
             .data(json!({ "counter": counter }).to_string());
         Some((Ok(event), counter + 1))
     });
-    
+
     // Broadcast stream for server-initiated events
     let rx = state.event_tx.subscribe();
-    let broadcast_stream = tokio_stream::wrappers::BroadcastStream::new(rx)
-        .filter_map(|result| async move {
+    let broadcast_stream =
+        tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(|result| async move {
             match result {
                 Ok(data) => Some(Ok(Event::default().data(data))),
                 Err(_) => None,
             }
         });
-    
+
     use futures::StreamExt;
     let combined = initial_stream
         .chain(broadcast_stream)
         .chain(keepalive_stream);
-    
+
     Sse::new(combined).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(30))
-            .text("keepalive")
+            .text("keepalive"),
     )
 }

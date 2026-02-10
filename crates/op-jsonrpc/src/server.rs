@@ -222,14 +222,16 @@ impl JsonRpcServerConnection {
     /// Process a JSON-RPC request line
     async fn process_line(&self, line: &str) -> JsonRpcResponse {
         match simd_json::from_str::<Value>(line) {
-            Ok(value) => match simd_json::serde::from_owned_value::<JsonRpcRequest>(value.clone()) {
-                Ok(request) => self.handle_request(request).await,
-                Err(e) => JsonRpcResponse::error(
-                    value.get("id").cloned().unwrap_or(Value::Null),
-                    error_codes::INVALID_REQUEST,
-                    format!("Invalid request: {}", e),
-                ),
-            },
+            Ok(value) => {
+                match simd_json::serde::from_owned_value::<JsonRpcRequest>(value.clone()) {
+                    Ok(request) => self.handle_request(request).await,
+                    Err(e) => JsonRpcResponse::error(
+                        value.get("id").cloned().unwrap_or(Value::Null),
+                        error_codes::INVALID_REQUEST,
+                        format!("Invalid request: {}", e),
+                    ),
+                }
+            }
             Err(e) => JsonRpcResponse::error(
                 Value::Null,
                 error_codes::PARSE_ERROR,

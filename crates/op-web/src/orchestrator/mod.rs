@@ -1,17 +1,17 @@
-use std::sync::Arc;
 use op_llm::chat::ChatManager;
 use op_tools::registry::ToolRegistry;
+use std::sync::Arc;
 
 // Export types publicly
 pub mod types;
 pub use types::*;
 
 // Internal modules (implementation split)
-mod tools;
-mod parsing;
-mod formatting;
 mod execution;
+mod formatting;
+mod parsing;
 mod process;
+mod tools;
 
 /// The main orchestrator that coordinates LLM calls and tool execution.
 ///
@@ -29,10 +29,7 @@ pub struct UnifiedOrchestrator {
 }
 
 impl UnifiedOrchestrator {
-    pub fn new(
-        tool_registry: Arc<ToolRegistry>,
-        chat_manager: Arc<ChatManager>,
-    ) -> Self {
+    pub fn new(tool_registry: Arc<ToolRegistry>, chat_manager: Arc<ChatManager>) -> Self {
         Self {
             tool_registry,
             chat_manager,

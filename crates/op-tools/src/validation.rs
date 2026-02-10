@@ -10,9 +10,9 @@ use anyhow::{anyhow, Result};
 use jsonschema::{JSONSchema, ValidationError};
 use serde_json::Value; // Keep for compatibility with existing code
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::path::PathBuf;
-use tracing::{debug, warn, error};
+use std::sync::Arc;
+use tracing::{debug, error, warn};
 
 /// Characters forbidden in user input to prevent injection
 pub const FORBIDDEN_CHARS: &[char] = &[
@@ -51,26 +51,57 @@ impl Default for ValidationConfig {
         trusted_sessions.insert("chatbot".to_string());
         trusted_sessions.insert("orchestrator".to_string());
         trusted_sessions.insert("system".to_string());
-        
+
         // Default command whitelist for shell tools
         let mut command_whitelist = HashSet::new();
         // Allow common DevOps commands for non-trusted sessions
         for cmd in [
-            "ls", "cat", "grep", "find", "ps", "top", "df", "du", "free", "uptime",
-            "whoami", "id", "pwd", "date", "uname", "which", "whereis", "file",
-            "head", "tail", "wc", "sort", "uniq", "cut", "awk", "sed",
-            "git", "docker", "kubectl", "systemctl", "journalctl", "curl", "wget",
-        ].iter() {
+            "ls",
+            "cat",
+            "grep",
+            "find",
+            "ps",
+            "top",
+            "df",
+            "du",
+            "free",
+            "uptime",
+            "whoami",
+            "id",
+            "pwd",
+            "date",
+            "uname",
+            "which",
+            "whereis",
+            "file",
+            "head",
+            "tail",
+            "wc",
+            "sort",
+            "uniq",
+            "cut",
+            "awk",
+            "sed",
+            "git",
+            "docker",
+            "kubectl",
+            "systemctl",
+            "journalctl",
+            "curl",
+            "wget",
+        ]
+        .iter()
+        {
             command_whitelist.insert(cmd.to_string());
         }
-        
+
         // Default allowed directories (home directory and temp)
         let allowed_dirs = vec![
             PathBuf::from("/tmp"),
             PathBuf::from("/var/tmp"),
             PathBuf::from("/home"),
         ];
-        
+
         // Forbidden system directories
         let forbidden_dirs = vec![
             PathBuf::from("/boot"),
@@ -81,7 +112,7 @@ impl Default for ValidationConfig {
             PathBuf::from("/etc/shadow"),
             PathBuf::from("/etc/passwd"),
         ];
-        
+
         Self {
             strict_validation: true,
             sanitize_inputs: true,
@@ -124,7 +155,7 @@ impl InputValidator {
         session_id: Option<&str>,
     ) -> Result<ValidatedInput> {
         let session_id = session_id.unwrap_or("anonymous");
-        
+
         // Check input size
         if let Err(e) = self.check_input_size(input) {
             error!(tool = %tool_name, session = %session_id, error = %e, "Input size validation failed");
@@ -133,12 +164,15 @@ impl InputValidator {
 
         // Trusted sessions (chatbot orchestrator) get minimal validation
         let is_trusted = self.config.trusted_sessions.contains(session_id);
-        
+
         let mut validation_errors = Vec::new();
         let mut sanitized_input = input.clone();
 
         // Schema validation (always run for safety, but may be non-blocking for trusted)
-        if let Err(e) = self.validate_schema(tool_name, &sanitized_input, schema).await {
+        if let Err(e) = self
+            .validate_schema(tool_name, &sanitized_input, schema)
+            .await
+        {
             if is_trusted && !self.config.strict_validation {
                 warn!(tool = %tool_name, session = %session_id, "Schema validation bypassed for trusted session");
             } else {
@@ -180,7 +214,7 @@ impl InputValidator {
     fn check_input_size(&self, input: &Value) -> Result<()> {
         let input_str = serde_json::to_string(input)
             .map_err(|e| anyhow!("Failed to serialize input for size check: {}", e))?;
-        
+
         if input_str.len() > self.config.max_input_size {
             return Err(anyhow!(
                 "Input size {} bytes exceeds maximum {} bytes",
@@ -188,7 +222,7 @@ impl InputValidator {
                 self.config.max_input_size
             ));
         }
-        
+
         Ok(())
     }
 
@@ -196,7 +230,7 @@ impl InputValidator {
     async fn validate_schema(&self, tool_name: &str, input: &Value, schema: &Value) -> Result<()> {
         // Create schema key for caching
         let schema_key = format!("{}:{}", tool_name, serde_json::to_string(schema)?);
-        
+
         // Get or create compiled schema
         let compiled_schema = {
             let cache = self.schema_cache.read().await;
@@ -207,7 +241,7 @@ impl InputValidator {
                 let compiled = JSONSchema::compile(schema)
                     .map_err(|e| anyhow!("Failed to compile schema for {}: {}", tool_name, e))?;
                 let arc_schema = Arc::new(compiled);
-                
+
                 let mut cache = self.schema_cache.write().await;
                 cache.insert(schema_key, arc_schema.clone());
                 arc_schema
@@ -219,7 +253,7 @@ impl InputValidator {
             let error_messages: Vec<String> = errors
                 .map(|e| format!("{} at path: {}", e.instance_path, e))
                 .collect();
-            
+
             return Err(anyhow!(
                 "Schema validation failed: {}",
                 error_messages.join("; ")
@@ -236,13 +270,16 @@ impl InputValidator {
             match value {
                 Value::String(s) => {
                     // Remove null bytes and control characters except newlines and tabs
-                    *s = s.chars()
+                    *s = s
+                        .chars()
                         .filter(|c| *c != '\0' && (*c >= ' ' || *c == '\n' || *c == '\t'))
                         .collect();
-                    
+
                     // Check for suspicious patterns in non-trusted contexts
                     if s.contains("../../../") || s.contains("..\\") {
-                        return Err(anyhow!("Potentially dangerous path traversal pattern detected"));
+                        return Err(anyhow!(
+                            "Potentially dangerous path traversal pattern detected"
+                        ));
                     }
                 }
                 Value::Array(arr) => {
@@ -298,7 +335,7 @@ impl InputValidator {
                     "chmod 777 /",
                     "chown root",
                 ];
-                
+
                 for pattern in &dangerous_patterns {
                     if cmd.to_lowercase().contains(pattern) {
                         return Err(anyhow!(
@@ -309,7 +346,8 @@ impl InputValidator {
                 }
 
                 // Validate command arguments for injection
-                validate_input(&cmd).map_err(|e| anyhow!("Shell command validation failed: {}", e))?;
+                validate_input(&cmd)
+                    .map_err(|e| anyhow!("Shell command validation failed: {}", e))?;
             }
         }
 
@@ -317,7 +355,7 @@ impl InputValidator {
         if tool_name.contains("file") || tool_name.contains("fs") {
             if let Some(path) = extract_path_from_input(input) {
                 let path_buf = PathBuf::from(&path);
-                
+
                 // Check path traversal
                 if path.contains("..") {
                     return Err(anyhow!(
@@ -337,7 +375,9 @@ impl InputValidator {
                 }
 
                 // Check if path is within allowed directories
-                let is_allowed = self.config.allowed_dirs
+                let is_allowed = self
+                    .config
+                    .allowed_dirs
                     .iter()
                     .any(|allowed| path_buf.starts_with(allowed));
 
@@ -394,17 +434,17 @@ fn extract_command_from_input(input: &Value) -> Option<String> {
     if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
         return Some(cmd.to_string());
     }
-    
+
     if let Some(cmd) = input.get("cmd").and_then(|v| v.as_str()) {
         return Some(cmd.to_string());
     }
-    
+
     if let Some(args) = input.get("args").and_then(|v| v.as_array()) {
         if let Some(first) = args.first().and_then(|v| v.as_str()) {
             return Some(first.to_string());
         }
     }
-    
+
     None
 }
 
@@ -413,15 +453,15 @@ fn extract_path_from_input(input: &Value) -> Option<String> {
     if let Some(path) = input.get("path").and_then(|v| v.as_str()) {
         return Some(path.to_string());
     }
-    
+
     if let Some(path) = input.get("file").and_then(|v| v.as_str()) {
         return Some(path.to_string());
     }
-    
+
     if let Some(path) = input.get("directory").and_then(|v| v.as_str()) {
         return Some(path.to_string());
     }
-    
+
     None
 }
 
@@ -430,14 +470,14 @@ fn extract_string_from_input(input: &Value) -> Option<String> {
     if let Some(s) = input.as_str() {
         return Some(s.to_string());
     }
-    
+
     // Look for common string fields
     for field in ["text", "content", "data", "input", "value"] {
         if let Some(s) = input.get(field).and_then(|v| v.as_str()) {
             return Some(s.to_string());
         }
     }
-    
+
     None
 }
 
@@ -473,15 +513,18 @@ mod tests {
     async fn test_trusted_session_bypass() {
         let validator = InputValidator::new();
         let schema = json!({"type": "object"});
-        
+
         // Trusted session should pass even with invalid input
-        let result = validator.validate_input(
-            "test_tool",
-            &json!({"invalid": "data"}),
-            &schema,
-            Some("chatbot"),
-        ).await.unwrap();
-        
+        let result = validator
+            .validate_input(
+                "test_tool",
+                &json!({"invalid": "data"}),
+                &schema,
+                Some("chatbot"),
+            )
+            .await
+            .unwrap();
+
         assert!(result.session_trusted);
         assert!(result.should_proceed());
     }
@@ -490,16 +533,14 @@ mod tests {
     async fn test_input_sanitization() {
         let validator = InputValidator::new();
         let schema = json!({"type": "object"});
-        
+
         // Test null byte removal
         let mut input = json!({"text": "hello\x00world"});
-        let result = validator.validate_input(
-            "test_tool",
-            &input,
-            &schema,
-            Some("anonymous"),
-        ).await.unwrap();
-        
+        let result = validator
+            .validate_input("test_tool", &input, &schema, Some("anonymous"))
+            .await
+            .unwrap();
+
         assert_eq!(result.input["text"], "helloworld");
     }
 
@@ -507,26 +548,21 @@ mod tests {
     async fn test_shell_command_validation() {
         let validator = InputValidator::new();
         let schema = json!({"type": "object"});
-        
+
         // Dangerous command should be blocked for anonymous
         let input = json!({"command": "rm -rf /"});
-        let result = validator.validate_input(
-            "shell_tool",
-            &input,
-            &schema,
-            Some("anonymous"),
-        ).await;
-        
+        let result = validator
+            .validate_input("shell_tool", &input, &schema, Some("anonymous"))
+            .await;
+
         assert!(result.is_err());
-        
+
         // But allowed for trusted session
-        let result = validator.validate_input(
-            "shell_tool",
-            &input,
-            &schema,
-            Some("chatbot"),
-        ).await.unwrap();
-        
+        let result = validator
+            .validate_input("shell_tool", &input, &schema, Some("chatbot"))
+            .await
+            .unwrap();
+
         assert!(result.should_proceed());
     }
 
@@ -534,26 +570,21 @@ mod tests {
     async fn test_path_validation() {
         let validator = InputValidator::new();
         let schema = json!({"type": "object"});
-        
+
         // Restricted path should be blocked for anonymous
         let input = json!({"path": "/etc/shadow"});
-        let result = validator.validate_input(
-            "file_tool",
-            &input,
-            &schema,
-            Some("anonymous"),
-        ).await;
-        
+        let result = validator
+            .validate_input("file_tool", &input, &schema, Some("anonymous"))
+            .await;
+
         assert!(result.is_err());
-        
+
         // But allowed for trusted session
-        let result = validator.validate_input(
-            "file_tool",
-            &input,
-            &schema,
-            Some("chatbot"),
-        ).await.unwrap();
-        
+        let result = validator
+            .validate_input("file_tool", &input, &schema, Some("chatbot"))
+            .await
+            .unwrap();
+
         assert!(result.should_proceed());
     }
 }
@@ -567,15 +598,18 @@ mod validation_tests {
     async fn test_trusted_session_bypass() {
         let validator = InputValidator::new();
         let schema = json!({"type": "object"});
-        
+
         // Trusted session should pass even with invalid input
-        let result = validator.validate_input(
-            "test_tool",
-            &json!({"invalid": "data"}),
-            &schema,
-            Some("chatbot"),
-        ).await.unwrap();
-        
+        let result = validator
+            .validate_input(
+                "test_tool",
+                &json!({"invalid": "data"}),
+                &schema,
+                Some("chatbot"),
+            )
+            .await
+            .unwrap();
+
         assert!(result.session_trusted);
         assert!(result.should_proceed());
     }
@@ -584,15 +618,18 @@ mod validation_tests {
     async fn test_non_trusted_restriction() {
         let validator = InputValidator::new();
         let schema = json!({"type": "object"});
-        
+
         // Non-trusted session should be restricted
-        let result = validator.validate_input(
-            "shell_tool",
-            &json!({"command": "rm -rf /etc/passwd"}),
-            &schema,
-            Some("anonymous"),
-        ).await.unwrap();
-        
+        let result = validator
+            .validate_input(
+                "shell_tool",
+                &json!({"command": "rm -rf /etc/passwd"}),
+                &schema,
+                Some("anonymous"),
+            )
+            .await
+            .unwrap();
+
         assert!(!result.session_trusted);
         assert!(!result.should_proceed());
         assert!(!result.validation_errors.is_empty());
@@ -602,15 +639,18 @@ mod validation_tests {
     async fn test_input_sanitization() {
         let validator = InputValidator::new();
         let schema = json!({"type": "object"});
-        
+
         let input_with_null_bytes = json!({"text": "hello\x00world"});
-        let result = validator.validate_input(
-            "text_tool",
-            &input_with_null_bytes,
-            &schema,
-            Some("anonymous"),
-        ).await.unwrap();
-        
+        let result = validator
+            .validate_input(
+                "text_tool",
+                &input_with_null_bytes,
+                &schema,
+                Some("anonymous"),
+            )
+            .await
+            .unwrap();
+
         let sanitized_text = result.input["text"].as_str().unwrap();
         assert!(!sanitized_text.contains('\0'));
         assert_eq!(sanitized_text, "helloworld");

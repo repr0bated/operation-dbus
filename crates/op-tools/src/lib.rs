@@ -21,29 +21,30 @@
 //! This integrates with blockchain for immutable audit logging.
 
 pub mod builtin;
+pub mod discovery;
+pub mod dynamic_tool;
 mod mcptools;
 pub mod orchestration_plugin;
 pub mod registry;
 pub mod router;
 pub mod security;
 pub mod tool;
-pub mod dynamic_tool;
-pub mod discovery;
 pub mod validation;
 
 use tracing::warn;
 
 // Re-export main types
-pub use registry::ToolRegistry;
-pub use security::{AccessLevel, SecurityError, SecurityValidator, ToolSecurityProfile, get_security_validator};
-pub use tool::{BoxedTool, Tool};
-pub use router::{create_router, ToolsServiceRouter, ToolsState};
 pub use orchestration_plugin::{
-    OrchestrationActivityPlugin, OrchestrationPluginRegistry,
-    ToolExecutedEvent, LlmDecisionEvent, SessionEvent,
-    get_orchestration_registry, create_tool_event,
+    create_tool_event, get_orchestration_registry, LlmDecisionEvent, OrchestrationActivityPlugin,
+    OrchestrationPluginRegistry, SessionEvent, ToolExecutedEvent,
 };
-pub use validation::{InputValidator, ValidationConfig, ValidatedInput};
+pub use registry::ToolRegistry;
+pub use router::{create_router, ToolsServiceRouter, ToolsState};
+pub use security::{
+    get_security_validator, AccessLevel, SecurityError, SecurityValidator, ToolSecurityProfile,
+};
+pub use tool::{BoxedTool, Tool};
+pub use validation::{InputValidator, ValidatedInput, ValidationConfig};
 
 /// Register all built-in tools
 pub async fn register_builtin_tools(registry: &ToolRegistry) -> anyhow::Result<()> {

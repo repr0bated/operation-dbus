@@ -5,7 +5,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
-use tracing_subscriber::{FmtSubscriber, EnvFilter};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use op_web::routes;
 use op_web::AppState;
@@ -14,8 +14,7 @@ use op_web::AppState;
 async fn main() -> anyhow::Result<()> {
     // Initialize logging with environment filter (RUST_LOG)
     // Default to info if not set
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let _ = FmtSubscriber::builder()
         .with_env_filter(filter)
@@ -40,7 +39,11 @@ async fn main() -> anyhow::Result<()> {
     info!("API available at http://{}/api", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

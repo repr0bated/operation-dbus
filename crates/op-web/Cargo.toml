@@ -22,7 +22,7 @@ op-network = { workspace = true }
 op-mcp = { path = "../op-mcp" }
 op-mcp-aggregator = { path = "../op-mcp-aggregator" }
 op-state-store = { path = "../op-state-store" }
-op-introspection = { workspace = true }
+op-identity = { workspace = true }
 
 # Rate limiting
 tower_governor = "0.4"
@@ -60,8 +60,6 @@ lazy_static = "1.4"
 regex = { workspace = true }
 
 # Privacy router signup
-x25519-dalek = { version = "2", features = ["static_secrets"] }
-rand = { workspace = true }
 qrcode = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"

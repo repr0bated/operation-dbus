@@ -5,8 +5,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::sync::Arc;
 
 /// Security level for tool operations
@@ -131,7 +131,10 @@ mod tests {
         assert_eq!(tool.name(), "echo");
         assert_eq!(tool.description(), "Echo input back");
 
-        let result = tool.execute(simd_json::json!({"msg": "hello"})).await.unwrap();
+        let result = tool
+            .execute(simd_json::json!({"msg": "hello"}))
+            .await
+            .unwrap();
         assert_eq!(result, simd_json::json!({"msg": "hello"}));
     }
 }

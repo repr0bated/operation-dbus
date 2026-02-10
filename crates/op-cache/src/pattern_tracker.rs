@@ -243,7 +243,8 @@ impl PatternTracker {
                 |row| {
                     let mut agent_sequence_json: String = row.get(1)?;
                     let agent_sequence: Vec<String> =
-                        unsafe { simd_json::from_str(&mut agent_sequence_json) }.unwrap_or_default();
+                        unsafe { simd_json::from_str(&mut agent_sequence_json) }
+                            .unwrap_or_default();
                     let call_count: u32 = row.get(2)?;
                     let total_latency: i64 = row.get(5)?;
 
@@ -317,11 +318,9 @@ impl PatternTracker {
     }
 
     fn calculate_confidence(&self, pattern: &TrackedPattern) -> f64 {
-        let recency_days =
-            (chrono::Utc::now().timestamp() - pattern.last_called) as f64 / 86400.0;
-        let frequency_score = (pattern.call_count as f64 / self.config.promotion_threshold as f64)
-            .min(2.0)
-            / 2.0;
+        let recency_days = (chrono::Utc::now().timestamp() - pattern.last_called) as f64 / 86400.0;
+        let frequency_score =
+            (pattern.call_count as f64 / self.config.promotion_threshold as f64).min(2.0) / 2.0;
         let recency_score = (1.0 - recency_days / 7.0).max(0.0);
 
         (frequency_score * 0.6 + recency_score * 0.4).min(1.0)

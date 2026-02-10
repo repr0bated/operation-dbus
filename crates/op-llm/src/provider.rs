@@ -6,8 +6,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::fmt;
 use std::str::FromStr;
 
@@ -218,7 +218,7 @@ impl ChatRequest {
         Self {
             messages,
             tools,
-            tool_choice: ToolChoice::Required,  // ◄── FORCE TOOL USE
+            tool_choice: ToolChoice::Required, // ◄── FORCE TOOL USE
             max_tokens: None,
             temperature: Some(0.7),
             top_p: None,

@@ -47,7 +47,10 @@ pub mod antigravity;
 
 // Re-exports
 pub use json_rpc::{JsonRpcRequest, JsonRpcResponse, JsonRpcError};
-pub use op_execution_tracker::{ExecutionRecord, ExecutionTiming, ExecutionTracker, ExecutionStatus, ExecutionStats, hash_execution};
+pub use op_execution_tracker::{
+    hash_execution, ExecutionRecord, ExecutionStats, ExecutionTiming, ExecutionTracker,
+    RecordExecutionStatus as ExecutionStatus,
+};
 pub use op_tools::{Tool, ToolRegistry};
 pub use op_core::{ToolResult, ToolRequest as ToolContext}; // Adjusted names for compatibility
 pub use op_core::types::BusType;

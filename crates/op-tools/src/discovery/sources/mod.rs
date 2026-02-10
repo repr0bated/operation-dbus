@@ -5,10 +5,10 @@
 //! - Plugin registry scanning
 //! - Agent registry scanning
 
+mod agent;
 mod dbus;
 mod plugin;
-mod agent;
 
+pub use agent::AgentDiscoverySource;
 pub use dbus::DbusDiscoverySource;
 pub use plugin::PluginDiscoverySource;
-pub use agent::AgentDiscoverySource;

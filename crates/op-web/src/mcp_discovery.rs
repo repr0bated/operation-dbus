@@ -15,20 +15,20 @@ use tracing::info;
 /// Returns all available MCP servers for automatic client configuration
 pub async fn mcp_discovery_handler(headers: HeaderMap) -> Response {
     info!("MCP discovery request from {:?}", headers.get("user-agent"));
-    
+
     // Get the host from the request to build proper URLs
     let host = headers
         .get("host")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("op-dbus.ghostbridge.tech:3001");
-    
+
     let scheme = headers
         .get("x-forwarded-proto")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("http");
-    
+
     let base_url = format!("{}://{}", scheme, host);
-    
+
     let discovery = json!({
         "mcpServers": {
             "op-dbus-compact": {
@@ -84,7 +84,7 @@ pub async fn mcp_discovery_handler(headers: HeaderMap) -> Response {
             "description": "Operation D-Bus - Linux System Management via MCP"
         }
     });
-    
+
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
@@ -92,7 +92,11 @@ pub async fn mcp_discovery_handler(headers: HeaderMap) -> Response {
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Json(discovery).into_response().into_body())
         .unwrap_or_else(|_| {
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response").into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to build response",
+            )
+                .into_response()
         })
 }
 

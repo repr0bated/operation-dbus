@@ -170,7 +170,9 @@ impl OptimizedBlockchain {
                 .ok_or_else(|| anyhow::anyhow!("Missing content_hash"))?
                 .to_string(),
             metadata: simd_json::serde::from_owned_value(block_data["metadata"].clone())?,
-            vector_features: simd_json::serde::from_owned_value(block_data["vector_features"].clone())?,
+            vector_features: simd_json::serde::from_owned_value(
+                block_data["vector_features"].clone(),
+            )?,
         };
 
         Ok(Some(footprint))

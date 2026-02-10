@@ -91,7 +91,7 @@ impl BackendArchitectAgent {
             || input.contains("stream")
             || input.contains("auth")
         {
-            questions.push("Which backend is canonical for chat requests today (op-web, op-web-ui, or another service)?");
+            questions.push("Which backend is canonical for chat requests today (op-web or another service)?");
             questions.push("What are the existing chat endpoints and payload formats, and are they OpenAI-compatible?");
             questions.push("How should model selection work (per user, per conversation, per request), and where is it configured?");
             questions.push("Do you need streaming responses? If yes, what protocol (SSE/WS) and token format are expected?");

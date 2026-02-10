@@ -2,10 +2,10 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use uuid::Uuid;
 use simd_json::OwnedValue;
 use simd_json::ValueBuilder;
+use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Bus type for DBus connections
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -308,7 +308,7 @@ pub enum ComponentStatus {
 // ============================================================================
 
 /// Reference to a D-Bus object schema stored in StateStore
-/// 
+///
 /// Used to link plugins to their discovered D-Bus interfaces.
 /// These schemas are persisted and restored during disaster recovery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -324,7 +324,12 @@ pub struct ObjectSchemaRef {
 }
 
 impl ObjectSchemaRef {
-    pub fn new(object_type: impl Into<String>, namespace: impl Into<String>, path: impl Into<String>, schema_hash: impl Into<String>) -> Self {
+    pub fn new(
+        object_type: impl Into<String>,
+        namespace: impl Into<String>,
+        path: impl Into<String>,
+        schema_hash: impl Into<String>,
+    ) -> Self {
         Self {
             object_type: object_type.into(),
             namespace: namespace.into(),

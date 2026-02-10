@@ -18,15 +18,21 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::provider::{
-    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderType, 
-    TokenUsage, ToolCallInfo,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    LlmProvider,
+    ModelInfo,
+    ProviderType,
+    TokenUsage,
+    ToolCallInfo,
     // ToolChoice,
 };
 
@@ -45,10 +51,26 @@ pub mod endpoints {
 // =============================================================================
 
 const CLAUDE_MODELS: &[(&str, &str, &str)] = &[
-    ("claude-sonnet-4-20250514", "Claude Sonnet 4", "Latest Sonnet model - best balance"),
-    ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet", "Previous Sonnet - very capable"),
-    ("claude-3-opus-20240229", "Claude 3 Opus", "Most capable, slower"),
-    ("claude-3-haiku-20240307", "Claude 3 Haiku", "Fastest, most affordable"),
+    (
+        "claude-sonnet-4-20250514",
+        "Claude Sonnet 4",
+        "Latest Sonnet model - best balance",
+    ),
+    (
+        "claude-3-5-sonnet-20241022",
+        "Claude 3.5 Sonnet",
+        "Previous Sonnet - very capable",
+    ),
+    (
+        "claude-3-opus-20240229",
+        "Claude 3 Opus",
+        "Most capable, slower",
+    ),
+    (
+        "claude-3-haiku-20240307",
+        "Claude 3 Haiku",
+        "Fastest, most affordable",
+    ),
 ];
 
 #[derive(Debug, Serialize)]
@@ -169,13 +191,15 @@ impl AnthropicClient {
         let url = format!("{}/messages", self.api_url);
 
         // Extract system message
-        let system_msg = request.messages
+        let system_msg = request
+            .messages
             .iter()
             .find(|m| m.role == "system")
             .map(|m| m.content.clone());
 
         // Convert messages (excluding system, handling tool results)
-        let anthropic_messages: Vec<AnthropicMessage> = request.messages
+        let anthropic_messages: Vec<AnthropicMessage> = request
+            .messages
             .iter()
             .filter(|m| m.role != "system")
             .map(|m| {
@@ -183,22 +207,21 @@ impl AnthropicClient {
                     // Tool result message
                     AnthropicMessage {
                         role: "user".to_string(),
-                        content: AnthropicContent::Blocks(vec![
-                            ContentBlock::ToolResult {
-                                tool_use_id: m.tool_call_id.clone().unwrap_or_default(),
-                                content: m.content.clone(),
-                            }
-                        ]),
+                        content: AnthropicContent::Blocks(vec![ContentBlock::ToolResult {
+                            tool_use_id: m.tool_call_id.clone().unwrap_or_default(),
+                            content: m.content.clone(),
+                        }]),
                     }
                 } else if let Some(ref tool_calls) = m.tool_calls {
                     // Assistant message with tool calls
-                    let blocks: Vec<ContentBlock> = tool_calls.iter().map(|tc| {
-                        ContentBlock::ToolUse {
+                    let blocks: Vec<ContentBlock> = tool_calls
+                        .iter()
+                        .map(|tc| ContentBlock::ToolUse {
                             id: tc.id.clone(),
                             name: tc.name.clone(),
                             input: tc.arguments.clone(),
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     AnthropicMessage {
                         role: m.role.clone(),
                         content: AnthropicContent::Blocks(blocks),
@@ -216,7 +239,13 @@ impl AnthropicClient {
         let tools: Option<Vec<Value>> = if request.tools.is_empty() {
             None
         } else {
-            Some(request.tools.iter().map(|t| t.to_anthropic_format()).collect())
+            Some(
+                request
+                    .tools
+                    .iter()
+                    .map(|t| t.to_anthropic_format())
+                    .collect(),
+            )
         };
 
         // Convert tool_choice to Anthropic format
@@ -236,7 +265,10 @@ impl AnthropicClient {
             tool_choice,
         };
 
-        debug!("Anthropic request to: {} with tool_choice: {:?}", url, request.tool_choice);
+        debug!(
+            "Anthropic request to: {} with tool_choice: {:?}",
+            url, request.tool_choice
+        );
 
         let response = self
             .client
@@ -278,7 +310,11 @@ impl AnthropicClient {
         }
 
         let text = text_parts.join("");
-        let tool_calls_opt = if tool_calls.is_empty() { None } else { Some(tool_calls.clone()) };
+        let tool_calls_opt = if tool_calls.is_empty() {
+            None
+        } else {
+            Some(tool_calls.clone())
+        };
 
         let usage = result.usage.map(|u| TokenUsage {
             prompt_tokens: u.input_tokens,
@@ -311,7 +347,7 @@ impl LlmProvider for AnthropicClient {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         info!("Anthropic models (static list)");
         info!("  Endpoint: {}", self.api_url);
-        
+
         Ok(CLAUDE_MODELS
             .iter()
             .map(|(id, name, desc)| ModelInfo {
@@ -332,8 +368,10 @@ impl LlmProvider for AnthropicClient {
         let models = self.list_models().await?;
         Ok(models
             .into_iter()
-            .filter(|m| m.id.to_lowercase().contains(&query_lower) || 
-                       m.name.to_lowercase().contains(&query_lower))
+            .filter(|m| {
+                m.id.to_lowercase().contains(&query_lower)
+                    || m.name.to_lowercase().contains(&query_lower)
+            })
             .take(limit)
             .collect())
     }
@@ -355,8 +393,10 @@ impl LlmProvider for AnthropicClient {
 
     /// Chat with full request configuration including tools and tool_choice
     async fn chat_with_request(&self, model: &str, request: ChatRequest) -> Result<ChatResponse> {
-        info!("Anthropic chat: model={}, endpoint={}, tool_choice={:?}", 
-              model, self.api_url, request.tool_choice);
+        info!(
+            "Anthropic chat: model={}, endpoint={}, tool_choice={:?}",
+            model, self.api_url, request.tool_choice
+        );
         self.chat_with_tools(model, &request).await
     }
 

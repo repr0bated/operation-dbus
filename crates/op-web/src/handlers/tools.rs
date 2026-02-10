@@ -1,7 +1,7 @@
 //! Tool API Handlers
 
 use axum::{
-    extract::{Path, Extension},
+    extract::{Extension, Path},
     response::Json,
 };
 use serde::{Deserialize, Serialize};
@@ -12,18 +12,18 @@ use tracing::info;
 use crate::state::AppState;
 
 /// GET /api/tools - List all available tools
-pub async fn list_tools_handler(
-    Extension(state): Extension<Arc<AppState>>,
-) -> Json<Value> {
+pub async fn list_tools_handler(Extension(state): Extension<Arc<AppState>>) -> Json<Value> {
     let tools = state.tool_registry.list().await;
 
     let tool_list: Vec<Value> = tools
         .iter()
-        .map(|t| json!({
-            "name": t.name,
-            "description": t.description,
-            "category": categorize_tool(&t.name),
-        }))
+        .map(|t| {
+            json!({
+                "name": t.name,
+                "description": t.description,
+                "category": categorize_tool(&t.name),
+            })
+        })
         .collect();
 
     Json(json!({
@@ -33,13 +33,29 @@ pub async fn list_tools_handler(
 }
 
 fn categorize_tool(name: &str) -> &'static str {
-    if name.starts_with("ovs_") { "ovs" }
-    else if name.starts_with("systemd_") { "systemd" }
-    else if name.starts_with("nm_") { "networkmanager" }
-    else if name.starts_with("file_") { "file" }
-    else if name.starts_with("system_") { "system" }
-    else if name.starts_with("plugin_") { "plugin" }
-    else { "other" }
+    if name.starts_with("ovs_") {
+        "ovs"
+    } else if name.starts_with("systemd_") || name.starts_with("dinit_") {
+        "service"
+    } else if name.starts_with("nm_") || name.starts_with("connman.") {
+        "network"
+    } else if name.starts_with("file_") {
+        "file"
+    } else if name.starts_with("system_") {
+        "system"
+    } else if name.starts_with("plugin_") {
+        "plugin"
+    } else if name.starts_with("dbus_")
+        || name.starts_with("DBus.")
+        || name.starts_with("org.")
+        || name.contains('.')
+    {
+        "dbus"
+    } else if name.starts_with("agent_") {
+        "agent"
+    } else {
+        "other"
+    }
 }
 
 /// GET /api/tools/:name - Get tool details
@@ -48,7 +64,7 @@ pub async fn get_tool_handler(
     Path(name): Path<String>,
 ) -> Json<Value> {
     let tools = state.tool_registry.list().await;
-    
+
     if let Some(tool) = tools.iter().find(|t| t.name == name) {
         Json(json!({
             "found": true,

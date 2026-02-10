@@ -63,7 +63,7 @@ impl AgentTrait for SequentialThinkingAgent {
 
     async fn execute(&self, task: AgentTask) -> Result<TaskResult, String> {
         let input = task.args.as_deref().unwrap_or("");
-        
+
         let result = match task.operation.as_str() {
             "analyze" => self.analyze(input),
             _ => Err(format!("Unknown operation: {}", task.operation)),

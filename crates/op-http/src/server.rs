@@ -103,10 +103,14 @@ impl HttpServer {
                 .map_err(ServerError::BindError)?;
 
             info!("HTTPS server listening on https://{}", https_addr);
-            info!("Public URL: https://{}:{}", self.config.public_host, self.config.https_port);
+            info!(
+                "Public URL: https://{}:{}",
+                self.config.public_host, self.config.https_port
+            );
 
             loop {
-                let (stream, peer_addr) = listener.accept().await.map_err(ServerError::BindError)?;
+                let (stream, peer_addr) =
+                    listener.accept().await.map_err(ServerError::BindError)?;
                 let acceptor = acceptor.clone();
                 let router = self.router.clone();
 
@@ -116,9 +120,8 @@ impl HttpServer {
                             let io = TokioIo::new(tls_stream);
                             let service = TowerToHyperService::new(router);
 
-                            if let Err(e) = http1::Builder::new()
-                                .serve_connection(io, service)
-                                .await
+                            if let Err(e) =
+                                http1::Builder::new().serve_connection(io, service).await
                             {
                                 tracing::debug!("Connection error from {}: {}", peer_addr, e);
                             }
@@ -136,7 +139,10 @@ impl HttpServer {
                 .map_err(ServerError::BindError)?;
 
             info!("HTTP server listening on http://{}", http_addr);
-            info!("Public URL: http://{}:{}", self.config.public_host, self.config.http_port);
+            info!(
+                "Public URL: http://{}:{}",
+                self.config.public_host, self.config.http_port
+            );
             info!("TLS disabled - using HTTP only");
 
             axum::serve(listener, self.router)

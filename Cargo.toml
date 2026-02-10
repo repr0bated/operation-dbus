@@ -9,7 +9,6 @@ members = [
     "crates/op-chat",
     "crates/op-http",
     "crates/op-web",
-    "crates/op-web-ui",
     "crates/op-cache",
     "crates/op-state",
     "crates/op-state-store",
@@ -32,7 +31,6 @@ members = [
     "crates/op-cognitive-mcp",
     "crates/op-dbus-model",
     "crates/op-grpc-bridge",
-    "crates/op-identity",
 ]
 
 [workspace.package]
@@ -62,8 +60,8 @@ op-blockchain = { path = "crates/op-blockchain" }
 op-inspector = { path = "crates/op-inspector" }
 op-mcp = { path = "crates/op-mcp" }
 op-web = { path = "crates/op-web" }
-op-web-ui = { path = "crates/op-web-ui" }
 op-grpc-bridge = { path = "crates/op-grpc-bridge" }
+op-identity = { path = "crates/op-identity" }
 
 # Async
 tokio = { version = "1", features = ["full"] }

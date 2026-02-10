@@ -1,14 +1,14 @@
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use lru::LruCache;
-use std::num::NonZeroUsize;
 use anyhow::Result;
 use async_trait::async_trait;
+use lru::LruCache;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
-use op_tools::{ToolRegistry, BoxedTool};
-use op_execution_tracker::{ExecutionContext, ExecutionTracker};
-use crate::loading_strategy::LoadingStrategy;
 use crate::error::DynamicLoaderError;
+use crate::loading_strategy::LoadingStrategy;
+use op_execution_tracker::{ExecutionContext, ExecutionTracker};
+use op_tools::{BoxedTool, ToolRegistry};
 
 /// Dynamic tool registry that wraps existing registry with caching
 pub struct DynamicToolRegistry {
@@ -41,9 +41,9 @@ impl DynamicToolRegistry {
             base_registry,
             execution_tracker,
             loading_strategy,
-            tool_cache: Arc::new(RwLock::new(
-                LruCache::new(NonZeroUsize::new(max_cache_size).unwrap())
-            )),
+            tool_cache: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(max_cache_size).unwrap(),
+            ))),
             cache_hits: Arc::new(RwLock::new(0)),
             cache_misses: Arc::new(RwLock::new(0)),
         }

@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use async_trait::async_trait;
+use std::sync::Arc;
 
 use op_execution_tracker::{ExecutionContext, ExecutionTracker};
 
@@ -41,7 +41,7 @@ impl LoadingStrategy for SmartLoadingStrategy {
 
         // Check recent execution history
         let recent_executions = self.execution_tracker.list_recent_completed(10).await;
-        
+
         let recent_tool_executions = recent_executions
             .iter()
             .filter(|exec| exec.tool_name == tool_name)
@@ -63,7 +63,7 @@ impl LoadingStrategy for SmartLoadingStrategy {
 
         // Check execution frequency
         let recent_executions = self.execution_tracker.list_recent_completed(50).await;
-        
+
         let tool_executions = recent_executions
             .iter()
             .filter(|exec| exec.tool_name == tool_name)
@@ -71,9 +71,9 @@ impl LoadingStrategy for SmartLoadingStrategy {
 
         // Priority based on usage frequency
         match tool_executions {
-            0..=2 => 20,    // Low priority
-            3..=5 => 50,    // Medium priority
-            _ => 80,       // High priority
+            0..=2 => 20, // Low priority
+            3..=5 => 50, // Medium priority
+            _ => 80,     // High priority
         }
     }
 

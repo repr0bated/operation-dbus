@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast};
-use tracing::{info, warn};
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use simd_json::ValueBuilder;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
+use tracing::{info, warn};
 
 use crate::record::{ExecutionRecord, ExecutionStatus};
 
@@ -42,7 +42,7 @@ impl ExecutionStats {
 #[derive(Clone, Debug)]
 pub enum ExecutionEvent {
     Started(ExecutionRecord),
-    Completed(String, bool), // execution_id, success
+    Completed(String, bool),                // execution_id, success
     StatusUpdated(String, ExecutionStatus), // execution_id, new_status
 }
 
@@ -97,7 +97,9 @@ impl ExecutionTracker {
         }
 
         // Notify subscribers
-        let _ = self.event_sender.send(ExecutionEvent::Started(record.clone()));
+        let _ = self
+            .event_sender
+            .send(ExecutionEvent::Started(record.clone()));
 
         info!(execution_id = %record.id, tool = %tool_name, "Execution started");
 
@@ -117,10 +119,15 @@ impl ExecutionTracker {
             if record.timing.duration_ms > 0 {
                 stats.total_duration_ms += record.timing.duration_ms;
             }
-            *stats.executions_by_tool.entry(record.tool_name.clone()).or_insert(0) += 1;
+            *stats
+                .executions_by_tool
+                .entry(record.tool_name.clone())
+                .or_insert(0) += 1;
 
             // Notify subscribers
-            let _ = self.event_sender.send(ExecutionEvent::Completed(id.to_string(), true));
+            let _ = self
+                .event_sender
+                .send(ExecutionEvent::Completed(id.to_string(), true));
 
             info!(
                 execution_id = %id,
@@ -144,11 +151,19 @@ impl ExecutionTracker {
             if record.timing.duration_ms > 0 {
                 stats.total_duration_ms += record.timing.duration_ms;
             }
-            *stats.executions_by_tool.entry(record.tool_name.clone()).or_insert(0) += 1;
-            *stats.failures_by_tool.entry(record.tool_name.clone()).or_insert(0) += 1;
+            *stats
+                .executions_by_tool
+                .entry(record.tool_name.clone())
+                .or_insert(0) += 1;
+            *stats
+                .failures_by_tool
+                .entry(record.tool_name.clone())
+                .or_insert(0) += 1;
 
             // Notify subscribers
-            let _ = self.event_sender.send(ExecutionEvent::Completed(id.to_string(), false));
+            let _ = self
+                .event_sender
+                .send(ExecutionEvent::Completed(id.to_string(), false));
 
             warn!(
                 execution_id = %id,
@@ -171,7 +186,9 @@ impl ExecutionTracker {
         let records = self.records.read().await;
         records
             .iter()
-            .filter(|r| r.status == ExecutionStatus::Running || r.status == ExecutionStatus::Pending)
+            .filter(|r| {
+                r.status == ExecutionStatus::Running || r.status == ExecutionStatus::Pending
+            })
             .cloned()
             .collect()
     }
@@ -179,7 +196,13 @@ impl ExecutionTracker {
     /// List recent completed executions
     pub async fn get_recent(&self, limit: usize) -> Vec<ExecutionRecord> {
         let records = self.records.read().await;
-        records.as_slice().iter().rev().take(limit).cloned().collect()
+        records
+            .as_slice()
+            .iter()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     /// Alias for get_recent (compatibility)

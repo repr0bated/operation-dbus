@@ -3,12 +3,12 @@
 //! Watches specified D-Bus paths and interfaces, forwarding changes
 //! to the sync engine for propagation to gRPC subscribers.
 
+use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use zbus::{Connection, MatchRule, MessageStream};
-use futures::StreamExt;
 
 use crate::sync_engine::{ChangeSource, ChangeType, StateChange, SyncEngine};
 
@@ -74,7 +74,9 @@ impl DbusWatcher {
 
     /// Start watching for changes
     pub async fn start(&self) -> Result<(), WatcherError> {
-        let connection = self.connection.as_ref()
+        let connection = self
+            .connection
+            .as_ref()
             .ok_or_else(|| WatcherError::NotConnected)?;
 
         // Set up PropertiesChanged signal matching
@@ -91,7 +93,8 @@ impl DbusWatcher {
             .await
             .map_err(|e| WatcherError::Proxy(e.to_string()))?;
 
-        proxy.add_match_rule(rule)
+        proxy
+            .add_match_rule(rule)
             .await
             .map_err(|e| WatcherError::MatchRule(e.to_string()))?;
 
@@ -105,7 +108,8 @@ impl DbusWatcher {
                 .map_err(|e| WatcherError::MatchRule(e.to_string()))?
                 .build();
 
-            proxy.add_match_rule(rule)
+            proxy
+                .add_match_rule(rule)
                 .await
                 .map_err(|e| WatcherError::MatchRule(e.to_string()))?;
 
@@ -126,7 +130,9 @@ impl DbusWatcher {
 
     /// Main watcher loop
     async fn run_loop(&self) -> Result<(), WatcherError> {
-        let connection = self.connection.as_ref()
+        let connection = self
+            .connection
+            .as_ref()
             .ok_or_else(|| WatcherError::NotConnected)?;
 
         let mut stream = MessageStream::from(connection);
@@ -152,42 +158,48 @@ impl DbusWatcher {
         let header = message.header();
 
         // Get the path
-        let path = header.path()
+        let path = header
+            .path()
             .ok_or_else(|| WatcherError::InvalidMessage("No path in message".to_string()))?
             .to_string();
 
         // Check if this path is in our watch list
-        let should_watch = self.config.paths.iter().any(|p| {
-            path.starts_with(p) || p == "*"
-        });
+        let should_watch = self
+            .config
+            .paths
+            .iter()
+            .any(|p| path.starts_with(p) || p == "*");
 
         if !should_watch {
             return Ok(());
         }
 
         // Get the interface and member
-        let interface = header.interface()
+        let interface = header
+            .interface()
             .map(|i| i.to_string())
             .unwrap_or_default();
-        let member = header.member()
-            .map(|m| m.to_string())
-            .unwrap_or_default();
+        let member = header.member().map(|m| m.to_string()).unwrap_or_default();
 
         // Determine plugin ID from path
         let plugin_id = {
             let mapping = self.path_to_plugin.read().await;
-            mapping.get(&path).cloned()
+            mapping
+                .get(&path)
+                .cloned()
                 .or_else(|| self.extract_plugin_from_path(&path))
                 .unwrap_or_else(|| "unknown".to_string())
         };
 
         // Handle PropertiesChanged
         if interface == "org.freedesktop.DBus.Properties" && member == "PropertiesChanged" {
-            self.handle_properties_changed(&path, &plugin_id, message).await?;
+            self.handle_properties_changed(&path, &plugin_id, message)
+                .await?;
         }
         // Handle other signals
         else if message.message_type() == zbus::message::Type::Signal {
-            self.handle_signal(&path, &plugin_id, &interface, &member, message).await?;
+            self.handle_signal(&path, &plugin_id, &interface, &member, message)
+                .await?;
         }
 
         Ok(())
@@ -202,7 +214,11 @@ impl DbusWatcher {
     ) -> Result<(), WatcherError> {
         // Deserialize the PropertiesChanged body
         // Body: (interface_name, changed_properties, invalidated_properties)
-        let body: (String, HashMap<String, zbus::zvariant::OwnedValue>, Vec<String>) = message
+        let body: (
+            String,
+            HashMap<String, zbus::zvariant::OwnedValue>,
+            Vec<String>,
+        ) = message
             .body()
             .deserialize()
             .map_err(|e| WatcherError::Deserialize(e.to_string()))?;
@@ -219,16 +235,20 @@ impl DbusWatcher {
             );
 
             // Forward to sync engine
-            if let Err(e) = self.sync_engine.process_dbus_change(
-                plugin_id.to_string(),
-                path.to_string(),
-                ChangeType::PropertySet,
-                Some(prop_name.clone()),
-                None, // TODO: track old values
-                json_value,
-                vec![], // TODO: compute tags from schema
-                "dbus".to_string(),
-            ).await {
+            if let Err(e) = self
+                .sync_engine
+                .process_dbus_change(
+                    plugin_id.to_string(),
+                    path.to_string(),
+                    ChangeType::PropertySet,
+                    Some(prop_name.clone()),
+                    None, // TODO: track old values
+                    json_value,
+                    vec![], // TODO: compute tags from schema
+                    "dbus".to_string(),
+                )
+                .await
+            {
                 warn!("Failed to process D-Bus change: {}", e);
             }
         }
@@ -262,16 +282,20 @@ impl DbusWatcher {
         );
 
         // Forward to sync engine
-        if let Err(e) = self.sync_engine.process_dbus_change(
-            plugin_id.to_string(),
-            path.to_string(),
-            ChangeType::Signal,
-            Some(format!("{}.{}", interface, member)),
-            None,
-            args,
-            vec![],
-            "dbus".to_string(),
-        ).await {
+        if let Err(e) = self
+            .sync_engine
+            .process_dbus_change(
+                plugin_id.to_string(),
+                path.to_string(),
+                ChangeType::Signal,
+                Some(format!("{}.{}", interface, member)),
+                None,
+                args,
+                vec![],
+                "dbus".to_string(),
+            )
+            .await
+        {
             warn!("Failed to process D-Bus signal: {}", e);
         }
 

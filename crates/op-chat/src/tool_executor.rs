@@ -20,11 +20,11 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use op_execution_tracker::{ExecutionTracker, ExecutionContext, ExecutionResult};
+use op_execution_tracker::{ExecutionContext, ExecutionResult, ExecutionTracker};
 use op_tools::ToolRegistry;
+use simd_json::prelude::*;
 use simd_json::OwnedValue;
 use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -206,7 +206,10 @@ impl TrackedToolExecutor {
         context.set_metadata(Value::Object(Box::new(metadata)));
 
         // Start tracking
-        let execution_record = self.tracker.start_execution(tool_name, Some(arguments.clone()), initiated_by.clone()).await;
+        let execution_record = self
+            .tracker
+            .start_execution(tool_name, Some(arguments.clone()), initiated_by.clone())
+            .await;
         let execution_id = execution_record.id.clone();
 
         info!(
@@ -219,9 +222,11 @@ impl TrackedToolExecutor {
         let start_time = Instant::now();
 
         // Get tool from registry
-        let tool = self.registry.get(tool_name).await.ok_or_else(|| {
-            anyhow::anyhow!("Tool '{}' not found in registry", tool_name)
-        });
+        let tool = self
+            .registry
+            .get(tool_name)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Tool '{}' not found in registry", tool_name));
 
         let execution_result = match tool {
             Ok(t) => {
@@ -275,11 +280,20 @@ impl TrackedToolExecutor {
         // Complete tracking
         if execution_result.success {
             self.tracker
-                .complete_execution(&execution_id, simd_json::to_string(&execution_result.result).ok())
+                .complete_execution(
+                    &execution_id,
+                    simd_json::to_string(&execution_result.result).ok(),
+                )
                 .await;
         } else {
             self.tracker
-                .fail_execution(&execution_id, execution_result.error.clone().unwrap_or("Unknown error".to_string()))
+                .fail_execution(
+                    &execution_id,
+                    execution_result
+                        .error
+                        .clone()
+                        .unwrap_or("Unknown error".to_string()),
+                )
                 .await;
         }
 

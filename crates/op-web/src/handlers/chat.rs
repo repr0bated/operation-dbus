@@ -1,21 +1,24 @@
 //! Chat API Handlers
 
 use axum::{
-    extract::{Path, Extension},
-    response::{Json, sse::{Event, Sse}},
+    extract::{Extension, Path},
+    response::{
+        sse::{Event, Sse},
+        Json,
+    },
 };
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
-use std::sync::Arc;
+use simd_json::{json, OwnedValue as Value};
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{info, error};
+use tracing::{error, info};
 
-use crate::state::AppState;
 use crate::orchestrator::OrchestratorEvent;
+use crate::state::AppState;
 use op_llm::provider::ChatMessage;
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +48,11 @@ pub async fn chat_handler(
     Extension(state): Extension<Arc<AppState>>,
     Json(request): Json<ChatRequest>,
 ) -> Json<ChatResponse> {
-    info!("Chat request: {} chars, user: {:?}", request.message.len(), request.user_id);
+    info!(
+        "Chat request: {} chars, user: {:?}",
+        request.message.len(),
+        request.user_id
+    );
 
     let session_id = request
         .session_id
@@ -57,7 +64,11 @@ pub async fn chat_handler(
         history.push(ChatMessage::user(request.message.clone()));
     }
 
-    match state.orchestrator.process(&session_id, &request.message, None).await {
+    match state
+        .orchestrator
+        .process(&session_id, &request.message, None)
+        .await
+    {
         Ok(result) => {
             let provider = state.chat_manager.current_provider().await.to_string();
             let model = state.chat_manager.current_model().await;
@@ -72,8 +83,16 @@ pub async fn chat_handler(
 
             Json(ChatResponse {
                 success: result.success,
-                message: if result.success { response_message.clone() } else { String::new() },
-                error: if result.success { None } else { Some(response_message) },
+                message: if result.success {
+                    response_message.clone()
+                } else {
+                    String::new()
+                },
+                error: if result.success {
+                    None
+                } else {
+                    Some(response_message)
+                },
                 tools_executed: result.tools_executed,
                 session_id,
                 model,
@@ -225,7 +244,7 @@ pub async fn save_transcript_handler(
         for msg in messages {
             if let (Some(role), Some(content)) = (
                 msg.get("role").and_then(|v| v.as_str()),
-                msg.get("content").and_then(|v| v.as_str())
+                msg.get("content").and_then(|v| v.as_str()),
             ) {
                 history.push(op_llm::ChatMessage {
                     role: role.to_string(),
@@ -256,19 +275,29 @@ pub async fn save_transcript_handler(
     }))
 }
 
-async fn save_transcript_to_file(history: &[op_llm::ChatMessage], filename: &str, session_id: Option<&str>) -> Json<Value> {
+async fn save_transcript_to_file(
+    history: &[op_llm::ChatMessage],
+    filename: &str,
+    session_id: Option<&str>,
+) -> Json<Value> {
     // Format transcript
     let mut transcript = String::new();
 
     if let Some(session) = session_id {
-        transcript.push_str(&format!("Chat Transcript - Session: {}
-", session));
+        transcript.push_str(&format!(
+            "Chat Transcript - Session: {}
+",
+            session
+        ));
     } else {
         transcript.push_str("Chat Transcript\n");
     }
 
-    transcript.push_str(&format!("Generated: {}
-", chrono::Utc::now().to_rfc3339()));
+    transcript.push_str(&format!(
+        "Generated: {}
+",
+        chrono::Utc::now().to_rfc3339()
+    ));
     transcript.push_str(&"=".repeat(50));
     transcript.push_str("\n\n");
 
@@ -279,8 +308,11 @@ async fn save_transcript_to_file(history: &[op_llm::ChatMessage], filename: &str
             "system" => "⚙️ System",
             _ => "Unknown",
         };
-        transcript.push_str(&format!("[{}] {}
-\n", role, message.content));
+        transcript.push_str(&format!(
+            "[{}] {}
+\n",
+            role, message.content
+        ));
         if i < history.len() - 1 {
             let separator = "─".repeat(30);
             transcript.push_str(&separator);
@@ -302,6 +334,6 @@ async fn save_transcript_to_file(history: &[op_llm::ChatMessage], filename: &str
         Err(e) => Json(json!({
             "success": false,
             "error": format!("Failed to save transcript: {}", e)
-        }))
+        })),
     }
 }

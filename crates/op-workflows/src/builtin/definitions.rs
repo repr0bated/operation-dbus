@@ -21,7 +21,7 @@ fn cargo_check_workflow() -> WorkflowDefinition {
     WorkflowDefinition::new(
         "cargo_check",
         "Cargo Check",
-        "Run cargo check, clippy, and format"
+        "Run cargo check, clippy, and format",
     )
     .with_node(WorkflowNodeDef {
         id: "check".into(),
@@ -53,7 +53,7 @@ fn service_status_workflow() -> WorkflowDefinition {
     WorkflowDefinition::new(
         "service_status",
         "Service Status",
-        "Check status of system services"
+        "Check status of system services",
     )
     .with_node(WorkflowNodeDef {
         id: "list_units".into(),
@@ -69,7 +69,12 @@ fn service_status_workflow() -> WorkflowDefinition {
         config: json!({"field": "active_state", "value": "failed"}),
         position: Some((300.0, 100.0)),
     })
-    .with_connection(NodeConnection::new("list_units", "units", "filter_failed", "input"))
+    .with_connection(NodeConnection::new(
+        "list_units",
+        "units",
+        "filter_failed",
+        "input",
+    ))
 }
 
 /// Deployment workflow
@@ -77,7 +82,7 @@ fn deploy_workflow() -> WorkflowDefinition {
     WorkflowDefinition::new(
         "deploy",
         "Deploy Application",
-        "Build, test, and deploy application"
+        "Build, test, and deploy application",
     )
     .with_node(WorkflowNodeDef {
         id: "build".into(),
@@ -109,7 +114,7 @@ fn code_review_workflow() -> WorkflowDefinition {
     WorkflowDefinition::new(
         "code_review",
         "Code Review",
-        "Multi-perspective code review"
+        "Multi-perspective code review",
     )
     .with_node(WorkflowNodeDef {
         id: "security".into(),
@@ -139,9 +144,24 @@ fn code_review_workflow() -> WorkflowDefinition {
         config: json!({}),
         position: Some((300.0, 150.0)),
     })
-    .with_connection(NodeConnection::new("security", "findings", "consolidate", "security"))
-    .with_connection(NodeConnection::new("architecture", "findings", "consolidate", "architecture"))
-    .with_connection(NodeConnection::new("performance", "findings", "consolidate", "performance"))
+    .with_connection(NodeConnection::new(
+        "security",
+        "findings",
+        "consolidate",
+        "security",
+    ))
+    .with_connection(NodeConnection::new(
+        "architecture",
+        "findings",
+        "consolidate",
+        "architecture",
+    ))
+    .with_connection(NodeConnection::new(
+        "performance",
+        "findings",
+        "consolidate",
+        "performance",
+    ))
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 pub mod models;
 
-use sqlx::SqlitePool;
 use anyhow::Result;
+use sqlx::SqlitePool;
 
 pub async fn create_schema(pool: &SqlitePool) -> Result<()> {
     sqlx::query(

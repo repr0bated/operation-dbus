@@ -9,7 +9,7 @@ use op_services::grpc::proto::*;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         print_usage();
         return Ok(());
@@ -19,28 +19,42 @@ async fn main() -> anyhow::Result<()> {
 
     match args[1].as_str() {
         "start" => {
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("missing service name"))?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing service name"))?;
             let resp = client.start(StartRequest { name: name.clone() }).await?;
             println!("Started {}", name);
             if let Some(status) = resp.into_inner().status {
-                println!("State: {:?}", ServiceState::try_from(status.state).unwrap_or(ServiceState::StateStopped));
+                println!(
+                    "State: {:?}",
+                    ServiceState::try_from(status.state).unwrap_or(ServiceState::StateStopped)
+                );
             }
         }
         "stop" => {
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("missing service name"))?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing service name"))?;
             let resp = client.stop(StopRequest { name: name.clone() }).await?;
             println!("Stopped {}", name);
         }
         "restart" => {
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("missing service name"))?;
-            client.restart(RestartRequest { name: name.clone() }).await?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing service name"))?;
+            client
+                .restart(RestartRequest { name: name.clone() })
+                .await?;
             println!("Restarted {}", name);
         }
         "status" => {
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("missing service name"))?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing service name"))?;
             let resp = client.get(GetRequest { name: name.clone() }).await?;
             if let Some(status) = resp.into_inner().status {
-                let state = ServiceState::try_from(status.state).unwrap_or(ServiceState::StateStopped);
+                let state =
+                    ServiceState::try_from(status.state).unwrap_or(ServiceState::StateStopped);
                 println!("● {} - {:?}", name, state);
                 if let Some(pid) = status.pid {
                     println!("  PID: {}", pid);

@@ -8,12 +8,15 @@
 //! - Proxmox LXC template introspection (4500+ editable elements)
 //! - GCloud CLI introspection (100+ command groups, all flags/args)
 
-mod introspective_gadget;
 pub mod gcloud;
+mod introspective_gadget;
 
 // Re-export main types
+pub use gcloud::{
+    introspect_gcloud, GCloudArg, GCloudCommand, GCloudFlag, GCloudParser, GCloudSchema,
+    GCloudStats,
+};
 pub use introspective_gadget::*;
-pub use gcloud::{GCloudParser, GCloudSchema, GCloudCommand, GCloudFlag, GCloudArg, GCloudStats, introspect_gcloud};
 
 use op_introspection::IntrospectionService;
 use std::sync::Arc;

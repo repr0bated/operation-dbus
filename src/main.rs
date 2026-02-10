@@ -1,23 +1,25 @@
 //! OP-DBUS: Native, Deterministic Control Plane for Linux Systems
-//! 
+//!
 //! Production entry point with all components wired together.
 
-use std::sync::Arc;
-use std::path::PathBuf;
-use std::net::SocketAddr;
 use parking_lot::RwLock;
 use simd_json::prelude::*;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+#[cfg(feature = "grpc")]
+use std::sync::OnceLock;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 // Crate imports (Authoritative logic)
-use op_core::types::BusType;
-use op_state_store::{StateStore, SqliteStore};
-use op_tools::{ToolRegistry, register_builtin_tools};
-use op_plugins::registry::PluginRegistry;
-use op_plugins::plugin::{PluginMetadata as PluginCore, PluginTunables};
-use op_workflows::orchestrator::{Orchestrator, OrchestratorConfig};
-use op_introspection::projection::DbusProjection;
 use op_blockchain::StreamingBlockchain;
+use op_core::types::BusType;
+use op_introspection::projection::DbusProjection;
+use op_plugins::plugin::{PluginMetadata as PluginCore, PluginTunables};
+use op_plugins::registry::PluginRegistry;
+use op_state_store::{SqliteStore, StateStore};
+use op_tools::{register_builtin_tools, ToolRegistry};
+use op_workflows::orchestrator::{Orchestrator, OrchestratorConfig};
 
 // Internal modules (Glue logic)
 use op_dbus::{
@@ -27,9 +29,9 @@ use op_dbus::{
     dependency::DependencyManager,
     disaster_recovery::DisasterRecovery,
     error::Result,
-    inspector_gadget::{InspectorGadget, InspectorConfig},
-    json_rpc::{JsonRpcRequest, JsonRpcResponse, JsonRpcError},
-    mcp::{McpCompactDispatcher, McpRequest, McpResponse, McpError},
+    inspector_gadget::{InspectorConfig, InspectorGadget},
+    json_rpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse},
+    mcp::{McpCompactDispatcher, McpError, McpRequest, McpResponse},
     mcp_live::McpLiveDispatcher,
     numa_cache::NumaOptimizer,
     policy::PolicyEngine,
@@ -37,20 +39,24 @@ use op_dbus::{
 };
 use op_dbus_model;
 
-use op_web::{routes, AppState};
-#[cfg(feature = "grpc")]
-use op_state_store::ChainConfig;
-#[cfg(feature = "grpc")]
-use op_grpc_bridge::{SyncEngine, DbusWatcher, WatchConfig, run_grpc_server, PluginSchemaProvider};
 #[cfg(feature = "grpc")]
 use op_grpc_bridge::proto::PluginInfo;
 #[cfg(feature = "grpc")]
+use op_grpc_bridge::{
+    run_grpc_server, ChangeType, DbusWatcher, PluginSchemaProvider, SyncEngine, WatchConfig,
+};
+#[cfg(feature = "grpc")]
+use op_state_store::ChainConfig;
+use op_web::{routes, AppState};
+#[cfg(feature = "grpc")]
 use serde_json::Value as JsonValue;
+#[cfg(feature = "grpc")]
+static GLOBAL_SYNC_ENGINE: OnceLock<Arc<SyncEngine>> = OnceLock::new();
 
 #[cfg(feature = "dev-antigravity")]
 use op_dbus::antigravity::{
-    AntigravityTunnel, AntigravityConfig,
-    transport::{TunnelTransport, TransportConfig, TransportType},
+    transport::{TransportConfig, TransportType, TunnelTransport},
+    AntigravityConfig, AntigravityTunnel,
 };
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -91,14 +97,12 @@ impl Default for Config {
             enable_web: std::env::var("OP_DBUS_ENABLE_WEB")
                 .map(|v| v != "0" && v.to_lowercase() != "false")
                 .unwrap_or(true),
-            web_host: std::env::var("OP_DBUS_WEB_HOST")
-                .unwrap_or_else(|_| "0.0.0.0".to_string()),
+            web_host: std::env::var("OP_DBUS_WEB_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             web_port: std::env::var("OP_DBUS_WEB_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(constants::WEB_DEFAULT_PORT),
-            listen: std::env::var("OP_DBUS_LISTEN")
-                .unwrap_or_else(|_| "none".to_string()),
+            listen: std::env::var("OP_DBUS_LISTEN").unwrap_or_else(|_| "none".to_string()),
             #[cfg(feature = "dev-antigravity")]
             enable_antigravity: std::env::var("OP_DBUS_ENABLE_ANTIGRAVITY")
                 .map(|v| v == "1" || v.to_lowercase() == "true")
@@ -158,7 +162,11 @@ impl PluginSchemaProvider for OpdbusPluginProvider {
 
     fn get_schema(&self, plugin_id: &str) -> Option<(String, String, String)> {
         let schema = op_dbus::plugins::get_plugin_schema_json(plugin_id)?;
-        Some((schema.to_string(), "json-schema-2020-12".to_string(), "v1".to_string()))
+        Some((
+            schema.to_string(),
+            "json-schema-2020-12".to_string(),
+            "v1".to_string(),
+        ))
     }
 }
 
@@ -191,7 +199,31 @@ async fn main() -> Result<()> {
     }
 
     // Initialize state store (authoritative database)
-    let sqlite_store = SqliteStore::new(&config.database_url).await?;
+    if let Some(db_path) = config.database_url.strip_prefix("sqlite://") {
+        if db_path != ":memory:" {
+            if let Some(parent) = std::path::Path::new(db_path).parent() {
+                if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                    tracing::warn!(
+                        "Failed to create database directory {}: {}",
+                        parent.display(),
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    let sqlite_store = match SqliteStore::new(&config.database_url).await {
+        Ok(store) => store,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to initialize state store at {}: {}, using in-memory",
+                config.database_url,
+                e
+            );
+            SqliteStore::new(":memory:").await?
+        }
+    };
     let pool = sqlite_store.pool().clone();
     let state_store: Arc<dyn StateStore> = Arc::new(sqlite_store);
 
@@ -218,7 +250,7 @@ async fn main() -> Result<()> {
     // Initialize plugin registry
     let plugin_dir = PathBuf::from(&config.cache_dir).join("plugins");
     let plugin_registry = Arc::new(PluginRegistry::new(&plugin_dir));
-    
+
     // Register system plugin metadata (placeholder until full plugin loading is restored)
     let _system_plugin = PluginCore {
         name: "system".to_string(),
@@ -226,7 +258,7 @@ async fn main() -> Result<()> {
         description: "Core system plugin".to_string(),
         ..Default::default()
     };
-    
+
     // The new registry requires a BoxedPlugin trait object, not just metadata.
     // For now, we skip manual registration of "system" plugin as tools are registered directly.
     // plugin_registry.register_core(system_plugin);
@@ -249,13 +281,9 @@ async fn main() -> Result<()> {
     ));
 
     // Create MCP dispatchers
-    let mcp_compact = Arc::new(McpCompactDispatcher::new(
-        tool_registry.clone(),
-    ));
+    let mcp_compact = Arc::new(McpCompactDispatcher::new(tool_registry.clone()));
 
-    let mcp_live = Arc::new(McpLiveDispatcher::new(
-        tool_registry.clone(),
-    ));
+    let mcp_live = Arc::new(McpLiveDispatcher::new(tool_registry.clone()));
 
     // Create policy engine
     let policy_engine = Arc::new(PolicyEngine::new(state_store.clone()));
@@ -292,52 +320,15 @@ async fn main() -> Result<()> {
         .with_policy_engine(policy_engine.clone())
         .with_inspector(inspector.clone())
         .with_disaster_recovery(disaster_recovery.clone())
-        .with_dependency_manager(dependency_manager.clone())
+        .with_dependency_manager(dependency_manager.clone()),
     );
     tracing::info!("Chatbot initialized (reasoning only, no direct execution)");
 
-    // D-Bus projection - READ from database OR discover if needed
-    // WRITE only on: onboarding, upgrade, migration, chatbot changes
+    // D-Bus projection for mirrored state persistence paths.
+    // Runtime discovery/introspection is migration-only and not executed here.
     let _dbus_projection = if config.enable_dbus {
-        let projection = DbusProjection::new()
-            .with_blockchain(blockchain.clone());
-
-        // Check if we need to discover (onboarding/upgrade/migration)
-        let force_discovery = std::env::var("OP_DBUS_FORCE_DISCOVERY")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false);
-
-        let needs_discovery = force_discovery; // TODO: Check if tools empty via state_store
-
-        if needs_discovery {
-            tracing::info!("🔍 D-Bus projection: discovering tools (onboarding/upgrade/force)...");
-
-            use op_introspection::IntrospectionService;
-            let introspection = Arc::new(IntrospectionService::new());
-            let engine = op_dbus::projection::ProjectionEngine::new(introspection);
-
-            // Discover session bus tools (blocks until complete)
-            match engine.discover_all(&tool_registry, op_core::BusType::Session).await {
-                Ok(count) => tracing::info!("✅ D-Bus projection (session): {} tools", count),
-                Err(e) => tracing::error!("❌ D-Bus projection (session) failed: {}", e),
-            }
-
-            // Discover system bus tools (blocks until complete)
-            match engine.discover_all(&tool_registry, op_core::BusType::System).await {
-                Ok(count) => tracing::info!("✅ D-Bus projection (system): {} tools", count),
-                Err(e) => tracing::error!("❌ D-Bus projection (system) failed: {}", e),
-            }
-
-            let final_count = tool_registry.len().await;
-            tracing::info!("🎯 Total tools discovered: {}", final_count);
-
-            // TODO: Save to database for next startup
-            // state_store.save_tools(tool_registry.export()).await
-        } else {
-            tracing::info!("📖 D-Bus projection: reading tools from database (instant startup)");
-            // TODO: Load from database
-            // tool_registry.import(state_store.load_tools().await)
-        }
+        let projection = DbusProjection::new().with_blockchain(blockchain.clone());
+        tracing::info!("Runtime D-Bus introspection disabled; using mirrored state/registry");
 
         Some(projection)
     } else {
@@ -386,7 +377,10 @@ async fn main() -> Result<()> {
             }
         });
 
-        tracing::info!("Antigravity tunnel started at {}", config.antigravity_listen);
+        tracing::info!(
+            "Antigravity tunnel started at {}",
+            config.antigravity_listen
+        );
         Some(handle)
     } else {
         None
@@ -394,10 +388,19 @@ async fn main() -> Result<()> {
 
     // Start web server if enabled
     if config.enable_web {
-        tracing::info!("Starting web interface at http://{}:{}", config.web_host, config.web_port);
+        tracing::info!(
+            "Starting web interface at http://{}:{}",
+            config.web_host,
+            config.web_port
+        );
         let addr: SocketAddr = format!("{}:{}", config.web_host, config.web_port)
             .parse()
-            .map_err(|e| op_dbus::error::OpDbusError::ConfigError(format!("Invalid OP_DBUS_WEB_HOST/PORT: {}", e)))?;
+            .map_err(|e| {
+                op_dbus::error::OpDbusError::ConfigError(format!(
+                    "Invalid OP_DBUS_WEB_HOST/PORT: {}",
+                    e
+                ))
+            })?;
 
         // Share the tool_registry with web server (avoids duplicating 16k+ D-Bus tools)
         let web_state = Arc::new(AppState::new_with_registry(Some(tool_registry.clone())).await?);
@@ -411,7 +414,12 @@ async fn main() -> Result<()> {
                     return;
                 }
             };
-            if let Err(e) = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await {
+            if let Err(e) = axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            {
                 tracing::error!("Web server error: {}", e);
             }
         });
@@ -426,14 +434,21 @@ async fn main() -> Result<()> {
     }
     */
     #[cfg(feature = "grpc")]
-    if std::env::var("OP_DBUS_ENABLE_GRPC").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false) {
-        let addr = std::env::var("OP_DBUS_GRPC_ADDR").unwrap_or_else(|_| "0.0.0.0:50051".to_string());
+    if std::env::var("OP_DBUS_ENABLE_GRPC")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+    {
+        let addr =
+            std::env::var("OP_DBUS_GRPC_ADDR").unwrap_or_else(|_| "0.0.0.0:50051".to_string());
         let socket_addr: std::net::SocketAddr = addr.parse().map_err(|e| {
             op_dbus::error::OpDbusError::ConfigError(format!("Invalid OP_DBUS_GRPC_ADDR: {}", e))
         })?;
 
-        let chain = Arc::new(tokio::sync::RwLock::new(op_state_store::EventChain::new(ChainConfig::default())));
+        let chain = Arc::new(tokio::sync::RwLock::new(op_state_store::EventChain::new(
+            ChainConfig::default(),
+        )));
         let sync_engine = Arc::new(SyncEngine::new(chain));
+        let _ = GLOBAL_SYNC_ENGINE.set(sync_engine.clone());
 
         // Start D-Bus watcher to push property changes into the sync engine.
         let mut watcher = DbusWatcher::new(WatchConfig::default(), sync_engine.clone());
@@ -446,11 +461,23 @@ async fn main() -> Result<()> {
             // Register plugin base paths for routing.
             for plugin in op_dbus::plugins::plugin_definitions() {
                 let mut schema = plugin.schema_json.to_string();
-                if let Ok(schema_value) = unsafe { simd_json::from_str::<simd_json::OwnedValue>(&mut schema) } {
-                    if let Some(object_types) = schema_value.as_object().and_then(|o| o.get("object_types")).and_then(|v| v.as_object()) {
+                if let Ok(schema_value) =
+                    unsafe { simd_json::from_str::<simd_json::OwnedValue>(&mut schema) }
+                {
+                    if let Some(object_types) = schema_value
+                        .as_object()
+                        .and_then(|o| o.get("object_types"))
+                        .and_then(|v| v.as_object())
+                    {
                         for (_name, entry_value) in object_types {
-                            if let Some(path) = entry_value.as_object().and_then(|o| o.get("base_path")).and_then(|v| v.as_str()) {
-                                watcher.register_path(path.to_string(), plugin.name.to_string()).await;
+                            if let Some(path) = entry_value
+                                .as_object()
+                                .and_then(|o| o.get("base_path"))
+                                .and_then(|v| v.as_str())
+                            {
+                                watcher
+                                    .register_path(path.to_string(), plugin.name.to_string())
+                                    .await;
                             }
                         }
                     }
@@ -587,7 +614,7 @@ async fn run_unix_server(path: &str, dispatcher: Arc<McpCompactDispatcher>) -> R
     }
 }
 
-#[cfg(not(unix))] 
+#[cfg(not(unix))]
 async fn run_unix_server(_path: &str, _dispatcher: Arc<McpCompactDispatcher>) -> Result<()> {
     Err(op_dbus::error::OpDbusError::ConfigError(
         "Unix sockets not supported on this platform".into(),
@@ -608,8 +635,14 @@ async fn process_request(dispatcher: &McpCompactDispatcher, input: &str) -> Json
     };
 
     let id = request.id.clone();
+
+    #[cfg(feature = "grpc")]
+    if request.method == "state.mutate" {
+        return handle_state_mutate_request(request).await;
+    }
+
     let mcp_request = McpRequest::from(request);
-    
+
     let mcp_response = dispatcher.handle_request(mcp_request).await;
 
     // Convert McpResponse back to JsonRpcResponse
@@ -625,7 +658,123 @@ async fn process_request(dispatcher: &McpCompactDispatcher, input: &str) -> Json
     } else {
         JsonRpcResponse::success(
             id,
-            mcp_response.result.unwrap_or(simd_json::OwnedValue::from(())),
+            mcp_response
+                .result
+                .unwrap_or(simd_json::OwnedValue::from(())),
         )
+    }
+}
+
+#[cfg(feature = "grpc")]
+async fn handle_state_mutate_request(request: JsonRpcRequest) -> JsonRpcResponse {
+    use op_dbus::json_rpc::error_codes;
+
+    let id = request.id.clone();
+    let params = match request.params.as_object() {
+        Some(p) => p,
+        None => {
+            return JsonRpcResponse::error_with_code(
+                id,
+                error_codes::INVALID_PARAMS,
+                "params must be an object",
+            )
+        }
+    };
+
+    let plugin_id = match params.get("plugin_id").and_then(|v| v.as_str()) {
+        Some(v) if !v.is_empty() => v.to_string(),
+        _ => {
+            return JsonRpcResponse::error_with_code(
+                id,
+                error_codes::INVALID_PARAMS,
+                "missing required params.plugin_id",
+            )
+        }
+    };
+
+    let object_path = match params.get("object_path").and_then(|v| v.as_str()) {
+        Some(v) if !v.is_empty() => v.to_string(),
+        _ => {
+            return JsonRpcResponse::error_with_code(
+                id,
+                error_codes::INVALID_PARAMS,
+                "missing required params.object_path",
+            )
+        }
+    };
+
+    let change_type = match params
+        .get("operation")
+        .and_then(|v| v.as_str())
+        .unwrap_or("set_property")
+    {
+        "set_property" => ChangeType::PropertySet,
+        "call_method" => ChangeType::MethodCall,
+        "apply_patch" | "object_added" => ChangeType::ObjectAdded,
+        "object_removed" => ChangeType::ObjectRemoved,
+        other => {
+            return JsonRpcResponse::error_with_code(
+                id,
+                error_codes::INVALID_PARAMS,
+                format!("unsupported params.operation '{}'", other),
+            )
+        }
+    };
+
+    let value = match params.get("value") {
+        Some(v) => v.clone(),
+        None => {
+            return JsonRpcResponse::error_with_code(
+                id,
+                error_codes::INVALID_PARAMS,
+                "missing required params.value",
+            )
+        }
+    };
+
+    let member_name = params
+        .get("member_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let actor_id = params
+        .get("actor_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("jsonrpc-client")
+        .to_string();
+    let capability_id = params
+        .get("capability_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let Some(sync_engine) = GLOBAL_SYNC_ENGINE.get() else {
+        return JsonRpcResponse::error_with_code(
+            id,
+            error_codes::INTERNAL_ERROR,
+            "sync engine unavailable; enable grpc bridge first",
+        );
+    };
+
+    match sync_engine
+        .process_jsonrpc_mutation(
+            plugin_id,
+            object_path,
+            change_type,
+            member_name,
+            value,
+            actor_id,
+            capability_id,
+        )
+        .await
+    {
+        Ok(result) => JsonRpcResponse::success(
+            id,
+            simd_json::json!({
+                "success": result.success,
+                "event_id": result.event_id,
+                "event_hash": result.event_hash,
+                "result": result.result
+            }),
+        ),
+        Err(e) => JsonRpcResponse::error_with_code(id, error_codes::INVALID_PARAMS, e.to_string()),
     }
 }

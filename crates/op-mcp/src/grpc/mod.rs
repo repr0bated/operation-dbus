@@ -12,18 +12,18 @@
 //! - Blockchain audit trail
 
 #[cfg(feature = "grpc")]
-mod server;
-#[cfg(feature = "grpc")]
 mod client;
+#[cfg(feature = "grpc")]
+mod server;
 #[cfg(feature = "grpc")]
 mod service;
 
 #[cfg(feature = "grpc")]
-pub use server::{GrpcTransport, GrpcConfig, ServerMode as GrpcServerMode};
-#[cfg(feature = "grpc")]
 pub use client::{GrpcClient, GrpcClientConfig};
 #[cfg(feature = "grpc")]
-pub use service::{McpGrpcService, GrpcInfrastructure};
+pub use server::{GrpcConfig, GrpcTransport, ServerMode as GrpcServerMode};
+#[cfg(feature = "grpc")]
+pub use service::{GrpcInfrastructure, McpGrpcService};
 
 // Include generated protobuf code
 #[cfg(feature = "grpc")]

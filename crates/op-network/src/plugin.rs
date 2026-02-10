@@ -5,12 +5,10 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use op_core::types::{
-    ObjectSchemaRef, ServiceInfo, ToolDefinition, ToolResult,
-};
+use op_core::types::{ObjectSchemaRef, ServiceInfo, ToolDefinition, ToolResult};
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -516,7 +514,8 @@ mod tests {
                 "persist": true
             }
         }
-        "#.to_string();
+        "#
+        .to_string();
 
         let plugin: NetworkPlugin = simd_json::from_str(&mut json).unwrap();
         assert_eq!(plugin.bridges.len(), 1);

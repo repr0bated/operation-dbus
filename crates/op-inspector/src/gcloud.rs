@@ -137,11 +137,7 @@ impl GCloudParser {
             .context("Failed to run gcloud --version")?;
 
         let version_str = String::from_utf8_lossy(&output.stdout);
-        Ok(version_str
-            .lines()
-            .next()
-            .unwrap_or("unknown")
-            .to_string())
+        Ok(version_str.lines().next().unwrap_or("unknown").to_string())
     }
 
     /// Get the current authenticated account
@@ -353,7 +349,11 @@ impl GCloudParser {
             }
         }
 
-        description_lines.into_iter().take(3).collect::<Vec<_>>().join(" ")
+        description_lines
+            .into_iter()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Infer type from hint
@@ -375,7 +375,9 @@ impl GCloudParser {
         max_depth: usize,
     ) -> Result<(GCloudCommand, GCloudStats)> {
         let mut stats = GCloudStats::default();
-        let cmd = self.introspect_command_inner(command_path, depth, max_depth, &mut stats).await?;
+        let cmd = self
+            .introspect_command_inner(command_path, depth, max_depth, &mut stats)
+            .await?;
         Ok((cmd, stats))
     }
 
@@ -433,7 +435,13 @@ impl GCloudParser {
                 let mut sub_path = command_path.to_vec();
                 sub_path.push(group.clone());
 
-                match Box::pin(self.introspect_command_inner(&sub_path, depth + 1, max_depth, stats)).await
+                match Box::pin(self.introspect_command_inner(
+                    &sub_path,
+                    depth + 1,
+                    max_depth,
+                    stats,
+                ))
+                .await
                 {
                     Ok(sub_cmd) => {
                         cmd.subcommands.insert(group, sub_cmd);
@@ -448,7 +456,13 @@ impl GCloudParser {
                 let mut sub_path = command_path.to_vec();
                 sub_path.push(command.clone());
 
-                match Box::pin(self.introspect_command_inner(&sub_path, depth + 1, max_depth, stats)).await
+                match Box::pin(self.introspect_command_inner(
+                    &sub_path,
+                    depth + 1,
+                    max_depth,
+                    stats,
+                ))
+                .await
                 {
                     Ok(sub_cmd) => {
                         cmd.subcommands.insert(command, sub_cmd);
@@ -467,9 +481,15 @@ impl GCloudParser {
     pub async fn introspect_full(&self, max_depth: usize) -> Result<GCloudSchema> {
         let start = std::time::Instant::now();
 
-        info!("Starting gcloud CLI introspection (max_depth={})", max_depth);
+        info!(
+            "Starting gcloud CLI introspection (max_depth={})",
+            max_depth
+        );
 
-        let version = self.get_version().await.unwrap_or_else(|_| "unknown".to_string());
+        let version = self
+            .get_version()
+            .await
+            .unwrap_or_else(|_| "unknown".to_string());
         let account = self.get_account().await.unwrap_or(None);
 
         info!("GCloud version: {}", version);
@@ -483,7 +503,10 @@ impl GCloudParser {
 
         info!(
             "Introspection complete: {} groups, {} commands, {} flags in {}ms",
-            stats.total_groups, stats.total_commands, stats.total_flags, stats.introspection_time_ms
+            stats.total_groups,
+            stats.total_commands,
+            stats.total_flags,
+            stats.introspection_time_ms
         );
 
         Ok(GCloudSchema {

@@ -11,8 +11,7 @@ use super::agent_service::AgentServiceImpl;
 use super::cache_service::CacheServiceImpl;
 use super::orchestrator_service::OrchestratorServiceImpl;
 use super::proto::{
-    agent_service_server::AgentServiceServer,
-    cache_service_server::CacheServiceServer,
+    agent_service_server::AgentServiceServer, cache_service_server::CacheServiceServer,
     orchestrator_service_server::OrchestratorServiceServer,
 };
 
@@ -96,7 +95,9 @@ impl GrpcServer {
         Server::builder()
             .add_service(AgentServiceServer::from_arc(self.agent_service))
             .add_service(CacheServiceServer::from_arc(self.cache_service))
-            .add_service(OrchestratorServiceServer::from_arc(self.orchestrator_service))
+            .add_service(OrchestratorServiceServer::from_arc(
+                self.orchestrator_service,
+            ))
             .serve(addr)
             .await?;
 
@@ -115,7 +116,9 @@ impl GrpcServer {
         Server::builder()
             .add_service(AgentServiceServer::from_arc(self.agent_service))
             .add_service(CacheServiceServer::from_arc(self.cache_service))
-            .add_service(OrchestratorServiceServer::from_arc(self.orchestrator_service))
+            .add_service(OrchestratorServiceServer::from_arc(
+                self.orchestrator_service,
+            ))
             .serve_with_shutdown(addr, shutdown)
             .await?;
 

@@ -10,8 +10,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use pocketflow_rs::context::Context;
 use pocketflow_rs::node::{Node, ProcessResult, ProcessState};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use simd_json::ValueBuilder;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -224,7 +224,10 @@ impl Node for WorkflowPluginNode {
                                 "timestamp": chrono::Utc::now().timestamp()
                             });
                             let serde_result = serde_json::to_value(execution_result)?;
-                            self.store_outputs(context, &simd_json::serde::to_owned_value(&serde_result)?)?;
+                            self.store_outputs(
+                                context,
+                                &simd_json::serde::to_owned_value(&serde_result)?,
+                            )?;
                             log::info!(
                                 "📤 Plugin '{}' stored results in workflow context",
                                 self.plugin.name()
@@ -241,7 +244,8 @@ impl Node for WorkflowPluginNode {
                                 "status": "failed",
                                 "timestamp": chrono::Utc::now().timestamp()
                             });
-                            let serde_failure: serde_json::Value = serde_json::to_value(failure_result)?;
+                            let serde_failure: serde_json::Value =
+                                serde_json::to_value(failure_result)?;
                             context.set("last_error", serde_failure);
                             log::error!(
                                 "💥 Plugin '{}' workflow execution failed",
@@ -387,7 +391,11 @@ impl PluginWorkflowManager {
     }
 
     /// Execute a workflow with given context
-    pub async fn execute_workflow(&self, workflow_name: &str, context: Context) -> Result<serde_json::Value> {
+    pub async fn execute_workflow(
+        &self,
+        workflow_name: &str,
+        context: Context,
+    ) -> Result<serde_json::Value> {
         if let Some(workflow) = self.workflows.get(workflow_name) {
             log::info!("🚀 Executing plugin workflow: {}", workflow_name);
             let result = workflow.run(context).await?;

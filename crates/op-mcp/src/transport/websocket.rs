@@ -3,10 +3,13 @@
 //! Full-duplex WebSocket transport for MCP.
 
 use super::{McpHandler, Transport};
-use crate::{McpRequest, McpResponse, JsonRpcError};
+use crate::{JsonRpcError, McpRequest, McpResponse};
 use anyhow::Result;
 use axum::{
-    extract::{State, ws::{Message, WebSocket, WebSocketUpgrade}},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
     response::IntoResponse,
     routing::get,
     Router,
@@ -38,9 +41,9 @@ struct WsState<H> {
 impl Transport for WebSocketTransport {
     async fn serve<H: McpHandler + 'static>(self, handler: Arc<H>) -> Result<()> {
         info!(addr = %self.bind_addr, "Starting WebSocket transport");
-        
+
         let state = Arc::new(WsState { handler });
-        
+
         let app = Router::new()
             .route("/", get(ws_handler::<H>))
             .route("/ws", get(ws_handler::<H>))
@@ -49,13 +52,13 @@ impl Transport for WebSocketTransport {
                 CorsLayer::new()
                     .allow_origin(Any)
                     .allow_methods(Any)
-                    .allow_headers(Any)
+                    .allow_headers(Any),
             )
             .with_state(state);
-        
+
         let listener = tokio::net::TcpListener::bind(&self.bind_addr).await?;
         info!(addr = %self.bind_addr, "WebSocket transport listening");
-        
+
         axum::serve(listener, app).await?;
         Ok(())
     }
@@ -77,9 +80,9 @@ async fn ws_handler<H: McpHandler + 'static>(
 
 async fn handle_ws_connection<H: McpHandler>(socket: WebSocket, state: Arc<WsState<H>>) {
     info!("WebSocket client connected");
-    
+
     let (mut sender, mut receiver) = socket.split();
-    
+
     // Send welcome message
     let welcome = json!({
         "type": "welcome",
@@ -87,18 +90,18 @@ async fn handle_ws_connection<H: McpHandler>(socket: WebSocket, state: Arc<WsSta
         "version": crate::SERVER_VERSION,
         "protocol": crate::PROTOCOL_VERSION
     });
-    
+
     if let Err(e) = sender.send(Message::Text(welcome.to_string())).await {
         error!(error = %e, "Failed to send welcome");
         return;
     }
-    
+
     // Handle incoming messages
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(text)) => {
                 debug!(request = %text, "WebSocket request");
-                
+
                 let mut text_mut = text.clone();
                 let response = match unsafe { simd_json::from_str::<McpRequest>(&mut text_mut) } {
                     Ok(request) => state.handler.handle_request(request).await,
@@ -107,9 +110,9 @@ async fn handle_ws_connection<H: McpHandler>(socket: WebSocket, state: Arc<WsSta
                         McpResponse::error(None, JsonRpcError::parse_error(e.to_string()))
                     }
                 };
-                
+
                 let response_json = simd_json::to_string(&response).unwrap_or_default();
-                
+
                 if let Err(e) = sender.send(Message::Text(response_json)).await {
                     error!(error = %e, "Failed to send response");
                     break;
@@ -132,6 +135,6 @@ async fn handle_ws_connection<H: McpHandler>(socket: WebSocket, state: Arc<WsSta
             }
         }
     }
-    
+
     info!("WebSocket connection closed");
 }

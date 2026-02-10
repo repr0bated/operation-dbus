@@ -20,16 +20,14 @@ pub struct DbusMethodNode {
 
 impl DbusMethodNode {
     /// Create a new D-Bus method node
-    pub fn new(
-        id: &str,
-        service: &str,
-        path: &str,
-        interface: &str,
-        method: &str,
-    ) -> Self {
+    pub fn new(id: &str, service: &str, path: &str, interface: &str, method: &str) -> Self {
         Self {
             id: id.to_string(),
-            name: format!("{}.{}", interface.split('.').last().unwrap_or(interface), method),
+            name: format!(
+                "{}.{}",
+                interface.split('.').last().unwrap_or(interface),
+                method
+            ),
             service: service.to_string(),
             path: path.to_string(),
             interface: interface.to_string(),
@@ -54,17 +52,13 @@ impl WorkflowNode for DbusMethodNode {
     }
 
     fn inputs(&self) -> Vec<NodePort> {
-        vec![
-            NodePort::optional("args", "Arguments", "array")
-                .with_description("Arguments to pass to the D-Bus method"),
-        ]
+        vec![NodePort::optional("args", "Arguments", "array")
+            .with_description("Arguments to pass to the D-Bus method")]
     }
 
     fn outputs(&self) -> Vec<NodePort> {
-        vec![
-            NodePort::required("result", "Result", "object")
-                .with_description("Result from the D-Bus method call"),
-        ]
+        vec![NodePort::required("result", "Result", "object")
+            .with_description("Result from the D-Bus method call")]
     }
 
     fn state(&self) -> NodeState {

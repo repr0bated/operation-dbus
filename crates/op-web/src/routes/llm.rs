@@ -1,15 +1,15 @@
 //! LLM API routes for provider and model management
 
 use axum::{
-    extract::{Query, Extension},
+    extract::{Extension, Query},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
+use simd_json::prelude::*;
 use std::sync::Arc;
 use tracing::{error, info};
-use simd_json::prelude::*;
 
 use crate::state::AppState;
 use op_llm::ProviderType;
@@ -56,17 +56,19 @@ pub struct ModelsQuery {
 }
 
 /// GET /api/llm/status - Get current LLM status
-pub async fn get_llm_status(
-    Extension(state): Extension<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_llm_status(Extension(state): Extension<Arc<AppState>>) -> impl IntoResponse {
     let status = state.chat_manager.get_status().await;
-    
+
     Json(LlmStatusResponse {
         provider: status["provider"].as_str().unwrap_or("unknown").to_string(),
         model: status["model"].as_str().unwrap_or("").to_string(),
         available_providers: status["available_providers"]
             .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
     })
 }
@@ -89,43 +91,53 @@ pub async fn get_models(
     } else {
         state.chat_manager.current_provider().await
     };
-    
+
     // Check if provider is available
     if !state.chat_manager.has_provider(&provider_type) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(simd_json::json!({ 
+            Json(simd_json::json!({
                 "error": format!("Provider {} not available. Check API key.", provider_type),
                 "provider": provider_type.to_string(),
                 "models": []
-            }))
-        ).into_response();
+            })),
+        )
+            .into_response();
     }
-    
-    match state.chat_manager.list_models_for_provider(&provider_type).await {
+
+    match state
+        .chat_manager
+        .list_models_for_provider(&provider_type)
+        .await
+    {
         Ok(models) => {
-            let model_infos: Vec<ModelInfo> = models.into_iter().map(|m| ModelInfo {
-                id: m.id,
-                name: m.name,
-                description: m.description,
-                available: m.available,
-            }).collect();
-            
+            let model_infos: Vec<ModelInfo> = models
+                .into_iter()
+                .map(|m| ModelInfo {
+                    id: m.id,
+                    name: m.name,
+                    description: m.description,
+                    available: m.available,
+                })
+                .collect();
+
             Json(ModelsResponse {
                 provider: provider_type.to_string(),
                 models: model_infos,
-            }).into_response()
+            })
+            .into_response()
         }
         Err(e) => {
             error!("Failed to list models for {}: {}", provider_type, e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(simd_json::json!({ 
+                Json(simd_json::json!({
                     "error": format!("Failed to list models: {}", e),
                     "provider": provider_type.to_string(),
                     "models": []
-                }))
-            ).into_response()
+                })),
+            )
+                .into_response()
         }
     }
 }
@@ -140,12 +152,16 @@ pub async fn switch_provider(
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(simd_json::json!({ "error": format!("Unknown provider: {}", req.provider) }))
+                Json(simd_json::json!({ "error": format!("Unknown provider: {}", req.provider) })),
             );
         }
     };
-    
-    match state.chat_manager.switch_provider(provider_type.clone()).await {
+
+    match state
+        .chat_manager
+        .switch_provider(provider_type.clone())
+        .await
+    {
         Ok(_) => {
             info!("Switched to provider: {}", provider_type);
             (
@@ -153,14 +169,14 @@ pub async fn switch_provider(
                 Json(simd_json::json!({
                     "success": true,
                     "provider": provider_type.to_string()
-                }))
+                })),
             )
         }
         Err(e) => {
             error!("Failed to switch provider: {}", e);
             (
                 StatusCode::BAD_REQUEST,
-                Json(simd_json::json!({ "error": e.to_string() }))
+                Json(simd_json::json!({ "error": e.to_string() })),
             )
         }
     }
@@ -179,14 +195,14 @@ pub async fn switch_model(
                 Json(simd_json::json!({
                     "success": true,
                     "model": req.model
-                }))
+                })),
             )
         }
         Err(e) => {
             error!("Failed to switch model: {}", e);
             (
                 StatusCode::BAD_REQUEST,
-                Json(simd_json::json!({ "error": e.to_string() }))
+                Json(simd_json::json!({ "error": e.to_string() })),
             )
         }
     }

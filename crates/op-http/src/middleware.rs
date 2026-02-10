@@ -142,10 +142,7 @@ impl MiddlewareStack {
         if self.config.cors_enabled {
             let cors = if let Some(ref origins) = self.config.cors_origins {
                 // Specific origins
-                let origins: Vec<_> = origins
-                    .iter()
-                    .filter_map(|o| o.parse().ok())
-                    .collect();
+                let origins: Vec<_> = origins.iter().filter_map(|o| o.parse().ok()).collect();
                 CorsLayer::new()
                     .allow_origin(origins)
                     .allow_methods(Any)

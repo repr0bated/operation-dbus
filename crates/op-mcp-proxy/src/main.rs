@@ -1,21 +1,23 @@
 //! MCP Proxy – thin shim with optional direct-to-subscription mode.
 
+use op_cache::proto::{mcp_service_client::McpServiceClient, McpRequest};
 use std::io::{BufRead, Write};
 use std::sync::Arc;
-use tracing::info;
-use op_cache::proto::{mcp_service_client::McpServiceClient, McpRequest};
 use tonic::transport::Channel;
+use tracing::info;
 
-mod direct_llm;
 mod cloudaicompanion;
-mod session;
+mod direct_llm;
 mod gcloud_auth;
+mod session;
 
 use direct_llm::DirectLLM;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().with_writer(std::io::stderr).init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
 
     // If DIRECT_MODE is set we handle LLM requests ourselves.
     let direct_mode = std::env::var("DIRECT_MODE").is_ok();
@@ -26,8 +28,8 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let daemon_addr = std::env::var("OP_DBUS_ADDR")
-        .unwrap_or_else(|_| "http://[::1]:50051".to_string());
+    let daemon_addr =
+        std::env::var("OP_DBUS_ADDR").unwrap_or_else(|_| "http://[::1]:50051".to_string());
 
     let channel = Channel::from_shared(daemon_addr)?.connect().await?;
     let mut client = McpServiceClient::new(channel);
@@ -45,7 +47,10 @@ async fn main() -> anyhow::Result<()> {
 
         // Route LLM methods directly if in direct mode
         if let Some(ref llm) = direct_llm {
-            if matches!(method, "completion/complete" | "sampling/createMessage" | "generate") {
+            if matches!(
+                method,
+                "completion/complete" | "sampling/createMessage" | "generate"
+            ) {
                 let resp = llm.handle(&req).await;
                 writeln!(stdout, "{}", simd_json::to_string(&resp)?)?;
                 stdout.flush()?;

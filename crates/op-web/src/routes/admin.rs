@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use crate::AppState;
 
@@ -103,16 +103,14 @@ pub struct AdminConfigResponse {
 // =============================================================================
 
 /// GET /admin/prompt - Get full system prompt with metadata
-async fn get_system_prompt(
-    Extension(_state): Extension<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn get_system_prompt(Extension(_state): Extension<Arc<AppState>>) -> impl IntoResponse {
     let metadata = op_chat::system_prompt::get_prompt_metadata().await;
     let full_prompt = op_chat::generate_system_prompt().await;
-    
+
     let char_count = full_prompt.content.len();
     // Rough token estimate: ~4 chars per token
     let estimated_tokens = char_count / 4;
-    
+
     Json(SystemPromptResponse {
         full_prompt: full_prompt.content,
         fixed_part: metadata.fixed_part,
@@ -126,11 +124,9 @@ async fn get_system_prompt(
 }
 
 /// GET /admin/prompt/custom - Get just the custom prompt part
-async fn get_custom_prompt(
-    Extension(_state): Extension<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn get_custom_prompt(Extension(_state): Extension<Arc<AppState>>) -> impl IntoResponse {
     let (content, source) = op_chat::system_prompt::load_custom_prompt().await;
-    
+
     // Try to get last modified time
     let last_modified = if source.starts_with("file:") {
         let path = source.strip_prefix("file:").unwrap_or(&source);
@@ -145,7 +141,7 @@ async fn get_custom_prompt(
     } else {
         None
     };
-    
+
     Json(CustomPromptResponse {
         content,
         source,
@@ -158,8 +154,11 @@ async fn set_custom_prompt(
     Extension(_state): Extension<Arc<AppState>>,
     Json(request): Json<SetCustomPromptRequest>,
 ) -> impl IntoResponse {
-    info!("Admin updating custom prompt ({} chars)", request.content.len());
-    
+    info!(
+        "Admin updating custom prompt ({} chars)",
+        request.content.len()
+    );
+
     match op_chat::system_prompt::save_custom_prompt(&request.content).await {
         Ok(path) => {
             info!("Custom prompt saved to: {}", path);
@@ -186,32 +185,38 @@ async fn test_prompt(
     Json(request): Json<TestPromptRequest>,
 ) -> impl IntoResponse {
     let mut warnings = Vec::new();
-    
+
     // Build preview
     let fixed = op_chat::system_prompt::get_fixed_prompt();
     let preview = format!(
         "{}\n\n## 📝 CUSTOM INSTRUCTIONS\n<!-- Preview - not saved -->\n{}",
-        fixed,
-        request.custom_content
+        fixed, request.custom_content
     );
-    
+
     let char_count = preview.len();
     let estimated_tokens = char_count / 4;
-    
+
     // Check for potential issues
     if request.custom_content.len() > 10000 {
         warnings.push("Custom prompt is very long (>10K chars). This may reduce context space for conversation.".to_string());
     }
-    
-    if request.custom_content.to_lowercase().contains("ignore all previous") ||
-       request.custom_content.to_lowercase().contains("disregard the above") {
+
+    if request
+        .custom_content
+        .to_lowercase()
+        .contains("ignore all previous")
+        || request
+            .custom_content
+            .to_lowercase()
+            .contains("disregard the above")
+    {
         warnings.push("⚠️ Detected potential prompt injection pattern. Be careful with instructions that override core rules.".to_string());
     }
-    
+
     if estimated_tokens > 4000 {
         warnings.push(format!("System prompt is ~{} tokens. Models with 8K context may have limited conversation space.", estimated_tokens));
     }
-    
+
     // Check for forbidden command suggestions
     let forbidden = ["ovs-vsctl", "systemctl", "ip addr", "nmcli"];
     for cmd in forbidden {
@@ -219,7 +224,7 @@ async fn test_prompt(
             warnings.push(format!("Warning: Custom prompt mentions '{}'. The chatbot should use native tools instead.", cmd));
         }
     }
-    
+
     Json(TestPromptResponse {
         success: true,
         preview,
@@ -230,12 +235,10 @@ async fn test_prompt(
 }
 
 /// POST /admin/prompt/reload - Force reload of custom prompt
-async fn reload_prompt(
-    Extension(_state): Extension<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn reload_prompt(Extension(_state): Extension<Arc<AppState>>) -> impl IntoResponse {
     op_chat::system_prompt::invalidate_prompt_cache().await;
     info!("Prompt cache invalidated by admin");
-    
+
     Json(simd_json::json!({
         "success": true,
         "message": "Prompt cache cleared. Next request will reload from disk."
@@ -243,13 +246,11 @@ async fn reload_prompt(
 }
 
 /// GET /admin/config - Get admin configuration overview
-async fn get_config(
-    Extension(state): Extension<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn get_config(Extension(state): Extension<Arc<AppState>>) -> impl IntoResponse {
     let llm_model = state.chat_manager.current_model().await;
     let llm_provider = state.chat_manager.current_provider().await.to_string();
     let tool_count = state.tool_registry.list().await.len();
-    
+
     Json(AdminConfigResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         llm_provider,

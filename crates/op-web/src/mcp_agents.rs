@@ -3,40 +3,41 @@
 //! Provides MCP-compatible access to core orchestration agents plus
 //! additional requested agents.
 
-use axum::{routing::{get, post},
-    extract::{Json, Extension},
+use axum::{
+    extract::{Extension, Json},
     http::{HeaderMap, StatusCode},
     response::{
         sse::{Event, Sse},
         IntoResponse, Response,
     },
+    routing::{get, post},
 };
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
-use op_agents::agents::base::{AgentTrait as Agent, AgentTask};
+use op_agents::agents::base::{AgentTask, AgentTrait as Agent};
 use op_agents::agents::orchestration::context_manager::ContextManagerAgent;
+use op_agents::agents::orchestration::mem0_wrapper::Mem0WrapperAgent;
 use op_agents::agents::orchestration::memory::MemoryAgent;
 use op_agents::agents::orchestration::sequential_thinking::SequentialThinkingAgent;
-use op_agents::agents::orchestration::mem0_wrapper::Mem0WrapperAgent;
 
 // Additional agents
-use op_agents::agents::seo::search_specialist::SearchSpecialistAgent;
+use op_agents::agents::aiml::prompt_engineer::PromptEngineerAgent;
+use op_agents::agents::analysis::debugger::DebuggerAgent;
+use op_agents::agents::architecture::BackendArchitectAgent;
 use op_agents::agents::infrastructure::deployment::DeploymentAgent;
 use op_agents::agents::infrastructure::network::NetworkEngineerAgent;
 use op_agents::agents::language::python_pro::PythonProAgent;
 use op_agents::agents::language::rust_pro::RustProAgent;
-use op_agents::agents::architecture::BackendArchitectAgent;
-use op_agents::agents::analysis::debugger::DebuggerAgent;
-use op_agents::agents::aiml::prompt_engineer::PromptEngineerAgent;
 use op_agents::agents::security::BackendSecurityCoderAgent;
+use op_agents::agents::seo::search_specialist::SearchSpecialistAgent;
 
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
@@ -100,7 +101,9 @@ impl CriticalAgentsState {
             // Core orchestration agents (memory, cognitive)
             Arc::new(MemoryAgent::new("memory".to_string())),
             Arc::new(ContextManagerAgent::new("context_manager".to_string())),
-            Arc::new(SequentialThinkingAgent::new("sequential_thinking".to_string())),
+            Arc::new(SequentialThinkingAgent::new(
+                "sequential_thinking".to_string(),
+            )),
             Arc::new(Mem0WrapperAgent::new("mem0".to_string())),
             // Language agents (rust_pro, python)
             Arc::new(RustProAgent::new("rust_pro".to_string())),
@@ -108,7 +111,9 @@ impl CriticalAgentsState {
             // Architecture agents (backend_architect)
             Arc::new(BackendArchitectAgent::new("backend_architect".to_string())),
             // Security agents (backend_security_coder)
-            Arc::new(BackendSecurityCoderAgent::new("backend_security_coder".to_string())),
+            Arc::new(BackendSecurityCoderAgent::new(
+                "backend_security_coder".to_string(),
+            )),
             // Network agents
             Arc::new(NetworkEngineerAgent::new("network_engineer".to_string())),
             // Frequently used utility agents
@@ -118,7 +123,10 @@ impl CriticalAgentsState {
             Arc::new(PromptEngineerAgent::new("prompt_engineer".to_string())),
         ];
 
-        info!("Initialized Critical Agents MCP with {} agents", agents.len());
+        info!(
+            "Initialized Critical Agents MCP with {} agents",
+            agents.len()
+        );
         Self { agents }
     }
 
@@ -398,7 +406,7 @@ impl CriticalAgentsState {
                     "args": {"type": "object", "description": "Operation arguments"}
                 },
                 "required": []
-            })
+            }),
         }
     }
 
@@ -463,9 +471,7 @@ pub async fn mcp_agents_sse_handler_stateless(
 
 /// Stateless message handler that uses global state
 /// Used when nesting under the main MCP router
-pub async fn mcp_agents_message_handler_stateless(
-    Json(request): Json<JsonRpcRequest>,
-) -> Response {
+pub async fn mcp_agents_message_handler_stateless(Json(request): Json<JsonRpcRequest>) -> Response {
     let state = GLOBAL_AGENTS_STATE.clone();
     mcp_agents_message_handler(Extension(state), Json(request)).await
 }
@@ -488,9 +494,7 @@ pub async fn mcp_agents_sse_handler(
     let post_url = format!("{}://{}/mcp/agents/message", scheme, host);
     info!("MCP Agents POST endpoint: {}", post_url);
 
-    let endpoint_event = Event::default()
-        .event("endpoint")
-        .data(&post_url);
+    let endpoint_event = Event::default().event("endpoint").data(&post_url);
 
     let stream = stream::once(async move { Ok(endpoint_event) });
 
@@ -505,7 +509,10 @@ pub async fn mcp_agents_message_handler(
     Extension(state): Extension<Arc<AgentsMcpState>>,
     Json(request): Json<JsonRpcRequest>,
 ) -> Response {
-    debug!("MCP Agents request: method={} id={}", request.method, request.id);
+    debug!(
+        "MCP Agents request: method={} id={}",
+        request.method, request.id
+    );
 
     let response = match request.method.as_str() {
         "initialize" => handle_initialize(&request),
@@ -526,16 +533,15 @@ pub async fn mcp_agents_message_handler(
 
     let json_body = simd_json::to_string(&response).unwrap_or_else(|e| {
         error!("Failed to serialize response: {}", e);
-        r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}"#.to_string()
+        r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}"#
+            .to_string()
     });
 
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(json_body.into())
-        .unwrap_or_else(|_| {
-            (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response()
-        })
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response())
 }
 
 fn handle_initialize(request: &JsonRpcRequest) -> JsonRpcResponse {
@@ -558,11 +564,14 @@ fn handle_initialize(request: &JsonRpcRequest) -> JsonRpcResponse {
     )
 }
 
-async fn handle_tools_list(state: &Arc<AgentsMcpState>, request: &JsonRpcRequest) -> JsonRpcResponse {
+async fn handle_tools_list(
+    state: &Arc<AgentsMcpState>,
+    request: &JsonRpcRequest,
+) -> JsonRpcResponse {
     info!("MCP Agents tools/list request");
     let agents = state.agents.read().await;
     let tools = agents.get_tools();
-    
+
     JsonRpcResponse::success(
         request.id.clone(),
         json!({
@@ -576,7 +585,7 @@ async fn handle_tools_call(
     request: &JsonRpcRequest,
 ) -> JsonRpcResponse {
     let params = &request.params;
-    
+
     let tool_name = match params.get("name").and_then(|v| v.as_str()) {
         Some(name) => name,
         None => {
@@ -588,16 +597,16 @@ async fn handle_tools_call(
             );
         }
     };
-    
-    let arguments = params
-        .get("arguments")
-        .cloned()
-        .unwrap_or(json!({}));
 
-    info!("MCP Agents tool call: {} with args: {}", tool_name, arguments);
+    let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+
+    info!(
+        "MCP Agents tool call: {} with args: {}",
+        tool_name, arguments
+    );
 
     let agents = state.agents.read().await;
-    
+
     let (agent, operation) = match agents.find_agent(tool_name) {
         Some((a, op)) => (a.clone(), op),
         None => {
@@ -613,17 +622,21 @@ async fn handle_tools_call(
             );
         }
     };
-    
+
     drop(agents);
-    
+
     let agent_type = tool_name.split('_').next().unwrap_or(tool_name);
-    
+
     let task = AgentTask {
         task_type: agent_type.to_string(),
         operation: operation.clone(),
-        path: arguments.get("path").and_then(|p| p.as_str()).map(String::from),
+        path: arguments
+            .get("path")
+            .and_then(|p| p.as_str())
+            .map(String::from),
         args: Some(simd_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string())),
-        config: arguments.as_object()
+        config: arguments
+            .as_object()
             .map(|obj| {
                 obj.iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
@@ -631,11 +644,11 @@ async fn handle_tools_call(
             })
             .unwrap_or_default(),
     };
-    
+
     match agent.execute(task).await {
         Ok(result) => {
-            let text = simd_json::to_string_pretty(&result)
-                .unwrap_or_else(|_| format!("{:?}", result));
+            let text =
+                simd_json::to_string_pretty(&result).unwrap_or_else(|_| format!("{:?}", result));
             JsonRpcResponse::success(
                 request.id.clone(),
                 json!({

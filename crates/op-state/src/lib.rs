@@ -20,10 +20,11 @@ pub mod plugin_workflow;
 pub mod plugtree;
 pub mod schema_validator;
 
-pub use manager::{StateManager, FootprintSender};
+pub use manager::{FootprintSender, StateManager};
 pub use plugin::{
-    ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin,
-    DesiredState, StateChange, ValidationResult, StateSource, ChangeOperation, ValidationError,
+    ApplyResult, ChangeOperation, Checkpoint, DesiredState, DiffMetadata, PluginCapabilities,
+    StateAction, StateChange, StateDiff, StatePlugin, StateSource, ValidationError,
+    ValidationResult,
 };
 pub use plugtree::PlugTree;
 

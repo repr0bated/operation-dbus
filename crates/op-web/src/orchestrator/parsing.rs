@@ -1,8 +1,8 @@
-use regex::Regex;
-use simd_json::{json, OwnedValue as Value};
-use simd_json::prelude::*;
-use tracing::info;
 use super::UnifiedOrchestrator;
+use regex::Regex;
+use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
+use tracing::info;
 
 impl UnifiedOrchestrator {
     /// Extract tool calls from text (for models without native tool calling)
@@ -11,11 +11,17 @@ impl UnifiedOrchestrator {
     /// - XML tags: `<tool_call>name({args})</tool_call>`
     /// - Code blocks: ` ```tool ... ``` `
     /// - Direct calls: `tool_name({args})`
-    pub(crate) fn extract_tool_calls_from_text(&self, text: &str, available: &[String]) -> Vec<(String, Value)> {
+    pub(crate) fn extract_tool_calls_from_text(
+        &self,
+        text: &str,
+        available: &[String],
+    ) -> Vec<(String, Value)> {
         let mut calls = Vec::new();
 
         // Pattern 1: <tool_call>name({"arg": "val"})</tool_call> (with multiline support)
-        if let Ok(re) = Regex::new(r"(?s)<tool_call>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)\s*</tool_call>") {
+        if let Ok(re) =
+            Regex::new(r"(?s)<tool_call>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)\s*</tool_call>")
+        {
             for cap in re.captures_iter(text) {
                 if let (Some(name), Some(args)) = (cap.get(1), cap.get(2)) {
                     let tool_name = name.as_str().to_string();
@@ -61,15 +67,20 @@ impl UnifiedOrchestrator {
     }
 
     /// Parse function call patterns from text
-    pub(crate) fn parse_function_calls(&self, text: &str, available: &[String]) -> Vec<(String, Value)> {
+    pub(crate) fn parse_function_calls(
+        &self,
+        text: &str,
+        available: &[String],
+    ) -> Vec<(String, Value)> {
         let mut calls = Vec::new();
-        
+
         // Match: tool_name({...}) with multiline JSON support
         if let Ok(re) = Regex::new(r"(?s)\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*(\{.*?\})\s*") {
             for cap in re.captures_iter(text) {
                 if let (Some(name), Some(args)) = (cap.get(1), cap.get(2)) {
                     let tool_name = name.as_str().to_string();
-                    if available.contains(&tool_name) && !calls.iter().any(|(n, _)| n == &tool_name) {
+                    if available.contains(&tool_name) && !calls.iter().any(|(n, _)| n == &tool_name)
+                    {
                         let mut raw = args.as_str().trim().to_string();
                         if let Ok(parsed) = unsafe { simd_json::from_str(&mut raw) } {
                             info!("Extracted tool call from function syntax: {}", tool_name);
@@ -84,7 +95,11 @@ impl UnifiedOrchestrator {
     }
 
     /// Parse tool calls from LLM response (handling native + text fallback)
-    pub(crate) fn parse_tool_calls(&self, content: &str, tool_calls: &Option<Vec<op_llm::provider::ToolCallInfo>>) -> Vec<(String, Value)> {
+    pub(crate) fn parse_tool_calls(
+        &self,
+        content: &str,
+        tool_calls: &Option<Vec<op_llm::provider::ToolCallInfo>>,
+    ) -> Vec<(String, Value)> {
         let mut calls = Vec::new();
 
         // First, check native tool calls
@@ -126,21 +141,45 @@ impl UnifiedOrchestrator {
     /// Detect forbidden CLI commands in response
     pub(crate) fn detect_forbidden_commands(&self, content: &str) -> Vec<String> {
         let forbidden = [
-            "rm -rf", "mkfs", "dd if=", "> /dev/", "chmod 777",
-            "curl | sh", "wget | sh", "eval $(", "`curl", "`wget",
+            "rm -rf",
+            "mkfs",
+            "dd if=",
+            "> /dev/",
+            "chmod 777",
+            "curl | sh",
+            "wget | sh",
+            "eval $(",
+            "`curl",
+            "`wget",
             // OVS CLI - use ovs_* tools instead
-            "ovs-vsctl", "ovs-ofctl", "ovs-dpctl", "ovsdb-client",
+            "ovs-vsctl",
+            "ovs-ofctl",
+            "ovs-dpctl",
+            "ovsdb-client",
             // Systemd CLI - use dbus_systemd_* tools instead
-            "systemctl", "service ", "journalctl",
+            "systemctl",
+            "service ",
+            "journalctl",
             // Network CLI - use rtnetlink_* tools instead
-            "ip addr", "ip link", "ip route", "ifconfig", "nmcli",
+            "ip addr",
+            "ip link",
+            "ip route",
+            "ifconfig",
+            "nmcli",
             // Package managers - not supported yet
-            "apt ", "apt-get", "yum ", "dnf ", "pacman",
+            "apt ",
+            "apt-get",
+            "yum ",
+            "dnf ",
+            "pacman",
             // Container CLI - use lxc_* tools instead
-            "docker ", "kubectl", "lxc ",
+            "docker ",
+            "kubectl",
+            "lxc ",
         ];
 
-        forbidden.iter()
+        forbidden
+            .iter()
             .filter(|cmd| content.to_lowercase().contains(*cmd))
             .map(|s| s.to_string())
             .collect()

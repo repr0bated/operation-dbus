@@ -60,7 +60,7 @@ pub struct StepResult {
     pub retries: u32,
 }
 
-/// Result of a complete workflow execution 
+/// Result of a complete workflow execution
 #[derive(Debug, Clone)]
 pub struct WorkflowResult {
     pub workflow_id: String,
@@ -286,10 +286,7 @@ impl WorkflowExecutor {
         // Generate a temporary workflow ID for caching
         let workflow_id = format!("adhoc-{}", &input_hash[..8]);
 
-        info!(
-            "Executing ad-hoc sequence ({} agents)",
-            agents.len()
-        );
+        info!("Executing ad-hoc sequence ({} agents)", agents.len());
 
         // Pin to NUMA node if enabled
         let numa_node = if self.config.numa_pinning {
@@ -314,10 +311,7 @@ impl WorkflowExecutor {
 
             // Try cache (even for ad-hoc sequences)
             let (output, cached) = if self.config.enable_caching {
-                match self
-                    .cache
-                    .get(&workflow_id, step_index, &step_input_hash)?
-                {
+                match self.cache.get(&workflow_id, step_index, &step_input_hash)? {
                     Some(cached_output) => {
                         cache_hits += 1;
                         (cached_output, true)
@@ -361,7 +355,10 @@ impl WorkflowExecutor {
         let total_latency_ms = start_time.elapsed().as_millis() as u64;
 
         // Record sequence for pattern detection
-        if let Some(suggestion) = self.tracker.record_sequence(agents, &input_hash, total_latency_ms)? {
+        if let Some(suggestion) =
+            self.tracker
+                .record_sequence(agents, &input_hash, total_latency_ms)?
+        {
             info!(
                 "Pattern detected! Suggest creating workflow '{}' (called {} times)",
                 suggestion.suggested_name, suggestion.pattern.call_count

@@ -8,8 +8,8 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 

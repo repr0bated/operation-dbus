@@ -11,9 +11,9 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn};
 
 use super::proto::{
-    agent_service_server::AgentService, Agent, Empty, ExecuteAgentChunk,
-    ExecuteAgentRequest, ExecuteAgentResponse, FindByCapabilityRequest, FindByCapabilityResponse,
-    GetAgentRequest, HealthCheckRequest, HealthCheckResponse, ListAgentsRequest, ListAgentsResponse,
+    agent_service_server::AgentService, Agent, Empty, ExecuteAgentChunk, ExecuteAgentRequest,
+    ExecuteAgentResponse, FindByCapabilityRequest, FindByCapabilityResponse, GetAgentRequest,
+    HealthCheckRequest, HealthCheckResponse, ListAgentsRequest, ListAgentsResponse,
     ListCapabilitiesResponse, RegisterAgentRequest, RegisterAgentResponse, UnregisterAgentRequest,
     UnregisterAgentResponse,
 };
@@ -43,7 +43,11 @@ impl AgentServiceImpl {
     }
 
     /// Register a local agent with an executor function
-    pub async fn register_local(&self, agent: Agent, executor: AgentExecutor) -> Result<(), String> {
+    pub async fn register_local(
+        &self,
+        agent: Agent,
+        executor: AgentExecutor,
+    ) -> Result<(), String> {
         let agent_id = agent.id.clone();
         let capabilities = agent.capabilities.clone();
 
@@ -213,7 +217,8 @@ impl AgentService for AgentServiceImpl {
         }
     }
 
-    type ExecuteStreamStream = tokio_stream::wrappers::ReceiverStream<Result<ExecuteAgentChunk, Status>>;
+    type ExecuteStreamStream =
+        tokio_stream::wrappers::ReceiverStream<Result<ExecuteAgentChunk, Status>>;
 
     async fn execute_stream(
         &self,
@@ -259,7 +264,9 @@ impl AgentService for AgentServiceImpl {
             }
         });
 
-        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
     }
 
     async fn get_agent(
@@ -288,9 +295,7 @@ impl AgentService for AgentServiceImpl {
             .map(|a| a.definition.clone())
             .collect();
 
-        Ok(Response::new(ListAgentsResponse {
-            agents: agent_list,
-        }))
+        Ok(Response::new(ListAgentsResponse { agents: agent_list }))
     }
 
     async fn find_by_capability(

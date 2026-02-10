@@ -12,13 +12,15 @@
 use anyhow::{Context, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use simd_json::prelude::*;
 use simd_json::OwnedValue;
 use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-use op_llm::provider::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, ToolDefinition, ToolChoice};
+use op_llm::provider::{
+    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ToolChoice, ToolDefinition,
+};
 use op_tools::ToolRegistry;
 
 /// Extracted tool call from LLM response
@@ -88,17 +90,17 @@ impl ToolCallParser {
             // Matches: <tool_call>tool_name({"arg": "value"})</tool_call>
             // Also handles nested JSON with newlines using (?s) for DOTALL mode
             xml_tag_regex: Regex::new(
-                r"(?s)<tool_call>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)\s*</tool_call>"
-            ).unwrap(),
+                r"(?s)<tool_call>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)\s*</tool_call>",
+            )
+            .unwrap(),
             // Matches: ```tool\ntool_name({"arg": "value"})\n```
             // Also handles ```tool_code format
-            code_block_regex: Regex::new(
-                r"(?s)```(?:tool|tool_code)\s*\n(.+?)\n```"
-            ).unwrap(),
+            code_block_regex: Regex::new(r"(?s)```(?:tool|tool_code)\s*\n(.+?)\n```").unwrap(),
             // Matches: tool_name({"arg": "value"}) or tool_name({multi-line json})
             function_call_regex: Regex::new(
-                r"(?s)\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*(\{.*?\})\s*\)"
-            ).unwrap(),
+                r"(?s)\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*(\{.*?\})\s*\)",
+            )
+            .unwrap(),
         }
     }
 
@@ -142,14 +144,14 @@ impl ToolCallParser {
             if let Some(block_content) = cap.get(1) {
                 let inner = block_content.as_str();
                 debug!("Parsing code block content: {:?}", inner);
-                
+
                 // Try parsing XML tags from inside the code block
                 let xml_calls = self.extract_from_xml_tags(inner, available_tools);
                 if !xml_calls.is_empty() {
                     calls.extend(xml_calls);
                     continue;
                 }
-                
+
                 // Try parsing direct function calls from inside the code block
                 let func_calls = self.extract_from_function_calls(inner, available_tools);
                 if !func_calls.is_empty() {
@@ -169,19 +171,25 @@ impl ToolCallParser {
     }
 
     /// Extract tool calls from XML tags in content
-    fn extract_from_xml_tags(&self, content: &str, available_tools: &[String]) -> Vec<ExtractedToolCall> {
+    fn extract_from_xml_tags(
+        &self,
+        content: &str,
+        available_tools: &[String],
+    ) -> Vec<ExtractedToolCall> {
         let mut calls = Vec::new();
         for cap in self.xml_tag_regex.captures_iter(content) {
             if let (Some(name), Some(args)) = (cap.get(1), cap.get(2)) {
                 let tool_name = name.as_str().to_string();
                 let args_str = args.as_str().trim();
-                
+
                 if !available_tools.contains(&tool_name) {
                     warn!("Tool {} not in available tools", tool_name);
                     continue;
                 }
-                
-                if let Ok(arguments) = unsafe { simd_json::from_str::<Value>(&mut args_str.to_string()) } {
+
+                if let Ok(arguments) =
+                    unsafe { simd_json::from_str::<Value>(&mut args_str.to_string()) }
+                {
                     calls.push(ExtractedToolCall {
                         name: tool_name,
                         arguments,
@@ -194,19 +202,25 @@ impl ToolCallParser {
     }
 
     /// Extract tool calls from function call patterns in content
-    fn extract_from_function_calls(&self, content: &str, available_tools: &[String]) -> Vec<ExtractedToolCall> {
+    fn extract_from_function_calls(
+        &self,
+        content: &str,
+        available_tools: &[String],
+    ) -> Vec<ExtractedToolCall> {
         let mut calls = Vec::new();
         for cap in self.function_call_regex.captures_iter(content) {
             if let (Some(name), Some(args)) = (cap.get(1), cap.get(2)) {
                 let tool_name = name.as_str().to_string();
                 let args_str = args.as_str().trim();
-                
+
                 if !available_tools.contains(&tool_name) {
                     warn!("Tool {} not in available tools", tool_name);
                     continue;
                 }
-                
-                if let Ok(arguments) = unsafe { simd_json::from_str::<Value>(&mut args_str.to_string()) } {
+
+                if let Ok(arguments) =
+                    unsafe { simd_json::from_str::<Value>(&mut args_str.to_string()) }
+                {
                     info!("Extracted tool call: {}", tool_name);
                     calls.push(ExtractedToolCall {
                         name: tool_name,
@@ -222,11 +236,25 @@ impl ToolCallParser {
     /// Check if response contains forbidden CLI commands
     pub fn contains_forbidden_commands(&self, content: &str) -> Vec<String> {
         let forbidden = [
-            "ovs-vsctl", "ovs-ofctl", "ovs-dpctl", "ovsdb-client",
-            "systemctl", "service ", "journalctl",
-            "ip addr", "ip link", "ip route", "ifconfig", "nmcli",
-            "apt ", "apt-get", "yum ", "dnf ", "pacman",
-            "sudo ", "su -",
+            "ovs-vsctl",
+            "ovs-ofctl",
+            "ovs-dpctl",
+            "ovsdb-client",
+            "systemctl",
+            "service ",
+            "journalctl",
+            "ip addr",
+            "ip link",
+            "ip route",
+            "ifconfig",
+            "nmcli",
+            "apt ",
+            "apt-get",
+            "yum ",
+            "dnf ",
+            "pacman",
+            "sudo ",
+            "su -",
         ];
 
         let lower = content.to_lowercase();
@@ -259,7 +287,7 @@ impl NLAdminOrchestrator {
         // Use the comprehensive system prompt from system_prompt.rs
         let base_prompt = crate::system_prompt::generate_system_prompt().await;
         let mut prompt = base_prompt.content;
-        
+
         // Add dynamically generated tool list
         let tools = self.tool_registry.list().await;
         prompt.push_str("\n\n## DYNAMICALLY LOADED TOOLS\n\n");
@@ -315,7 +343,8 @@ impl NLAdminOrchestrator {
             prompt.push('\n');
         }
 
-        prompt.push_str(r#"
+        prompt.push_str(
+            r#"
 ## EXAMPLES
 
 **User:** "Create an OVS bridge called ovsbr0"
@@ -339,7 +368,8 @@ impl NLAdminOrchestrator {
 - Use the exact tool names listed above
 - Format tool calls with <tool_call> tags
 - Explain what you're doing before calling tools
-"#);
+"#,
+        );
 
         prompt
     }
@@ -399,63 +429,76 @@ impl NLAdminOrchestrator {
         let mut all_tools_executed = Vec::new();
         let mut all_forbidden = Vec::new();
         let mut final_response = String::new();
-        
+
         for iteration in 0..MAX_ITERATIONS {
             info!("Multi-step execution: iteration {}", iteration + 1);
 
-        // Build request
-        let request = ChatRequest {
+            // Build request
+            let request = ChatRequest {
                 messages: messages.clone(),
                 tools: tools.clone(),
                 tool_choice: ToolChoice::Auto,
-            max_tokens: Some(2048),
+                max_tokens: Some(2048),
                 temperature: Some(0.3),
-            top_p: None,
-        };
+                top_p: None,
+            };
 
-        // Send to LLM
-        let response = provider
-            .chat_with_request(model, request)
-            .await
-            .context("LLM request failed")?;
+            // Send to LLM
+            let response = provider
+                .chat_with_request(model, request)
+                .await
+                .context("LLM request failed")?;
 
-            debug!("LLM response (iteration {}): {:?}", iteration + 1, response.message.content);
+            debug!(
+                "LLM response (iteration {}): {:?}",
+                iteration + 1,
+                response.message.content
+            );
 
-        // Extract tool calls
-        let tool_calls = self.tool_parser.extract_tool_calls(&response, &tool_names);
+            // Extract tool calls
+            let tool_calls = self.tool_parser.extract_tool_calls(&response, &tool_names);
 
             // Check for forbidden commands
-        let forbidden = self.tool_parser.contains_forbidden_commands(&response.message.content);
-        if !forbidden.is_empty() {
-            warn!("LLM suggested forbidden commands: {:?}", forbidden);
+            let forbidden = self
+                .tool_parser
+                .contains_forbidden_commands(&response.message.content);
+            if !forbidden.is_empty() {
+                warn!("LLM suggested forbidden commands: {:?}", forbidden);
                 all_forbidden.extend(forbidden);
             }
 
             // If no tool calls, we're done (LLM has finished or is just responding)
             if tool_calls.is_empty() {
-                info!("No more tool calls - task complete after {} iterations", iteration + 1);
+                info!(
+                    "No more tool calls - task complete after {} iterations",
+                    iteration + 1
+                );
                 final_response = response.message.content.clone();
                 break;
             }
 
             // Check if the only tool call is respond_to_user - that means we're done
-            let is_final_response = tool_calls.len() == 1 && tool_calls[0].name == "respond_to_user";
+            let is_final_response =
+                tool_calls.len() == 1 && tool_calls[0].name == "respond_to_user";
 
-        // Execute tool calls
+            // Execute tool calls
             let mut iteration_results = Vec::new();
-        for call in &tool_calls {
-            info!("Executing tool: {} with args: {:?}", call.name, call.arguments);
+            for call in &tool_calls {
+                info!(
+                    "Executing tool: {} with args: {:?}",
+                    call.name, call.arguments
+                );
                 all_tools_executed.push(call.name.clone());
 
-            match self.execute_tool(&call.name, call.arguments.clone()).await {
-                Ok(result) => {
+                match self.execute_tool(&call.name, call.arguments.clone()).await {
+                    Ok(result) => {
                         iteration_results.push(ToolExecutionResult {
-                        tool_name: call.name.clone(),
-                        success: true,
+                            tool_name: call.name.clone(),
+                            success: true,
                             result: Some(result.clone()),
-                        error: None,
-                    });
-                        
+                            error: None,
+                        });
+
                         // Add tool result to messages for context
                         messages.push(ChatMessage::assistant(&format!(
                             "<tool_call>{}({})</tool_call>",
@@ -467,16 +510,16 @@ impl NLAdminOrchestrator {
                             call.name,
                             simd_json::to_string_pretty(&result).unwrap_or_default()
                         )));
-                }
-                Err(e) => {
-                    error!("Tool execution failed: {}", e);
+                    }
+                    Err(e) => {
+                        error!("Tool execution failed: {}", e);
                         iteration_results.push(ToolExecutionResult {
-                        tool_name: call.name.clone(),
-                        success: false,
-                        result: None,
-                        error: Some(e.to_string()),
-                    });
-                        
+                            tool_name: call.name.clone(),
+                            success: false,
+                            result: None,
+                            error: Some(e.to_string()),
+                        });
+
                         // Add error to messages
                         messages.push(ChatMessage::assistant(&format!(
                             "<tool_call>{}({})</tool_call>",
@@ -510,9 +553,13 @@ impl NLAdminOrchestrator {
         let message = if !final_response.is_empty() {
             self.format_response(&final_response, &all_tool_results, &all_forbidden)
         } else {
-            self.format_response("Task execution completed.", &all_tool_results, &all_forbidden)
+            self.format_response(
+                "Task execution completed.",
+                &all_tool_results,
+                &all_forbidden,
+            )
         };
-        
+
         let success = all_tool_results.iter().all(|r| r.success) && all_forbidden.is_empty();
 
         Ok(NLAdminResult {
@@ -564,19 +611,26 @@ impl NLAdminOrchestrator {
         // Format tool results as a summary section
         let success_count = tool_results.iter().filter(|r| r.success).count();
         let fail_count = tool_results.iter().filter(|r| !r.success).count();
-        
+
         if tool_results.len() > 1 {
-            response.push_str(&format!("**Executed {} tools** ({} success, {} failed)\n\n", 
-                tool_results.len(), success_count, fail_count));
+            response.push_str(&format!(
+                "**Executed {} tools** ({} success, {} failed)\n\n",
+                tool_results.len(),
+                success_count,
+                fail_count
+            ));
         }
-        
+
         for result in tool_results {
             if result.success {
                 response.push_str(&format!("✅ **{}** ", result.tool_name));
                 if let Some(ref data) = result.result {
                     // Brief summary for successful tools
                     if let Some(obj) = data.as_object() {
-                        let key_count = obj.keys().filter(|k: &&String| k.as_str() != "_internal").count();
+                        let key_count = obj
+                            .keys()
+                            .filter(|k: &&String| k.as_str() != "_internal")
+                            .count();
                         response.push_str(&format!("({} fields)", key_count));
                     }
                 }
@@ -646,7 +700,10 @@ fn format_value(value: &Value) -> String {
     }
     if let Some(arr) = value.as_array() {
         if arr.len() <= 5 {
-            return format!("[{}]", arr.iter().map(format_value).collect::<Vec<_>>().join(", "));
+            return format!(
+                "[{}]",
+                arr.iter().map(format_value).collect::<Vec<_>>().join(", ")
+            );
         }
         return format!("[{} items]", arr.len());
     }

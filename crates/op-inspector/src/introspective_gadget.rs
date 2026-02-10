@@ -25,9 +25,9 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
 use simd_json::ValueBuilder;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -179,8 +179,8 @@ impl IntrospectiveGadget {
         let mut inspect_json = String::from_utf8_lossy(&inspect_output.stdout).to_string();
 
         // Parse the JSON
-        let container_data: Value =
-            unsafe { simd_json::from_str(&mut inspect_json) }.context("Failed to parse docker inspect JSON")?;
+        let container_data: Value = unsafe { simd_json::from_str(&mut inspect_json) }
+            .context("Failed to parse docker inspect JSON")?;
 
         // Extract key information
         let config = container_data[0]["Config"].clone();

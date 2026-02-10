@@ -27,7 +27,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use async_trait::async_trait;
 use crate::anthropic::AnthropicClient;
 use crate::antigravity::AntigravityProvider;
 use crate::gcloud_adc::GCloudADCProvider;
@@ -35,6 +34,7 @@ use crate::gemini::GeminiClient;
 use crate::provider::{
     BoxedProvider, ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderType,
 };
+use async_trait::async_trait;
 
 /// Chat manager - handles multiple providers and model selection
 pub struct ChatManager {
@@ -265,7 +265,10 @@ impl ChatManager {
     }
 
     /// List models for a specific provider
-    pub async fn list_models_for_provider(&self, provider_type: &ProviderType) -> Result<Vec<ModelInfo>> {
+    pub async fn list_models_for_provider(
+        &self,
+        provider_type: &ProviderType,
+    ) -> Result<Vec<ModelInfo>> {
         let provider = self
             .providers
             .get(provider_type)
@@ -366,30 +369,27 @@ impl ChatManager {
     pub async fn get_detailed_status(&self) -> simd_json::OwnedValue {
         let current_provider = self.current_provider.read().await.clone();
         let current_model = self.current_model.read().await.clone();
-        
+
         let mut provider_status = simd_json::value::owned::Object::new();
-        
+
         for ptype in self.providers.keys() {
             let models = self.list_models_for_provider(ptype).await.ok();
             let (auth_type, features) = match ptype {
                 ProviderType::Antigravity => (
                     "OAuth (headless Antigravity service)",
-                    vec!["Enterprise billing", "Gemini models", "No API charges"]
+                    vec!["Enterprise billing", "Gemini models", "No API charges"],
                 ),
                 ProviderType::Gemini => (
                     "API key (GEMINI_API_KEY)",
-                    vec!["Gemini models", "Multimodal", "Long context"]
+                    vec!["Gemini models", "Multimodal", "Long context"],
                 ),
                 ProviderType::Anthropic => (
                     "API key (ANTHROPIC_API_KEY)",
-                    vec!["Claude models", "Best reasoning", "Tool use"]
+                    vec!["Claude models", "Best reasoning", "Tool use"],
                 ),
-                _ => (
-                    "API key",
-                    vec![]
-                ),
+                _ => ("API key", vec![]),
             };
-            
+
             provider_status.insert(
                 ptype.to_string(),
                 simd_json::json!({
@@ -397,7 +397,7 @@ impl ChatManager {
                     "model_count": models.as_ref().map(|m| m.len()).unwrap_or(0),
                     "auth_type": auth_type,
                     "features": features,
-                })
+                }),
             );
         }
 
@@ -434,18 +434,20 @@ impl LlmProvider for ChatManager {
 
     async fn chat(&self, model: &str, messages: Vec<ChatMessage>) -> Result<ChatResponse> {
         let provider_type = self.resolve_provider().await?;
-        let provider = self.providers.get(&provider_type).ok_or_else(|| {
-            anyhow!("Provider {:?} not available", provider_type)
-        })?;
+        let provider = self
+            .providers
+            .get(&provider_type)
+            .ok_or_else(|| anyhow!("Provider {:?} not available", provider_type))?;
 
         provider.chat(model, messages).await
     }
 
     async fn chat_with_request(&self, model: &str, request: ChatRequest) -> Result<ChatResponse> {
         let provider_type = self.resolve_provider().await?;
-        let provider = self.providers.get(&provider_type).ok_or_else(|| {
-            anyhow!("Provider {:?} not available", provider_type)
-        })?;
+        let provider = self
+            .providers
+            .get(&provider_type)
+            .ok_or_else(|| anyhow!("Provider {:?} not available", provider_type))?;
 
         provider.chat_with_request(model, request).await
     }
@@ -456,9 +458,10 @@ impl LlmProvider for ChatManager {
         messages: Vec<ChatMessage>,
     ) -> Result<tokio::sync::mpsc::Receiver<Result<String>>> {
         let provider_type = self.resolve_provider().await?;
-        let provider = self.providers.get(&provider_type).ok_or_else(|| {
-            anyhow!("Provider {:?} not available", provider_type)
-        })?;
+        let provider = self
+            .providers
+            .get(&provider_type)
+            .ok_or_else(|| anyhow!("Provider {:?} not available", provider_type))?;
 
         provider.chat_stream(model, messages).await
     }

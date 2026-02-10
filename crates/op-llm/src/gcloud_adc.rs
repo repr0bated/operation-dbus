@@ -1,5 +1,5 @@
 //! Google Cloud ADC Provider - Uses gcloud application-default credentials
-//! 
+//!
 //! This provider replaces the old Antigravity provider and uses the
 //! Cloud AI Companion (Subscription) endpoint.
 
@@ -7,16 +7,16 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::process::Command;
 use std::time::Duration;
 use uuid;
 
 use crate::provider::{
-    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, 
-    ProviderType, TokenUsage, ToolCallInfo, ToolChoice, ToolDefinition,
+    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderType, TokenUsage,
+    ToolCallInfo, ToolChoice, ToolDefinition,
 };
 
 /// Cloud AI Companion base URL - configurable via GCP_BASE_URL
@@ -32,8 +32,7 @@ fn project_id() -> String {
 }
 
 fn location() -> String {
-    std::env::var("GCP_LOCATION")
-        .unwrap_or_else(|_| "global".to_string())
+    std::env::var("GCP_LOCATION").unwrap_or_else(|_| "global".to_string())
 }
 
 pub struct GCloudADCProvider {
@@ -47,14 +46,10 @@ impl GCloudADCProvider {
             .timeout(Duration::from_secs(120))
             .build()
             .unwrap_or_default();
-        
-        let model = std::env::var("LLM_MODEL")
-            .unwrap_or_else(|_| "gemini-2.0-flash".to_string());
 
-        Self {
-            client,
-            model,
-        }
+        let model = std::env::var("LLM_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
+
+        Self { client, model }
     }
 
     /// Get OAuth token from gcloud
@@ -83,7 +78,9 @@ impl GCloudADCProvider {
             return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
         }
 
-        anyhow::bail!("Could not obtain gcloud token. Please run: gcloud auth application-default login")
+        anyhow::bail!(
+            "Could not obtain gcloud token. Please run: gcloud auth application-default login"
+        )
     }
 
     /// Convert messages to Gemini format
@@ -172,14 +169,15 @@ impl LlmProvider for GCloudADCProvider {
                 tags: vec!["google".to_string()],
                 downloads: None,
                 updated_at: None,
-            }
+            },
         ])
     }
 
     async fn search_models(&self, query: &str, limit: usize) -> Result<Vec<ModelInfo>> {
         let models = self.list_models().await?;
         let query = query.to_lowercase();
-        Ok(models.into_iter()
+        Ok(models
+            .into_iter()
             .filter(|m| m.id.contains(&query) || m.name.to_lowercase().contains(&query))
             .take(limit)
             .collect())
@@ -203,18 +201,26 @@ impl LlmProvider for GCloudADCProvider {
         let model = if model.is_empty() { &self.model } else { model };
         let token = self.get_token().await?;
 
-        let url = format!("{}/projects/{}/locations/{}/publishers/google/models/{}:generateContent", 
-            cloud_ai_base(), project_id(), location(), model);
+        let url = format!(
+            "{}/projects/{}/locations/{}/publishers/google/models/{}:generateContent",
+            cloud_ai_base(),
+            project_id(),
+            location(),
+            model
+        );
 
         let (contents, system_instruction) = self.convert_messages(&request.messages);
 
         // Build body with all optional fields included from the start
         let mut body_map = HashMap::new();
         body_map.insert("contents".to_string(), json!(contents));
-        body_map.insert("generationConfig".to_string(), json!({
-            "temperature": request.temperature.unwrap_or(0.7) as f64,
-            "maxOutputTokens": request.max_tokens.unwrap_or(8192) as u64,
-        }));
+        body_map.insert(
+            "generationConfig".to_string(),
+            json!({
+                "temperature": request.temperature.unwrap_or(0.7) as f64,
+                "maxOutputTokens": request.max_tokens.unwrap_or(8192) as u64,
+            }),
+        );
 
         if let Some(sys) = system_instruction {
             body_map.insert("systemInstruction".to_string(), sys);
@@ -226,13 +232,18 @@ impl LlmProvider for GCloudADCProvider {
             body_map.insert("tools".to_string(), tools);
 
             if let Some(tool_config) = self.convert_tool_choice(&request.tool_choice) {
-                body_map.insert("toolConfig".to_string(), json!({"functionCallingConfig": tool_config}));
+                body_map.insert(
+                    "toolConfig".to_string(),
+                    json!({"functionCallingConfig": tool_config}),
+                );
             }
         }
 
         let body = Value::from(body_map);
 
-        let response = self.client.post(&url)
+        let response = self
+            .client
+            .post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -246,7 +257,7 @@ impl LlmProvider for GCloudADCProvider {
         }
 
         let result: Value = response.json().await?;
-        
+
         // Parse candidates
         let candidates = result
             .get("candidates")

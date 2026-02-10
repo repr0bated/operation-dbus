@@ -19,8 +19,8 @@ pub use tool_node::ToolNode;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 
 use crate::node::{NodePort, NodeResult, NodeState, WorkflowNode};
@@ -136,10 +136,7 @@ impl WorkflowNode for DelayNode {
     async fn execute(&mut self, _inputs: HashMap<String, Value>) -> Result<NodeResult> {
         tokio::time::sleep(std::time::Duration::from_millis(self.duration_ms)).await;
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "slept".to_string(),
-            Value::from(self.duration_ms),
-        );
+        outputs.insert("slept".to_string(), Value::from(self.duration_ms));
         Ok(NodeResult::success(outputs))
     }
 }

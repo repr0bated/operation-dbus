@@ -17,16 +17,15 @@ const FORBIDDEN_PATTERNS: &[(&str, &str)] = &[
     ("ovs-dpctl", "ovs_* tools"),
     ("ovsdb-client", "ovs_* tools"),
     
-    // Systemd - use dbus_systemd_* tools
-    ("systemctl start", "dbus_systemd_start_unit"),
-    ("systemctl stop", "dbus_systemd_stop_unit"),
-    ("systemctl restart", "dbus_systemd_restart_unit"),
-    ("systemctl status", "dbus_systemd_get_unit"),
-    ("systemctl enable", "dbus_systemd_enable_unit"),
-    ("systemctl disable", "dbus_systemd_disable_unit"),
-    ("systemctl", "dbus_systemd_* tools"),
-    ("service ", "dbus_systemd_* tools"),
-    ("journalctl", "dbus_systemd_* tools"),
+    // Service manager - use dinit tools
+    ("systemctl start", "dbus_dinit_start_service"),
+    ("systemctl stop", "dbus_dinit_stop_service"),
+    ("systemctl restart", "dbus_dinit_stop_service + dbus_dinit_start_service"),
+    ("systemctl status", "dbus_dinit_get_service_status"),
+    ("systemctl", "dbus_dinit_* tools"),
+    ("service ", "dbus_dinit_* tools"),
+    ("dinitctl", "dbus_dinit_* tools"),
+    ("journalctl", "dbus_dinit_get_service_status"),
     
     // Network - use rtnetlink/network tools
     ("ip addr", "list_network_interfaces, add_ip_address"),

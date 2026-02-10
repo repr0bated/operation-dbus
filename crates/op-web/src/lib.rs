@@ -27,13 +27,13 @@
 
 pub mod email;
 pub mod embedded_ui;
-pub mod handlers;
-pub mod middleware;
-pub mod mcp;
-pub mod mcp_compact;
-pub mod mcp_agents;
-pub mod mcp_discovery;
 pub mod groups_admin;
+pub mod handlers;
+pub mod mcp;
+pub mod mcp_agents;
+pub mod mcp_compact;
+pub mod mcp_discovery;
+pub mod middleware;
 pub mod orchestrator;
 pub mod routes;
 pub mod sse;
@@ -41,7 +41,6 @@ pub mod state;
 pub mod users;
 pub mod websocket;
 pub mod wireguard;
-
 
 pub use embedded_ui::{serve_embedded_ui, ui_available, UiAssets};
 pub use orchestrator::UnifiedOrchestrator;

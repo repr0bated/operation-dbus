@@ -3,11 +3,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
-use crate::schema::{ServiceDef, ServiceName, ManagerState, ServiceStatus};
-use crate::store::Store;
 use super::{DinitProxy, ProcessManager};
+use crate::schema::{ManagerState, ServiceDef, ServiceName, ServiceStatus};
+use crate::store::Store;
 
 pub struct ServiceManager {
     store: Arc<Store>,
@@ -49,7 +49,10 @@ impl ServiceManager {
     }
 
     pub async fn start(&self, name: &ServiceName) -> anyhow::Result<ServiceStatus> {
-        let service = self.store.get_service(name).await?
+        let service = self
+            .store
+            .get_service(name)
+            .await?
             .ok_or_else(|| anyhow::anyhow!("service not found: {}", name))?;
 
         self.set_state(name, ManagerState::Starting).await;
@@ -62,10 +65,12 @@ impl ServiceManager {
 
         match result {
             Ok(pid) => {
-                self.set_state_with_pid(name, ManagerState::Running, pid).await;
+                self.set_state_with_pid(name, ManagerState::Running, pid)
+                    .await;
             }
             Err(e) => {
-                self.set_state_with_error(name, ManagerState::Failed, e.to_string()).await;
+                self.set_state_with_error(name, ManagerState::Failed, e.to_string())
+                    .await;
             }
         }
 
@@ -83,7 +88,10 @@ impl ServiceManager {
 
         match result {
             Ok(()) => self.set_state(name, ManagerState::Stopped).await,
-            Err(e) => self.set_state_with_error(name, ManagerState::Failed, e.to_string()).await,
+            Err(e) => {
+                self.set_state_with_error(name, ManagerState::Failed, e.to_string())
+                    .await
+            }
         }
 
         self.get_status(name).await
@@ -96,13 +104,16 @@ impl ServiceManager {
 
     pub async fn get_status(&self, name: &ServiceName) -> anyhow::Result<ServiceStatus> {
         let statuses = self.statuses.read().await;
-        Ok(statuses.get(name).cloned().unwrap_or_else(|| ServiceStatus {
-            name: name.clone(),
-            state: ManagerState::Stopped,
-            pid: None,
-            error: None,
-            started_at: None,
-        }))
+        Ok(statuses
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| ServiceStatus {
+                name: name.clone(),
+                state: ManagerState::Stopped,
+                pid: None,
+                error: None,
+                started_at: None,
+            }))
     }
 
     pub async fn list(&self) -> anyhow::Result<Vec<ServiceDef>> {
@@ -115,18 +126,23 @@ impl ServiceManager {
 
     async fn set_state(&self, name: &ServiceName, state: ManagerState) {
         let mut statuses = self.statuses.write().await;
-        let old_state = statuses.get(name).map(|s| s.state.clone()).unwrap_or(ManagerState::Stopped);
-        
-        let status = statuses.entry(name.clone()).or_insert_with(|| ServiceStatus {
-            name: name.clone(),
-            state: ManagerState::Stopped,
-            pid: None,
-            error: None,
-            started_at: None,
-        });
+        let old_state = statuses
+            .get(name)
+            .map(|s| s.state.clone())
+            .unwrap_or(ManagerState::Stopped);
+
+        let status = statuses
+            .entry(name.clone())
+            .or_insert_with(|| ServiceStatus {
+                name: name.clone(),
+                state: ManagerState::Stopped,
+                pid: None,
+                error: None,
+                started_at: None,
+            });
         status.state = state.clone();
         status.error = None;
-        
+
         if matches!(state, ManagerState::Running) {
             status.started_at = Some(chrono::Utc::now());
         }
@@ -140,13 +156,15 @@ impl ServiceManager {
 
     async fn set_state_with_pid(&self, name: &ServiceName, state: ManagerState, pid: u32) {
         let mut statuses = self.statuses.write().await;
-        let status = statuses.entry(name.clone()).or_insert_with(|| ServiceStatus {
-            name: name.clone(),
-            state: ManagerState::Stopped,
-            pid: None,
-            error: None,
-            started_at: None,
-        });
+        let status = statuses
+            .entry(name.clone())
+            .or_insert_with(|| ServiceStatus {
+                name: name.clone(),
+                state: ManagerState::Stopped,
+                pid: None,
+                error: None,
+                started_at: None,
+            });
         status.state = state;
         status.pid = Some(pid);
         status.started_at = Some(chrono::Utc::now());
@@ -154,13 +172,15 @@ impl ServiceManager {
 
     async fn set_state_with_error(&self, name: &ServiceName, state: ManagerState, error: String) {
         let mut statuses = self.statuses.write().await;
-        let status = statuses.entry(name.clone()).or_insert_with(|| ServiceStatus {
-            name: name.clone(),
-            state: ManagerState::Stopped,
-            pid: None,
-            error: None,
-            started_at: None,
-        });
+        let status = statuses
+            .entry(name.clone())
+            .or_insert_with(|| ServiceStatus {
+                name: name.clone(),
+                state: ManagerState::Stopped,
+                pid: None,
+                error: None,
+                started_at: None,
+            });
         status.state = state;
         status.error = Some(error);
     }

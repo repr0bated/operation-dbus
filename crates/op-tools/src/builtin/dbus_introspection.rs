@@ -7,8 +7,8 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use op_core::{BusType, InterfaceInfo, ObjectInfo};
 use op_introspection::IntrospectionService;
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use zbus::Connection;
@@ -58,9 +58,7 @@ fn json_to_owned_value(value: &Value) -> Result<zbus::zvariant::OwnedValue> {
     } else if let Some(f) = value.as_f64() {
         Ok(zbus::zvariant::OwnedValue::from(f))
     } else {
-        Err(anyhow!(
-            "Unsupported argument type; use string/number/bool"
-        ))
+        Err(anyhow!("Unsupported argument type; use string/number/bool"))
     }
 }
 
@@ -71,13 +69,17 @@ pub async fn register_dbus_introspection_tools(registry: &ToolRegistry) -> Resul
         .register_tool(Arc::new(DbusListServicesTool::new(introspection.clone())))
         .await?;
     registry
-        .register_tool(Arc::new(DbusIntrospectServiceTool::new(introspection.clone())))
+        .register_tool(Arc::new(DbusIntrospectServiceTool::new(
+            introspection.clone(),
+        )))
         .await?;
     registry
         .register_tool(Arc::new(DbusListObjectsTool::new(introspection.clone())))
         .await?;
     registry
-        .register_tool(Arc::new(DbusIntrospectObjectTool::new(introspection.clone())))
+        .register_tool(Arc::new(DbusIntrospectObjectTool::new(
+            introspection.clone(),
+        )))
         .await?;
     registry
         .register_tool(Arc::new(DbusListInterfacesTool::new(introspection.clone())))
@@ -91,9 +93,7 @@ pub async fn register_dbus_introspection_tools(registry: &ToolRegistry) -> Resul
     registry
         .register_tool(Arc::new(DbusListSignalsTool::new(introspection.clone())))
         .await?;
-    registry
-        .register_tool(Arc::new(DbusCallMethodTool))
-        .await?;
+    registry.register_tool(Arc::new(DbusCallMethodTool)).await?;
     registry
         .register_tool(Arc::new(DbusGetPropertyTool))
         .await?;
@@ -620,7 +620,11 @@ impl Tool for DbusCallMethodTool {
         let interface = parse_required_str(&input, "interface")?;
         let method = parse_required_str(&input, "method")?;
         let bus = parse_bus(&input, "bus");
-        let args = input.get("args").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let args = input
+            .get("args")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
 
         let connection = match bus {
             BusType::System => Connection::system().await?,
@@ -639,8 +643,7 @@ impl Tool for DbusCallMethodTool {
             .map(json_to_owned_value)
             .collect::<Result<Vec<_>>>()?;
 
-        let result: zbus::zvariant::OwnedValue =
-            proxy.call(method.as_str(), &zbus_args).await?;
+        let result: zbus::zvariant::OwnedValue = proxy.call(method.as_str(), &zbus_args).await?;
         let result_json = simd_json::serde::to_owned_value(&result)?;
 
         Ok(json!({
@@ -707,8 +710,9 @@ impl Tool for DbusGetPropertyTool {
             .build()
             .await?;
 
-        let value: zbus::zvariant::OwnedValue =
-            properties_proxy.get(interface_name, property.as_str()).await?;
+        let value: zbus::zvariant::OwnedValue = properties_proxy
+            .get(interface_name, property.as_str())
+            .await?;
         let value_json = simd_json::serde::to_owned_value(&value)?;
 
         Ok(json!({
@@ -781,7 +785,11 @@ impl Tool for DbusSetPropertyTool {
 
         let zbus_value = json_to_owned_value(value)?;
         properties_proxy
-            .set(interface_name, property.as_str(), &zbus::zvariant::Value::from(zbus_value))
+            .set(
+                interface_name,
+                property.as_str(),
+                &zbus::zvariant::Value::from(zbus_value),
+            )
             .await
             .map_err(|e| anyhow::anyhow!("Failed to set property: {}", e))?;
 
@@ -867,8 +875,10 @@ impl Tool for DbusGetAllPropertiesTool {
             }
 
             let interface_name = zbus::names::InterfaceName::try_from(iface.name.as_str())?;
-            let props: HashMap<String, zbus::zvariant::OwnedValue> =
-                properties_proxy.get_all(Some(interface_name).into()).await.unwrap_or_default();
+            let props: HashMap<String, zbus::zvariant::OwnedValue> = properties_proxy
+                .get_all(Some(interface_name).into())
+                .await
+                .unwrap_or_default();
 
             let mut iface_props = simd_json::value::owned::Object::new();
             for (prop_name, prop_value) in props {

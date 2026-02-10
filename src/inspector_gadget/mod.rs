@@ -16,13 +16,18 @@
 //!
 //! After import/onboarding, the database is authoritative and D-Bus is projection.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{TcpStream, UnixStream};
+use tokio::time::{timeout, Duration};
 
 use crate::error::{OpDbusError, Result};
+use op_core::BusType;
+use op_introspection::IntrospectionService;
 use op_state_store::StateStore;
 use op_plugins::plugin::PluginMetadata as PluginCore;
 use op_plugins::registry::PluginRegistry;
@@ -187,6 +192,14 @@ pub struct InspectorConfig {
     pub discover_processes: bool,
     /// Enable service discovery
     pub discover_services: bool,
+    /// Enable D-Bus object discovery
+    pub discover_dbus: bool,
+    /// Enable JSON-RPC endpoint discovery
+    pub discover_jsonrpc: bool,
+    /// Enable OVSDB endpoint discovery
+    pub discover_ovsdb: bool,
+    /// Enable D-Bus socket/target discovery
+    pub discover_dbus_targets: bool,
     /// Discovery timeout in seconds
     pub timeout_secs: u64,
     /// Maximum objects to discover
@@ -200,6 +213,10 @@ impl Default for InspectorConfig {
             discover_storage: true,
             discover_processes: false, // Can be expensive
             discover_services: true,
+            discover_dbus: true,
+            discover_jsonrpc: true,
+            discover_ovsdb: true,
+            discover_dbus_targets: true,
             timeout_secs: 60,
             max_objects: 10000,
         }
@@ -279,6 +296,72 @@ impl InspectorGadget {
                     objects.insert("system.service".to_string(), svcs);
                 }
                 Err(e) => warnings.push(format!("Service discovery failed: {}", e)),
+            }
+        }
+
+        if self.config.discover_processes {
+            match self.discover_processes_procfs().await {
+                Ok(procs) => {
+                    objects.insert("system.process".to_string(), procs);
+                }
+                Err(e) => warnings.push(format!("Process discovery failed: {}", e)),
+            }
+        }
+
+        if self.config.discover_jsonrpc {
+            match self.discover_jsonrpc_endpoints().await {
+                Ok(endpoints) => {
+                    objects.insert("jsonrpc.endpoint".to_string(), endpoints);
+                }
+                Err(e) => warnings.push(format!("JSON-RPC discovery failed: {}", e)),
+            }
+        }
+
+        match self.discover_mcp_targets().await {
+            Ok(targets) => {
+                objects.insert("mcp.target".to_string(), targets);
+            }
+            Err(e) => warnings.push(format!("MCP target discovery failed: {}", e)),
+        }
+
+        match self.discover_filesystem_targets().await {
+            Ok(targets) => {
+                objects.insert("filesystem.target".to_string(), targets);
+            }
+            Err(e) => warnings.push(format!("Filesystem target discovery failed: {}", e)),
+        }
+
+        if self.config.discover_ovsdb {
+            match self.discover_ovsdb_targets().await {
+                Ok(targets) => {
+                    objects.insert("ovsdb.endpoint".to_string(), targets);
+                }
+                Err(e) => warnings.push(format!("OVSDB discovery failed: {}", e)),
+            }
+        }
+
+        if self.config.discover_dbus_targets {
+            match self.discover_dbus_targets().await {
+                Ok(targets) => {
+                    objects.insert("dbus.target".to_string(), targets);
+                }
+                Err(e) => warnings.push(format!("D-Bus target discovery failed: {}", e)),
+            }
+        }
+
+        // Discover D-Bus object hierarchy
+        if self.config.discover_dbus {
+            let already_discovered: usize = objects.values().map(|v| v.len()).sum();
+            let remaining_budget = self.config.max_objects.saturating_sub(already_discovered);
+            if remaining_budget > 0 {
+                let (dbus_objects, mut dbus_warnings) =
+                    self.discover_dbus_objects(remaining_budget).await;
+                if !dbus_objects.is_empty() {
+                    objects.insert("dbus.object".to_string(), dbus_objects);
+                }
+                warnings.append(&mut dbus_warnings);
+            } else {
+                warnings.push("D-Bus discovery skipped: max_objects budget exhausted".to_string());
             }
         }
 
@@ -671,6 +754,569 @@ impl InspectorGadget {
         }
 
         Ok(services)
+    }
+
+    async fn discover_processes_procfs(&self) -> Result<Vec<DiscoveredObject>> {
+        let mut processes = Vec::new();
+        let proc_path = std::path::Path::new("/proc");
+        if !proc_path.exists() {
+            return Ok(processes);
+        }
+
+        let mut discovered = 0usize;
+        if let Ok(entries) = std::fs::read_dir(proc_path) {
+            for entry in entries.flatten() {
+                if discovered >= self.config.max_objects {
+                    break;
+                }
+
+                let pid_name = entry.file_name().to_string_lossy().to_string();
+                if !pid_name.chars().all(|c| c.is_ascii_digit()) {
+                    continue;
+                }
+
+                let mut data = simd_json::value::owned::Object::new();
+                data.insert("pid".into(), Value::from(pid_name.clone()));
+
+                let comm_path = entry.path().join("comm");
+                if let Ok(comm) = std::fs::read_to_string(&comm_path) {
+                    data.insert("name".into(), Value::from(comm.trim().to_string()));
+                }
+
+                let status_path = entry.path().join("status");
+                if let Ok(status) = std::fs::read_to_string(&status_path) {
+                    for line in status.lines() {
+                        if let Some(state) = line.strip_prefix("State:") {
+                            data.insert("state".into(), Value::from(state.trim().to_string()));
+                            break;
+                        }
+                    }
+                }
+
+                let exe_path = entry.path().join("exe");
+                if let Ok(exe) = std::fs::read_link(&exe_path) {
+                    data.insert("exe".into(), Value::from(exe.display().to_string()));
+                }
+
+                processes.push(DiscoveredObject {
+                    object_type: "system.process".to_string(),
+                    object_id: format!("process-{}", pid_name),
+                    data: Value::from(data),
+                    source: DiscoverySource::Procfs(format!("/proc/{}", pid_name)),
+                    conflicts: false,
+                });
+                discovered += 1;
+            }
+        }
+
+        Ok(processes)
+    }
+
+    async fn discover_jsonrpc_endpoints(&self) -> Result<Vec<DiscoveredObject>> {
+        let mut endpoints = Vec::new();
+        let mut seen = HashSet::new();
+
+        let mut unix_targets = vec![
+            "/var/run/op-dbus/jsonrpc.sock".to_string(),
+            "/run/op-dbus/jsonrpc.sock".to_string(),
+        ];
+        if let Ok(extra) = std::env::var("OP_DBUS_JSONRPC_UNIX_TARGETS") {
+            for t in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                unix_targets.push(t.to_string());
+            }
+        }
+
+        for target in unix_targets {
+            if !seen.insert(format!("unix:{}", target)) {
+                continue;
+            }
+            let (reachable, response) = self.probe_jsonrpc_unix(&target).await;
+            if !reachable {
+                continue;
+            }
+
+            let mut data = simd_json::value::owned::Object::new();
+            data.insert("transport".into(), Value::from("unix".to_string()));
+            data.insert("target".into(), Value::from(target.clone()));
+            if let Some(resp) = response {
+                data.insert("discovery_response".into(), resp);
+            }
+
+            endpoints.push(DiscoveredObject {
+                object_type: "jsonrpc.endpoint".to_string(),
+                object_id: format!("jsonrpc-unix-{}", Self::sanitize_for_id(&target)),
+                data: Value::from(data),
+                source: DiscoverySource::ConfigFile(target),
+                conflicts: false,
+            });
+        }
+
+        let mut tcp_targets = vec!["127.0.0.1:7010".to_string(), "127.0.0.1:8080".to_string()];
+        if let Ok(extra) = std::env::var("OP_DBUS_JSONRPC_TCP_TARGETS") {
+            for t in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                tcp_targets.push(t.to_string());
+            }
+        }
+
+        for target in tcp_targets {
+            if !seen.insert(format!("tcp:{}", target)) {
+                continue;
+            }
+            let (reachable, response) = self.probe_jsonrpc_tcp(&target).await;
+            if !reachable {
+                continue;
+            }
+
+            let mut data = simd_json::value::owned::Object::new();
+            data.insert("transport".into(), Value::from("tcp".to_string()));
+            data.insert("target".into(), Value::from(target.clone()));
+            if let Some(resp) = response {
+                data.insert("discovery_response".into(), resp);
+            }
+
+            endpoints.push(DiscoveredObject {
+                object_type: "jsonrpc.endpoint".to_string(),
+                object_id: format!("jsonrpc-tcp-{}", Self::sanitize_for_id(&target)),
+                data: Value::from(data),
+                source: DiscoverySource::Manual,
+                conflicts: false,
+            });
+        }
+
+        Ok(endpoints)
+    }
+
+    async fn discover_ovsdb_targets(&self) -> Result<Vec<DiscoveredObject>> {
+        let mut targets = Vec::new();
+        let mut socket_paths = vec![
+            "/var/run/openvswitch/db.sock".to_string(),
+            "/run/openvswitch/db.sock".to_string(),
+        ];
+        if let Ok(extra) = std::env::var("OP_DBUS_OVSDB_TARGETS") {
+            for t in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                socket_paths.push(t.to_string());
+            }
+        }
+
+        let mut seen = HashSet::new();
+        for socket in socket_paths {
+            if !seen.insert(socket.clone()) {
+                continue;
+            }
+            if !std::path::Path::new(&socket).exists() {
+                continue;
+            }
+
+            let (reachable, dbs) = self.probe_ovsdb_socket(&socket).await;
+            if !reachable {
+                continue;
+            }
+
+            let mut data = simd_json::value::owned::Object::new();
+            data.insert("socket".into(), Value::from(socket.clone()));
+            if let Some(dbs) = dbs {
+                data.insert(
+                    "databases".into(),
+                    simd_json::serde::to_owned_value(dbs).unwrap_or(Value::Array(vec![])),
+                );
+            }
+
+            targets.push(DiscoveredObject {
+                object_type: "ovsdb.endpoint".to_string(),
+                object_id: format!("ovsdb-{}", Self::sanitize_for_id(&socket)),
+                data: Value::from(data),
+                source: DiscoverySource::Ovsdb(socket),
+                conflicts: false,
+            });
+        }
+
+        Ok(targets)
+    }
+
+    async fn probe_jsonrpc_unix(&self, target: &str) -> (bool, Option<Value>) {
+        let connect = timeout(Duration::from_secs(2), UnixStream::connect(target)).await;
+        let mut stream = match connect {
+            Ok(Ok(s)) => s,
+            _ => return (false, None),
+        };
+
+        let req = r#"{"jsonrpc":"2.0","id":1,"method":"rpc.discover","params":[]}"#;
+        if stream.write_all(req.as_bytes()).await.is_err() || stream.write_all(b"\n").await.is_err() {
+            return (false, None);
+        }
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        let read = timeout(Duration::from_secs(2), reader.read_line(&mut line)).await;
+        match read {
+            Ok(Ok(n)) if n > 0 => {
+                let parsed = unsafe { simd_json::from_str::<Value>(&mut line) }.ok();
+                (true, parsed)
+            }
+            _ => (true, None),
+        }
+    }
+
+    async fn probe_jsonrpc_tcp(&self, target: &str) -> (bool, Option<Value>) {
+        let connect = timeout(Duration::from_secs(2), TcpStream::connect(target)).await;
+        let mut stream = match connect {
+            Ok(Ok(s)) => s,
+            _ => return (false, None),
+        };
+
+        let req = r#"{"jsonrpc":"2.0","id":1,"method":"rpc.discover","params":[]}"#;
+        if stream.write_all(req.as_bytes()).await.is_err() || stream.write_all(b"\n").await.is_err() {
+            return (false, None);
+        }
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        let read = timeout(Duration::from_secs(2), reader.read_line(&mut line)).await;
+        match read {
+            Ok(Ok(n)) if n > 0 => {
+                let parsed = unsafe { simd_json::from_str::<Value>(&mut line) }.ok();
+                (true, parsed)
+            }
+            _ => (true, None),
+        }
+    }
+
+    async fn probe_ovsdb_socket(&self, socket: &str) -> (bool, Option<Vec<String>>) {
+        let connect = timeout(Duration::from_secs(2), UnixStream::connect(socket)).await;
+        let mut stream = match connect {
+            Ok(Ok(s)) => s,
+            _ => return (false, None),
+        };
+
+        let req = r#"{"method":"list_dbs","params":[],"id":0}"#;
+        if stream.write_all(req.as_bytes()).await.is_err() || stream.write_all(b"\n").await.is_err() {
+            return (false, None);
+        }
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        let read = timeout(Duration::from_secs(2), reader.read_line(&mut line)).await;
+        match read {
+            Ok(Ok(n)) if n > 0 => {
+                let mut payload = line;
+                let parsed = unsafe { simd_json::from_str::<Value>(&mut payload) }.ok();
+                if let Some(result) = parsed.and_then(|v| v.get("result").cloned()) {
+                    let dbs = simd_json::serde::from_owned_value::<Vec<String>>(result).ok();
+                    return (true, dbs);
+                }
+                (true, None)
+            }
+            _ => (true, None),
+        }
+    }
+
+    async fn discover_mcp_targets(&self) -> Result<Vec<DiscoveredObject>> {
+        let mut targets = Vec::new();
+        let mut seen = HashSet::new();
+
+        let mut http_targets = vec![
+            "http://127.0.0.1:8080/mcp".to_string(),
+            "http://127.0.0.1:7010/mcp".to_string(),
+        ];
+        let mut unix_targets = vec![
+            "/var/run/op-dbus/mcp.sock".to_string(),
+            "/run/op-dbus/mcp.sock".to_string(),
+        ];
+
+        if let Ok(extra) = std::env::var("OP_DBUS_MCP_HTTP_TARGETS") {
+            for t in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                http_targets.push(t.to_string());
+            }
+        }
+        if let Ok(extra) = std::env::var("OP_DBUS_MCP_UNIX_TARGETS") {
+            for t in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                unix_targets.push(t.to_string());
+            }
+        }
+
+        for target in http_targets {
+            if !seen.insert(format!("http:{}", target)) {
+                continue;
+            }
+
+            let reachable = reqwest::Client::new()
+                .get(&target)
+                .timeout(Duration::from_secs(2))
+                .send()
+                .await
+                .map(|resp| resp.status().is_success() || resp.status().as_u16() == 405)
+                .unwrap_or(false);
+
+            if !reachable {
+                continue;
+            }
+
+            let mut data = simd_json::value::owned::Object::new();
+            data.insert("transport".into(), Value::from("http".to_string()));
+            data.insert("target".into(), Value::from(target.clone()));
+            data.insert("reachable".into(), Value::from(true));
+            targets.push(DiscoveredObject {
+                object_type: "mcp.target".to_string(),
+                object_id: format!("mcp-http-{}", Self::sanitize_for_id(&target)),
+                data: Value::from(data),
+                source: DiscoverySource::Manual,
+                conflicts: false,
+            });
+        }
+
+        for target in unix_targets {
+            if !seen.insert(format!("unix:{}", target)) {
+                continue;
+            }
+            if !std::path::Path::new(&target).exists() {
+                continue;
+            }
+
+            let mut data = simd_json::value::owned::Object::new();
+            data.insert("transport".into(), Value::from("unix".to_string()));
+            data.insert("target".into(), Value::from(target.clone()));
+            data.insert("reachable".into(), Value::from(true));
+            targets.push(DiscoveredObject {
+                object_type: "mcp.target".to_string(),
+                object_id: format!("mcp-unix-{}", Self::sanitize_for_id(&target)),
+                data: Value::from(data),
+                source: DiscoverySource::ConfigFile(target),
+                conflicts: false,
+            });
+        }
+
+        Ok(targets)
+    }
+
+    async fn discover_filesystem_targets(&self) -> Result<Vec<DiscoveredObject>> {
+        let mut targets = Vec::new();
+        let mut seen = HashSet::new();
+
+        let mut paths = vec![
+            "/etc".to_string(),
+            "/etc/op-dbus".to_string(),
+            "/var/log".to_string(),
+            "/var/logs".to_string(),
+            "/var/log/op-dbus".to_string(),
+            "/var/lib/op-dbus".to_string(),
+        ];
+
+        if let Ok(extra) = std::env::var("OP_DBUS_FS_TARGETS") {
+            for p in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                paths.push(p.to_string());
+            }
+        }
+
+        for path in paths {
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+
+            let p = std::path::Path::new(&path);
+            if !p.exists() {
+                continue;
+            }
+
+            let meta = std::fs::metadata(p)?;
+            let mut data = simd_json::value::owned::Object::new();
+            data.insert("path".into(), Value::from(path.clone()));
+            data.insert("is_dir".into(), Value::from(meta.is_dir()));
+            data.insert("readonly".into(), Value::from(meta.permissions().readonly()));
+            data.insert("kind".into(), Value::from(if path.starts_with("/var/log") { "log" } else { "config" }.to_string()));
+
+            targets.push(DiscoveredObject {
+                object_type: "filesystem.target".to_string(),
+                object_id: format!("fs-target-{}", Self::sanitize_for_id(&path)),
+                data: Value::from(data),
+                source: DiscoverySource::ConfigFile(path),
+                conflicts: false,
+            });
+        }
+
+        Ok(targets)
+    }
+
+    async fn discover_dbus_objects(&self, max_objects: usize) -> (Vec<DiscoveredObject>, Vec<String>) {
+        let mut discovered = Vec::new();
+        let mut warnings = Vec::new();
+        let introspection = IntrospectionService::new();
+
+        for bus_type in [BusType::System, BusType::Session] {
+            if discovered.len() >= max_objects {
+                break;
+            }
+
+            let services = match introspection.list_services(bus_type).await {
+                Ok(services) => services,
+                Err(e) => {
+                    warnings.push(format!("D-Bus service listing failed for {} bus: {}", bus_type, e));
+                    continue;
+                }
+            };
+
+            for service in services {
+                if discovered.len() >= max_objects {
+                    break;
+                }
+
+                let mut visited: HashSet<String> = HashSet::new();
+                let mut queue: VecDeque<String> = VecDeque::from([String::from("/")]);
+
+                while let Some(path) = queue.pop_front() {
+                    if discovered.len() >= max_objects {
+                        break;
+                    }
+                    if !visited.insert(path.clone()) {
+                        continue;
+                    }
+
+                    let object = match introspection.introspect(bus_type, &service.name, &path).await {
+                        Ok(object) => object,
+                        Err(e) => {
+                            warnings.push(format!(
+                                "D-Bus introspection failed: bus={} service={} path={} error={}",
+                                bus_type, service.name, path, e
+                            ));
+                            continue;
+                        }
+                    };
+
+                    // Breadth-first traversal to expose hidden hierarchies.
+                    for child in &object.children {
+                        if !visited.contains(child) {
+                            queue.push_back(child.clone());
+                        }
+                    }
+
+                    let mut data = simd_json::value::owned::Object::new();
+                    data.insert("service".into(), Value::from(service.name.clone()));
+                    data.insert("bus".into(), Value::from(bus_type.to_string()));
+                    data.insert("path".into(), Value::from(object.path.clone()));
+                    if service.name.starts_with("org.freedesktop.Avahi") {
+                        data.insert("service_class".into(), Value::from("avahi".to_string()));
+                    } else if service.name.starts_with("org.bluez") {
+                        data.insert("service_class".into(), Value::from("bluetooth".to_string()));
+                    } else {
+                        data.insert("service_class".into(), Value::from("general".to_string()));
+                    }
+                    data.insert(
+                        "interfaces".into(),
+                        simd_json::serde::to_owned_value(&object.interfaces).unwrap_or(Value::Array(vec![])),
+                    );
+                    data.insert(
+                        "children".into(),
+                        simd_json::serde::to_owned_value(&object.children).unwrap_or(Value::Array(vec![])),
+                    );
+
+                    discovered.push(DiscoveredObject {
+                        object_type: "dbus.object".to_string(),
+                        object_id: format!(
+                            "dbus-{}-{}-{}",
+                            bus_type,
+                            Self::sanitize_for_id(&service.name),
+                            Self::sanitize_for_id(&object.path)
+                        ),
+                        data: Value::from(data),
+                        source: DiscoverySource::DBus(format!("{}:{}", bus_type, service.name)),
+                        conflicts: false,
+                    });
+                }
+            }
+        }
+
+        (discovered, warnings)
+    }
+
+    async fn discover_dbus_targets(&self) -> Result<Vec<DiscoveredObject>> {
+        let mut targets = Vec::new();
+        let mut seen = HashSet::new();
+
+        let mut socket_candidates = vec![
+            "/var/run/dbus/system_bus_socket".to_string(),
+            "/run/dbus/system_bus_socket".to_string(),
+            "/var/run/op-dbus/dbus.sock".to_string(),
+            "/run/op-dbus/dbus.sock".to_string(),
+        ];
+
+        if let Ok(uid) = std::env::var("UID") {
+            socket_candidates.push(format!("/run/user/{}/bus", uid));
+        }
+
+        if let Ok(extra) = std::env::var("OP_DBUS_DBUS_TARGETS") {
+            for t in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                socket_candidates.push(t.to_string());
+            }
+        }
+
+        if let Ok(socket) = std::env::var("OP_DBUS_DBUS_SOCKET") {
+            if !socket.trim().is_empty() {
+                socket_candidates.push(socket);
+            }
+        }
+
+        for socket in socket_candidates {
+            if !seen.insert(socket.clone()) {
+                continue;
+            }
+
+            let path = std::path::Path::new(&socket);
+            if !path.exists() {
+                continue;
+            }
+
+            let mut data = simd_json::value::owned::Object::new();
+            data.insert("socket".into(), Value::from(socket.clone()));
+            data.insert("exists".into(), Value::from(true));
+            if let Ok(meta) = std::fs::metadata(path) {
+                data.insert("readonly".into(), Value::from(meta.permissions().readonly()));
+            }
+
+            targets.push(DiscoveredObject {
+                object_type: "dbus.target".to_string(),
+                object_id: format!("dbus-target-{}", Self::sanitize_for_id(&socket)),
+                data: Value::from(data),
+                source: DiscoverySource::ConfigFile(socket),
+                conflicts: false,
+            });
+        }
+
+        // Include canonical logical targets if reachable.
+        let bus_statuses = [
+            ("system", IntrospectionService::new().list_services(BusType::System).await),
+            ("session", IntrospectionService::new().list_services(BusType::Session).await),
+        ];
+
+        for (name, status) in bus_statuses {
+            if let Ok(services) = status {
+                let mut data = simd_json::value::owned::Object::new();
+                data.insert("bus".into(), Value::from(name.to_string()));
+                data.insert("reachable".into(), Value::from(true));
+                data.insert("service_count".into(), Value::from(services.len() as u64));
+                targets.push(DiscoveredObject {
+                    object_type: "dbus.target".to_string(),
+                    object_id: format!("dbus-bus-{}", name),
+                    data: Value::from(data),
+                    source: DiscoverySource::DBus(name.to_string()),
+                    conflicts: false,
+                });
+            }
+        }
+
+        Ok(targets)
+    }
+
+    fn sanitize_for_id(raw: &str) -> String {
+        raw.chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' {
+                    ch
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string()
     }
 
     async fn discover_network_schemas(&self) -> Result<Vec<DiscoveredSchema>> {

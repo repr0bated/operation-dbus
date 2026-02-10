@@ -3,22 +3,24 @@
 //! Central state management for the web server.
 //! Simple, direct tool access - no MCP complexity.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, info, warn};
 
+use op_agents::agent_registry::AgentRegistry;
 use op_llm::chat::ChatManager;
 use op_llm::provider::ChatMessage;
+use op_state::dbus_server;
+use op_state::manager::StateManager;
+use op_state_store::{SqliteStore, StateStore};
 use op_tools::ToolRegistry;
-use op_agents::agent_registry::AgentRegistry;
-use op_state_store::{StateStore, SqliteStore};
 
+use crate::email::{EmailConfig, EmailSender};
 use crate::orchestrator::UnifiedOrchestrator;
 use crate::sse::SseEventBroadcaster;
 use crate::users::UserStore;
-use crate::email::{EmailConfig, EmailSender};
 use crate::wireguard::WgServerConfig;
 
 /// Google OAuth configuration
@@ -91,7 +93,9 @@ pub struct AppState {
 impl AppState {
     /// Create new AppState with an optional shared tool registry
     /// If registry is provided, skips tool discovery (use registry from main binary)
-    pub async fn new_with_registry(tool_registry: Option<Arc<ToolRegistry>>) -> anyhow::Result<Self> {
+    pub async fn new_with_registry(
+        tool_registry: Option<Arc<ToolRegistry>>,
+    ) -> anyhow::Result<Self> {
         info!("Initializing application state...");
 
         let tool_registry = if let Some(registry) = tool_registry {
@@ -162,8 +166,11 @@ impl AppState {
             Err(e) => {
                 warn!("Failed to load user store: {}, creating new", e);
                 // Create empty store
-                Arc::new(UserStore::new("/var/lib/op-dbus/privacy-users.json").await
-                    .expect("Failed to create user store"))
+                Arc::new(
+                    UserStore::new("/var/lib/op-dbus/privacy-users.json")
+                        .await
+                        .expect("Failed to create user store"),
+                )
             }
         };
 
@@ -197,14 +204,25 @@ impl AppState {
         let state_store: Arc<dyn StateStore> = match SqliteStore::new(state_store_path).await {
             Ok(store) => Arc::new(store),
             Err(e) => {
-                warn!("Failed to initialize state store at {}: {}, using in-memory", state_store_path, e);
+                warn!(
+                    "Failed to initialize state store at {}: {}, using in-memory",
+                    state_store_path, e
+                );
                 // Fallback to in-memory if file access fails
-                Arc::new(SqliteStore::new(":memory:").await
-                    .expect("Failed to create in-memory state store"))
+                Arc::new(
+                    SqliteStore::new(":memory:")
+                        .await
+                        .expect("Failed to create in-memory state store"),
+                )
             }
         };
 
         info!("✅ Application state initialized");
+
+        // Expose canonical system-bus namespace for state control.
+        // This is intentionally fire-and-forget: if policy denies ownership,
+        // HTTP APIs remain functional and we log the failure.
+        spawn_org_opdbus_service();
 
         Ok(Self {
             orchestrator,
@@ -236,6 +254,16 @@ impl AppState {
     }
 }
 
+fn spawn_org_opdbus_service() {
+    tokio::spawn(async {
+        let manager = Arc::new(StateManager::new());
+        match dbus_server::start_system_bus(manager).await {
+            Ok(_) => info!("✅ D-Bus service org.opdbus started"),
+            Err(e) => warn!("⚠️ Failed to start org.opdbus D-Bus service: {}", e),
+        }
+    });
+}
+
 const PERSISTED_MODEL_PATH: &str = "/etc/op-dbus/llm-model";
 const PERSISTED_PROVIDER_PATH: &str = "/etc/op-dbus/llm-provider";
 
@@ -258,56 +286,15 @@ async fn read_persisted_provider() -> Option<String> {
 /// Register all tools from all sources
 async fn register_all_tools(registry: &Arc<ToolRegistry>) -> anyhow::Result<()> {
     info!("Registering tools...");
-    
-    // Register builtin tools (OVS, D-Bus, file, shell, etc.)
+
+    // Canonical tool/agent registration lives in op_tools/op_dbus.
+    // op-web standalone mode uses the same entrypoint, with no web-specific
+    // registration layers.
     op_tools::register_builtin_tools(registry).await?;
 
-    // Register agent tools
-    register_agent_tools(registry).await?;
+    // Keep runtime strictly mirror-driven. Introspection/discovery is migration-only.
+    info!("Runtime introspection disabled; using canonical mirrored state/registry sources");
 
-    // D-Bus Projection - Discover D-Bus APIs on both buses
-    info!("Starting D-Bus tool projection...");
-    let introspection = Arc::new(op_introspection::IntrospectionService::new());
-    let projection = op_tools::discovery::ProjectionEngine::new(introspection);
-
-    // Discover session bus tools
-    match projection.discover_all(registry, op_core::BusType::Session).await {
-        Ok(count) => info!("✅ D-Bus projection (session): {} tools", count),
-        Err(e) => warn!("⚠️ D-Bus projection (session) failed: {}", e),
-    }
-
-    // Discover system bus tools
-    match projection.discover_all(registry, op_core::BusType::System).await {
-        Ok(count) => info!("✅ D-Bus projection (system): {} tools", count),
-        Err(e) => warn!("⚠️ D-Bus projection (system) failed: {}", e),
-    }
-
-    Ok(())
-}
-
-async fn register_agent_tools(registry: &Arc<ToolRegistry>) -> anyhow::Result<()> {
-    let mut count = 0usize;
-    let descriptors = op_agents::builtin_agent_descriptors();
-
-    for descriptor in descriptors {
-        // Create and register the tool wrapper
-        let tool = op_tools::builtin::create_agent_tool(
-            &descriptor.agent_type,
-            &format!("{} - {}", descriptor.name, descriptor.description),
-            &descriptor.operations,
-            simd_json::json!({ "agent_type": descriptor.agent_type }),
-        )?;
-
-        // Skip if already registered
-        if registry.get_definition(tool.name()).await.is_some() {
-            continue;
-        }
-
-        registry.register_tool(tool).await?;
-        count += 1;
-    }
-
-    info!("Registered {} agent tools", count);
     Ok(())
 }
 
@@ -316,10 +303,18 @@ fn log_tool_summary(tools: &[op_tools::registry::ToolDefinition]) {
     let ovs = tools.iter().filter(|t| t.name.starts_with("ovs_")).count();
     let dbus = tools.iter().filter(|t| t.name.starts_with("dbus_")).count();
     let file = tools.iter().filter(|t| t.name.starts_with("file_")).count();
-    let shell = tools.iter().filter(|t| t.name.starts_with("shell_")).count();
-    let agent = tools.iter().filter(|t| t.name.starts_with("agent_")).count();
+    let shell = tools
+        .iter()
+        .filter(|t| t.name.starts_with("shell_"))
+        .count();
+    let agent = tools
+        .iter()
+        .filter(|t| t.name.starts_with("agent_"))
+        .count();
     let other = tools.len() - ovs - dbus - file - shell - agent;
 
-    debug!("  OVS: {}, D-Bus: {}, File: {}, Shell: {}, Agents: {}, Other: {}",
-        ovs, dbus, file, shell, agent, other);
+    debug!(
+        "  OVS: {}, D-Bus: {}, File: {}, Shell: {}, Agents: {}, Other: {}",
+        ovs, dbus, file, shell, agent, other
+    );
 }

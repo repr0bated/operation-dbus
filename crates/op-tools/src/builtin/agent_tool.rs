@@ -11,9 +11,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
 use simd_json::ValueBuilder;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -251,12 +251,18 @@ impl DbusAgentExecutor {
     }
 
     fn to_service_name(agent_name: &str) -> String {
-        let pascal = agent_name.split('_').map(capitalize_first).collect::<String>();
+        let pascal = agent_name
+            .split('_')
+            .map(capitalize_first)
+            .collect::<String>();
         format!("org.dbusmcp.Agent.{}", pascal)
     }
 
     fn to_object_path(agent_name: &str) -> String {
-        let pascal = agent_name.split('_').map(capitalize_first).collect::<String>();
+        let pascal = agent_name
+            .split('_')
+            .map(capitalize_first)
+            .collect::<String>();
         format!("/org/dbusmcp/Agent/{}", pascal)
     }
 
@@ -455,7 +461,9 @@ impl Tool for AgentTool {
         let args = input.get("args").cloned();
         let agent = self.name.strip_prefix("agent_").unwrap_or(&self.name);
 
-        self.executor.execute_operation(agent, operation, path, args).await
+        self.executor
+            .execute_operation(agent, operation, path, args)
+            .await
     }
 
     fn category(&self) -> &str {
@@ -491,7 +499,9 @@ pub const AGENT_DEFINITIONS: &[AgentDef] = &[
         agent_type: "rust-pro",
         name: "Rust Pro",
         description: "Expert Rust development agent",
-        operations: &["check", "build", "test", "clippy", "format", "run", "doc", "analyze"],
+        operations: &[
+            "check", "build", "test", "clippy", "format", "run", "doc", "analyze",
+        ],
         category: "language",
     },
     AgentDef {
@@ -533,7 +543,9 @@ pub const AGENT_DEFINITIONS: &[AgentDef] = &[
         agent_type: "context-manager",
         name: "Context Manager",
         description: "Session context management",
-        operations: &["save", "load", "list", "delete", "export", "import", "clear"],
+        operations: &[
+            "save", "load", "list", "delete", "export", "import", "clear",
+        ],
         category: "orchestration",
     },
     AgentDef {
@@ -632,7 +644,12 @@ pub fn create_agent_tool(
     _config: Value,
 ) -> Result<BoxedTool> {
     let executor = Arc::new(DbusAgentExecutor::new());
-    Ok(Arc::new(AgentTool::new(agent_name, description, operations, executor)))
+    Ok(Arc::new(AgentTool::new(
+        agent_name,
+        description,
+        operations,
+        executor,
+    )))
 }
 
 pub fn create_agent_tool_with_executor(
@@ -641,5 +658,10 @@ pub fn create_agent_tool_with_executor(
     operations: &[String],
     executor: Arc<dyn AgentExecutor + Send + Sync>,
 ) -> Result<BoxedTool> {
-    Ok(Arc::new(AgentTool::new(agent_name, description, operations, executor)))
+    Ok(Arc::new(AgentTool::new(
+        agent_name,
+        description,
+        operations,
+        executor,
+    )))
 }

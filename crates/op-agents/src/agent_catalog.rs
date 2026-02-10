@@ -4,12 +4,10 @@
 
 use crate::agents::{
     aiml::{
-        AIEngineerAgent, DataEngineerAgent, DataScientistAgent, MLEngineerAgent, MLOpsEngineerAgent,
-        PromptEngineerAgent,
+        AIEngineerAgent, DataEngineerAgent, DataScientistAgent, MLEngineerAgent,
+        MLOpsEngineerAgent, PromptEngineerAgent,
     },
-    analysis::{
-        CodeReviewerAgent, DebuggerAgent, PerformanceEngineerAgent, SecurityAuditorAgent,
-    },
+    analysis::{CodeReviewerAgent, DebuggerAgent, PerformanceEngineerAgent, SecurityAuditorAgent},
     architecture::{BackendArchitectAgent, FrontendDeveloperAgent, GraphQLArchitectAgent},
     business::{
         BusinessAnalystAgent, CustomerSupportAgent, HRProAgent, LegalAdvisorAgent,
@@ -18,23 +16,23 @@ use crate::agents::{
     content::{ApiDocumenterAgent, DocsArchitectAgent, MermaidExpertAgent, TutorialEngineerAgent},
     database::{DatabaseArchitectAgent, DatabaseOptimizerAgent, SqlProAgent},
     infrastructure::{
-        CloudArchitectAgent, DeploymentAgent, KubernetesAgent, NetworkEngineerAgent,
-        TerraformAgent,
+        CloudArchitectAgent, DeploymentAgent, KubernetesAgent, NetworkEngineerAgent, TerraformAgent,
     },
     language::{
-        BashProAgent, CProAgent, CppProAgent, CSharpProAgent, ElixirProAgent, GolangProAgent,
+        BashProAgent, CProAgent, CSharpProAgent, CppProAgent, ElixirProAgent, GolangProAgent,
         JavaProAgent, JavaScriptProAgent, JuliaProAgent, PhpProAgent, PythonProAgent, RubyProAgent,
         RustProAgent, ScalaProAgent, TypeScriptProAgent,
     },
     mobile::{FlutterExpertAgent, IOSDeveloperAgent, MobileDeveloperAgent},
     operations::{DevOpsTroubleshooterAgent, IncidentResponderAgent, TestAutomatorAgent},
-    orchestration::{ContextManagerAgent, DxOptimizerAgent, TddOrchestratorAgent, MemoryAgent, SequentialThinkingAgent},
-    security::{
-        BackendSecurityCoderAgent, FrontendSecurityCoderAgent, MobileSecurityCoderAgent,
+    orchestration::{
+        ContextManagerAgent, DxOptimizerAgent, MemoryAgent, SequentialThinkingAgent,
+        TddOrchestratorAgent,
     },
+    security::{BackendSecurityCoderAgent, FrontendSecurityCoderAgent, MobileSecurityCoderAgent},
     seo::{
-        ContentMarketerAgent, SearchSpecialistAgent, SEOContentWriterAgent, SEOKeywordStrategistAgent,
-        SEOMetaOptimizerAgent,
+        ContentMarketerAgent, SEOContentWriterAgent, SEOKeywordStrategistAgent,
+        SEOMetaOptimizerAgent, SearchSpecialistAgent,
     },
     specialty::{
         ARMCortexExpertAgent, BlockchainDeveloperAgent, ErrorDetectiveAgent,
@@ -162,5 +160,8 @@ pub fn builtin_agent_descriptors() -> Vec<AgentDescriptor> {
         Box::new(MobileDeveloperAgent::new(agent_id)),
     ];
 
-    agents.iter().map(|agent| describe_agent(agent.as_ref())).collect()
+    agents
+        .iter()
+        .map(|agent| describe_agent(agent.as_ref()))
+        .collect()
 }

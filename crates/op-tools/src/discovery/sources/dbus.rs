@@ -98,7 +98,11 @@ impl ToolDiscoverySource for DbusDiscoverySource {
         // First, discover all available services
         let services = match self.introspection_service.list_services(bus_type).await {
             Ok(services) => {
-                debug!("Found {} services on {:?} bus", services.len(), self.bus_type);
+                debug!(
+                    "Found {} services on {:?} bus",
+                    services.len(),
+                    self.bus_type
+                );
                 services
             }
             Err(e) => {
@@ -123,9 +127,16 @@ impl ToolDiscoverySource for DbusDiscoverySource {
             debug!("Introspecting service: {}", service_info.name);
 
             // Try to introspect the root path
-            match self.introspect_service_paths(&service_info.name, &bus_type).await {
+            match self
+                .introspect_service_paths(&service_info.name, &bus_type)
+                .await
+            {
                 Ok(service_tools) => {
-                    debug!("Discovered {} tools from {}", service_tools.len(), service_info.name);
+                    debug!(
+                        "Discovered {} tools from {}",
+                        service_tools.len(),
+                        service_info.name
+                    );
                     tools.extend(service_tools);
                 }
                 Err(e) => {
@@ -165,7 +176,10 @@ impl DbusDiscoverySource {
                     tools.extend(path_tools);
                 }
                 Err(e) => {
-                    debug!("Failed to introspect path {} for service {}: {}", path, service, e);
+                    debug!(
+                        "Failed to introspect path {} for service {}: {}",
+                        path, service, e
+                    );
                 }
             }
         }
@@ -180,7 +194,10 @@ impl DbusDiscoverySource {
         path: &str,
         bus_type: &CoreBusType,
     ) -> anyhow::Result<Vec<RegistryToolDefinition>> {
-        let object_info = self.introspection_service.introspect(*bus_type, service, path).await?;
+        let object_info = self
+            .introspection_service
+            .introspect(*bus_type, service, path)
+            .await?;
 
         let mut tools = Vec::new();
 
@@ -188,7 +205,10 @@ impl DbusDiscoverySource {
             for method in &interface.methods {
                 // Skip methods with file descriptor arguments (not supported in JSON)
                 let has_fd_args = method.in_args.iter().any(|arg| arg.signature.contains('h'))
-                    || method.out_args.iter().any(|arg| arg.signature.contains('h'));
+                    || method
+                        .out_args
+                        .iter()
+                        .any(|arg| arg.signature.contains('h'));
 
                 if has_fd_args {
                     debug!(
@@ -262,7 +282,11 @@ impl DbusDiscoverySource {
     }
 
     /// Convert D-Bus signature to JSON schema type
-    fn signature_to_schema(&self, signature: &str, arg_name: Option<&str>) -> simd_json::OwnedValue {
+    fn signature_to_schema(
+        &self,
+        signature: &str,
+        arg_name: Option<&str>,
+    ) -> simd_json::OwnedValue {
         let desc = arg_name.map(|n| format!(" ({})", n)).unwrap_or_default();
         match signature {
             "s" => json!({"type": "string", "description": format!("string{}", desc)}),

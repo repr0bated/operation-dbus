@@ -29,10 +29,10 @@ pub mod sync_engine;
 
 // Re-export main types
 pub use dbus_watcher::{DbusWatcher, WatchConfig};
-pub use grpc_client::{GrpcClientPool, RemoteOperationClient, RemoteEndpoint};
-pub use grpc_server::{OperationGrpcServer, PluginSchemaProvider, run_grpc_server};
-pub use proto_gen::{ProtoGenerator, ProtoGenConfig};
-pub use sync_engine::{SyncEngine, StateChange, ChangeSource};
+pub use grpc_client::{GrpcClientPool, RemoteEndpoint, RemoteOperationClient};
+pub use grpc_server::{run_grpc_server, OperationGrpcServer, PluginSchemaProvider};
+pub use proto_gen::{ProtoGenConfig, ProtoGenerator};
+pub use sync_engine::{ChangeSource, StateChange, SyncEngine};
 
 /// Generated protobuf types
 pub mod proto {

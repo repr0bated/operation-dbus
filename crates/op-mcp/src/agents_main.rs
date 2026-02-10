@@ -9,8 +9,8 @@
 //! The server reads JSON-RPC requests from stdin and writes responses to stdout.
 
 use anyhow::{Context, Result};
-use simd_json::prelude::*;
 use serde::{Deserialize, Serialize};
+use simd_json::prelude::*;
 use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -434,12 +434,20 @@ impl AgentServer {
 
     async fn sequential_thinking(&self, args: Value) -> Result<Value> {
         // Accept either "thought" or "operation" field
-        let thought = args.as_object().and_then(|o| o.get("thought"))
+        let thought = args
+            .as_object()
+            .and_then(|o| o.get("thought"))
             .and_then(|v| v.as_str())
-            .or_else(|| args.as_object().and_then(|o| o.get("operation")).and_then(|v| v.as_str()))
+            .or_else(|| {
+                args.as_object()
+                    .and_then(|o| o.get("operation"))
+                    .and_then(|v| v.as_str())
+            })
             .unwrap_or("No thought provided");
 
-        let context = args.as_object().and_then(|o| o.get("context"))
+        let context = args
+            .as_object()
+            .and_then(|o| o.get("context"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
@@ -456,47 +464,61 @@ impl AgentServer {
             "step": step_number,
             "thought": thought,
             "context": context,
-            "message": format!("Thinking step {} recorded: {}", step_number, 
+            "message": format!("Thinking step {} recorded: {}", step_number,
                 if thought.len() > 50 { format!("{}...", &thought[..50]) } else { thought.to_string() })
         }))
     }
 
     async fn memory_operations(&self, args: Value) -> Result<Value> {
-        let operation = args.as_object().and_then(|o| o.get("operation"))
+        let operation = args
+            .as_object()
+            .and_then(|o| o.get("operation"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing operation"))?;
 
         match operation {
             "store" => {
-                let key = args.as_object().and_then(|o| o.get("key"))
+                let key = args
+                    .as_object()
+                    .and_then(|o| o.get("key"))
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing key"))?;
-                let value = args.as_object().and_then(|o| o.get("value"))
+                let value = args
+                    .as_object()
+                    .and_then(|o| o.get("value"))
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing value"))?;
-                
-                self.memory.write().await.insert(key.to_string(), value.to_string());
+
+                self.memory
+                    .write()
+                    .await
+                    .insert(key.to_string(), value.to_string());
                 Ok(json!({ "status": "stored", "key": key }))
             }
             "retrieve" => {
-                let key = args.as_object().and_then(|o| o.get("key"))
+                let key = args
+                    .as_object()
+                    .and_then(|o| o.get("key"))
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing key"))?;
-                
+
                 let value = self.memory.read().await.get(key).cloned();
                 Ok(json!({ "status": "retrieved", "key": key, "value": value }))
             }
             "search" => {
-                let query = args.as_object().and_then(|o| o.get("query"))
+                let query = args
+                    .as_object()
+                    .and_then(|o| o.get("query"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                
+
                 let memory = self.memory.read().await;
-                let matches: Vec<_> = memory.iter()
+                let matches: Vec<_> = memory
+                    .iter()
                     .filter(|(k, v)| k.contains(query) || v.contains(query))
                     .map(|(k, v)| json!({ "key": k, "value": v }))
                     .collect();
-                
+
                 Ok(json!({ "status": "searched", "matches": matches, "count": matches.len() }))
             }
             "clear" => {
@@ -508,13 +530,19 @@ impl AgentServer {
     }
 
     async fn code_review(&self, args: Value) -> Result<Value> {
-        let operation = args.as_object().and_then(|o| o.get("operation"))
+        let operation = args
+            .as_object()
+            .and_then(|o| o.get("operation"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing operation"))?;
-        let code = args.as_object().and_then(|o| o.get("code"))
+        let code = args
+            .as_object()
+            .and_then(|o| o.get("code"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing code"))?;
-        let language = args.as_object().and_then(|o| o.get("language"))
+        let language = args
+            .as_object()
+            .and_then(|o| o.get("language"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
 
@@ -523,14 +551,16 @@ impl AgentServer {
             "operation": operation,
             "language": language,
             "code_length": code.len(),
-            "analysis": format!("Code review ({}) for {} code ({} chars). Use an LLM to get detailed analysis.", 
+            "analysis": format!("Code review ({}) for {} code ({} chars). Use an LLM to get detailed analysis.",
                 operation, language, code.len()),
             "note": "This agent provides structure for code review. Connect to an LLM for detailed analysis."
         }))
     }
 
     async fn language_expert(&self, language: &str, args: Value) -> Result<Value> {
-        let operation = args.as_object().and_then(|o| o.get("operation"))
+        let operation = args
+            .as_object()
+            .and_then(|o| o.get("operation"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing operation"))?;
 
@@ -544,10 +574,14 @@ impl AgentServer {
     }
 
     async fn devops_troubleshoot(&self, args: Value) -> Result<Value> {
-        let operation = args.as_object().and_then(|o| o.get("operation"))
+        let operation = args
+            .as_object()
+            .and_then(|o| o.get("operation"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing operation"))?;
-        let issue = args.as_object().and_then(|o| o.get("issue"))
+        let issue = args
+            .as_object()
+            .and_then(|o| o.get("issue"))
             .and_then(|v| v.as_str())
             .unwrap_or("No issue specified");
 
@@ -555,14 +589,16 @@ impl AgentServer {
             "status": "success",
             "operation": operation,
             "issue": issue,
-            "message": format!("DevOps troubleshooter analyzing: {}", 
+            "message": format!("DevOps troubleshooter analyzing: {}",
                 if issue.len() > 50 { format!("{}...", &issue[..50]) } else { issue.to_string() }),
             "note": "This agent provides structure for DevOps troubleshooting. Connect to an LLM for detailed diagnosis."
         }))
     }
 
     async fn network_expert(&self, args: Value) -> Result<Value> {
-        let operation = args.as_object().and_then(|o| o.get("operation"))
+        let operation = args
+            .as_object()
+            .and_then(|o| o.get("operation"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing operation"))?;
 
@@ -576,10 +612,14 @@ impl AgentServer {
     }
 
     async fn database_architect(&self, args: Value) -> Result<Value> {
-        let operation = args.as_object().and_then(|o| o.get("operation"))
+        let operation = args
+            .as_object()
+            .and_then(|o| o.get("operation"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing operation"))?;
-        let db_type = args.as_object().and_then(|o| o.get("database_type"))
+        let db_type = args
+            .as_object()
+            .and_then(|o| o.get("database_type"))
             .and_then(|v| v.as_str())
             .unwrap_or("generic");
 
@@ -593,10 +633,14 @@ impl AgentServer {
     }
 
     async fn security_auditor(&self, args: Value) -> Result<Value> {
-        let operation = args.as_object().and_then(|o| o.get("operation"))
+        let operation = args
+            .as_object()
+            .and_then(|o| o.get("operation"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing operation"))?;
-        let target_type = args.as_object().and_then(|o| o.get("target_type"))
+        let target_type = args
+            .as_object()
+            .and_then(|o| o.get("target_type"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
 
@@ -610,7 +654,9 @@ impl AgentServer {
     }
 
     async fn kubernetes_expert(&self, args: Value) -> Result<Value> {
-        let operation = args.as_object().and_then(|o| o.get("operation"))
+        let operation = args
+            .as_object()
+            .and_then(|o| o.get("operation"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing operation"))?;
 
@@ -630,8 +676,9 @@ impl AgentServer {
 
 async fn handle_request(server: &AgentServer, request: JsonRpcRequest) -> JsonRpcResponse {
     match request.method.as_str() {
-        "initialize" => {
-            JsonRpcResponse::success(request.id, json!({
+        "initialize" => JsonRpcResponse::success(
+            request.id,
+            json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {
                     "tools": { "listChanged": false }
@@ -640,55 +687,64 @@ async fn handle_request(server: &AgentServer, request: JsonRpcRequest) -> JsonRp
                     "name": SERVER_NAME,
                     "version": SERVER_VERSION
                 }
-            }))
-        }
+            }),
+        ),
         "initialized" => {
             // Notification, no response needed
             JsonRpcResponse::success(request.id, json!({}))
         }
         "tools/list" => {
             let tools = get_agent_tools();
-            JsonRpcResponse::success(request.id, json!({
-                "tools": tools
-            }))
+            JsonRpcResponse::success(
+                request.id,
+                json!({
+                    "tools": tools
+                }),
+            )
         }
         "tools/call" => {
-            let tool_name = request.params.as_object()
+            let tool_name = request
+                .params
+                .as_object()
                 .and_then(|o| o.get("name"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let arguments = request.params.as_object()
+            let arguments = request
+                .params
+                .as_object()
                 .and_then(|o| o.get("arguments"))
                 .cloned()
                 .unwrap_or(json!({}));
 
             match server.execute_tool(tool_name, arguments).await {
-                Ok(result) => JsonRpcResponse::success(request.id, json!({
-                    "content": [{
-                        "type": "text",
-                        "text": simd_json::to_string_pretty(&result).unwrap_or_default()
-                    }],
-                    "isError": false
-                })),
-                Err(e) => JsonRpcResponse::success(request.id, json!({
-                    "content": [{
-                        "type": "text",
-                        "text": format!("Error: {}", e)
-                    }],
-                    "isError": true
-                })),
+                Ok(result) => JsonRpcResponse::success(
+                    request.id,
+                    json!({
+                        "content": [{
+                            "type": "text",
+                            "text": simd_json::to_string_pretty(&result).unwrap_or_default()
+                        }],
+                        "isError": false
+                    }),
+                ),
+                Err(e) => JsonRpcResponse::success(
+                    request.id,
+                    json!({
+                        "content": [{
+                            "type": "text",
+                            "text": format!("Error: {}", e)
+                        }],
+                        "isError": true
+                    }),
+                ),
             }
         }
-        "ping" => {
-            JsonRpcResponse::success(request.id, json!({}))
-        }
-        _ => {
-            JsonRpcResponse::error(
-                request.id,
-                -32601,
-                format!("Method not found: {}", request.method),
-            )
-        }
+        "ping" => JsonRpcResponse::success(request.id, json!({})),
+        _ => JsonRpcResponse::error(
+            request.id,
+            -32601,
+            format!("Method not found: {}", request.method),
+        ),
     }
 }
 
@@ -699,7 +755,10 @@ async fn handle_request(server: &AgentServer, request: JsonRpcRequest) -> JsonRp
 #[tokio::main]
 async fn main() -> Result<()> {
     // Set up stderr logging (stdout is for JSON-RPC)
-    eprintln!("[{}] Starting {} v{}", SERVER_NAME, SERVER_NAME, SERVER_VERSION);
+    eprintln!(
+        "[{}] Starting {} v{}",
+        SERVER_NAME, SERVER_NAME, SERVER_VERSION
+    );
 
     let server = AgentServer::new();
     let stdin = io::stdin();
@@ -723,11 +782,8 @@ async fn main() -> Result<()> {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("[{}] Parse error: {}", SERVER_NAME, e);
-                let error_response = JsonRpcResponse::error(
-                    None,
-                    -32700,
-                    format!("Parse error: {}", e),
-                );
+                let error_response =
+                    JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e));
                 let _ = writeln!(stdout, "{}", simd_json::to_string(&error_response).unwrap());
                 let _ = stdout.flush();
                 continue;

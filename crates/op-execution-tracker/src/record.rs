@@ -7,9 +7,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use simd_json::OwnedValue as Value;
 use simd_json::ValueBuilder;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::time::Instant;
 use uuid::Uuid;
@@ -234,12 +234,7 @@ impl ExecutionRecord {
 
     /// Verify hash integrity
     pub fn verify_integrity(&self) -> bool {
-        let computed = hash_execution(
-            &self.tool_name,
-            &self.input,
-            &self.output,
-            &self.prev_hash,
-        );
+        let computed = hash_execution(&self.tool_name, &self.input, &self.output, &self.prev_hash);
         computed == self.exec_hash
     }
 }
@@ -325,12 +320,7 @@ impl ExecutionRecordBuilder {
 
     pub fn build(self) -> ExecutionRecord {
         let id = Uuid::new_v4().to_string();
-        let exec_hash = hash_execution(
-            &self.tool_name,
-            &self.input,
-            &self.output,
-            &self.prev_hash,
-        );
+        let exec_hash = hash_execution(&self.tool_name, &self.input, &self.output, &self.prev_hash);
 
         ExecutionRecord {
             id: id.clone(),
@@ -371,12 +361,7 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 }
 
 /// Compute execution hash for deterministic fingerprinting
-pub fn hash_execution(
-    tool_name: &str,
-    input: &Value,
-    output: &Value,
-    prev_hash: &str,
-) -> String {
+pub fn hash_execution(tool_name: &str, input: &Value, output: &Value, prev_hash: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(tool_name.as_bytes());
     hasher.update(simd_json::to_vec(input).unwrap_or_default());

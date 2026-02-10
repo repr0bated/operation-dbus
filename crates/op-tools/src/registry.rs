@@ -4,15 +4,15 @@
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
-use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
 
-use crate::tool::{Tool, BoxedTool};
+use crate::tool::{BoxedTool, Tool};
 
 /// Tool definition metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,7 +83,8 @@ impl ToolRegistry {
             tags: vec!["builtin".to_string()],
             namespace: tool.namespace().to_string(),
         };
-        self.register(Arc::from(tool.name()), tool, definition).await
+        self.register(Arc::from(tool.name()), tool, definition)
+            .await
     }
 
     /// Get a tool by name
@@ -134,10 +135,6 @@ impl ToolRegistry {
         self.list().await
     }
 }
-
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -244,6 +241,5 @@ mod tests {
 
         let stats = registry.stats().await;
         assert_eq!(stats.total_registered, 1);
-
     }
 }

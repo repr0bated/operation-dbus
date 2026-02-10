@@ -39,7 +39,7 @@ impl PluginNode {
             PluginOperation::Diff => "Diff",
             PluginOperation::Apply => "Apply",
         };
-        
+
         Self {
             id: id.to_string(),
             name: format!("{} {}", plugin_name, op_name),
@@ -67,27 +67,27 @@ impl WorkflowNode for PluginNode {
     fn inputs(&self) -> Vec<NodePort> {
         match self.operation {
             PluginOperation::Query => vec![],
-            PluginOperation::Diff | PluginOperation::Apply => vec![
-                NodePort::optional("desired_state", "Desired State", "object")
-                    .with_description("The desired state to diff/apply"),
-            ],
+            PluginOperation::Diff | PluginOperation::Apply => {
+                vec![
+                    NodePort::optional("desired_state", "Desired State", "object")
+                        .with_description("The desired state to diff/apply"),
+                ]
+            }
         }
     }
 
     fn outputs(&self) -> Vec<NodePort> {
         match self.operation {
-            PluginOperation::Query => vec![
-                NodePort::required("current_state", "Current State", "object")
-                    .with_description("The current system state"),
-            ],
-            PluginOperation::Diff => vec![
-                NodePort::required("diff", "State Diff", "object")
-                    .with_description("Difference between current and desired state"),
-            ],
-            PluginOperation::Apply => vec![
-                NodePort::required("result", "Apply Result", "object")
-                    .with_description("Result of applying the state"),
-            ],
+            PluginOperation::Query => {
+                vec![
+                    NodePort::required("current_state", "Current State", "object")
+                        .with_description("The current system state"),
+                ]
+            }
+            PluginOperation::Diff => vec![NodePort::required("diff", "State Diff", "object")
+                .with_description("Difference between current and desired state")],
+            PluginOperation::Apply => vec![NodePort::required("result", "Apply Result", "object")
+                .with_description("Result of applying the state")],
         }
     }
 

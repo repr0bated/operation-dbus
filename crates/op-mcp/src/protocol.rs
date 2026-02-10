@@ -144,10 +144,7 @@ mod tests {
 
     #[test]
     fn test_response_error() {
-        let resp = McpResponse::error(
-            Some(json!(1)),
-            JsonRpcError::method_not_found("unknown"),
-        );
+        let resp = McpResponse::error(Some(json!(1)), JsonRpcError::method_not_found("unknown"));
         assert!(!resp.is_success());
     }
 }

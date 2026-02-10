@@ -1,11 +1,12 @@
 //! OAuth token acquisition & org.freedesktop.secrets cache.
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
-const SCOPES: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/cloud-ide";
+const SCOPES: &str =
+    "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/cloud-ide";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedToken {
@@ -58,7 +59,10 @@ impl TokenManager {
             .output()
             .context("gcloud not found")?;
         if !out.status.success() {
-            anyhow::bail!("gcloud auth failed: {}", String::from_utf8_lossy(&out.stderr));
+            anyhow::bail!(
+                "gcloud auth failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
         }
         let tok = String::from_utf8_lossy(&out.stdout).trim().to_string();
         Ok(CachedToken {

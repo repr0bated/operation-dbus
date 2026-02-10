@@ -81,7 +81,10 @@ impl TlsConfig {
     pub fn build_acceptor(&self) -> Result<Option<TlsAcceptor>> {
         match &self.mode {
             TlsMode::Disabled => Ok(None),
-            TlsMode::Enabled { cert_path, key_path } => {
+            TlsMode::Enabled {
+                cert_path,
+                key_path,
+            } => {
                 let acceptor = create_tls_acceptor(cert_path, key_path)?;
                 Ok(Some(acceptor))
             }
@@ -143,7 +146,10 @@ fn create_tls_acceptor(cert_path: &str, key_path: &str) -> Result<TlsAcceptor> {
 /// 6. System default certificates
 fn detect_certificates() -> Result<Option<(String, String)>> {
     // Priority 1: Environment variables
-    if let (Ok(cert), Ok(key)) = (std::env::var("SSL_CERT_PATH"), std::env::var("SSL_KEY_PATH")) {
+    if let (Ok(cert), Ok(key)) = (
+        std::env::var("SSL_CERT_PATH"),
+        std::env::var("SSL_KEY_PATH"),
+    ) {
         if Path::new(&cert).exists() && Path::new(&key).exists() {
             info!("Using certificates from environment variables");
             return Ok(Some((cert, key)));
@@ -153,14 +159,26 @@ fn detect_certificates() -> Result<Option<(String, String)>> {
     // Priority 2: Cloudflare Origin certificates (NEW)
     let cloudflare_paths = [
         // Standard Cloudflare Origin certificate locations
-        ("/etc/ssl/cloudflare/origin.pem", "/etc/ssl/cloudflare/origin.key"),
-        ("/etc/ssl/cloudflare/cert.pem", "/etc/ssl/cloudflare/key.pem"),
+        (
+            "/etc/ssl/cloudflare/origin.pem",
+            "/etc/ssl/cloudflare/origin.key",
+        ),
+        (
+            "/etc/ssl/cloudflare/cert.pem",
+            "/etc/ssl/cloudflare/key.pem",
+        ),
         ("/etc/cloudflare/origin.pem", "/etc/cloudflare/origin.key"),
         ("/etc/cloudflare/cert.pem", "/etc/cloudflare/key.pem"),
         // Domain-specific Cloudflare paths
-        ("/etc/ssl/cloudflare/ghostbridge.tech/cert.pem", "/etc/ssl/cloudflare/ghostbridge.tech/key.pem"),
+        (
+            "/etc/ssl/cloudflare/ghostbridge.tech/cert.pem",
+            "/etc/ssl/cloudflare/ghostbridge.tech/key.pem",
+        ),
         // User directory
-        ("/home/jeremy/certs/cloudflare_origin.pem", "/home/jeremy/certs/cloudflare_origin.key"),
+        (
+            "/home/jeremy/certs/cloudflare_origin.pem",
+            "/home/jeremy/certs/cloudflare_origin.key",
+        ),
     ];
 
     for (cert, key) in &cloudflare_paths {
@@ -172,10 +190,16 @@ fn detect_certificates() -> Result<Option<(String, String)>> {
 
     // Priority 3: Nginx/custom certificates
     let nginx_certs = [
-        ("/etc/nginx/ssl/ghostbridge.crt", "/etc/nginx/ssl/ghostbridge.key"),
+        (
+            "/etc/nginx/ssl/ghostbridge.crt",
+            "/etc/nginx/ssl/ghostbridge.key",
+        ),
         ("/etc/nginx/ssl/proxmox.crt", "/etc/nginx/ssl/proxmox.key"),
         ("/etc/nginx/ssl/server.crt", "/etc/nginx/ssl/server.key"),
-        ("/etc/nginx/ssl/cloudflare.crt", "/etc/nginx/ssl/cloudflare.key"),
+        (
+            "/etc/nginx/ssl/cloudflare.crt",
+            "/etc/nginx/ssl/cloudflare.key",
+        ),
     ];
 
     for (cert, key) in &nginx_certs {
@@ -191,10 +215,13 @@ fn detect_certificates() -> Result<Option<(String, String)>> {
         "proxmox.ghostbridge.tech",
         "op-web.ghostbridge.tech",
     ];
-    
+
     let hostname = gethostname::gethostname().to_string_lossy().to_string();
 
-    for domain in letsencrypt_domains.iter().chain(std::iter::once(&hostname.as_str())) {
+    for domain in letsencrypt_domains
+        .iter()
+        .chain(std::iter::once(&hostname.as_str()))
+    {
         let cert = format!("/etc/letsencrypt/live/{}/fullchain.pem", domain);
         let key = format!("/etc/letsencrypt/live/{}/privkey.pem", domain);
         if Path::new(&cert).exists() && Path::new(&key).exists() {
@@ -214,8 +241,14 @@ fn detect_certificates() -> Result<Option<(String, String)>> {
 
     // Priority 6: System default certificates (self-signed)
     let system_certs = [
-        ("/etc/ssl/certs/ssl-cert-snakeoil.pem", "/etc/ssl/private/ssl-cert-snakeoil.key"),
-        ("/etc/ssl/certs/localhost.pem", "/etc/ssl/private/localhost.key"),
+        (
+            "/etc/ssl/certs/ssl-cert-snakeoil.pem",
+            "/etc/ssl/private/ssl-cert-snakeoil.key",
+        ),
+        (
+            "/etc/ssl/certs/localhost.pem",
+            "/etc/ssl/private/localhost.key",
+        ),
     ];
 
     for (cert, key) in &system_certs {
@@ -231,47 +264,47 @@ fn detect_certificates() -> Result<Option<(String, String)>> {
 /// Validate that a certificate and key match
 pub fn validate_cert_key_match(cert_path: &str, key_path: &str) -> Result<bool> {
     use std::process::Command;
-    
+
     // Get certificate modulus
     let cert_output = Command::new("openssl")
         .args(["x509", "-in", cert_path, "-noout", "-modulus"])
         .output()
         .map_err(|e| ServerError::CertificateError(format!("Failed to run openssl: {}", e)))?;
-    
+
     let key_output = Command::new("openssl")
         .args(["rsa", "-in", key_path, "-noout", "-modulus"])
         .output()
         .map_err(|e| ServerError::CertificateError(format!("Failed to run openssl: {}", e)))?;
-    
+
     Ok(cert_output.stdout == key_output.stdout)
 }
 
 /// Get certificate expiry information
 pub fn get_cert_expiry(cert_path: &str) -> Result<String> {
     use std::process::Command;
-    
+
     let output = Command::new("openssl")
         .args(["x509", "-in", cert_path, "-noout", "-enddate"])
         .output()
         .map_err(|e| ServerError::CertificateError(format!("Failed to run openssl: {}", e)))?;
-    
+
     let expiry = String::from_utf8_lossy(&output.stdout)
         .replace("notAfter=", "")
         .trim()
         .to_string();
-    
+
     Ok(expiry)
 }
 
 /// Check if certificate is from Cloudflare
 pub fn is_cloudflare_cert(cert_path: &str) -> Result<bool> {
     use std::process::Command;
-    
+
     let output = Command::new("openssl")
         .args(["x509", "-in", cert_path, "-noout", "-issuer"])
         .output()
         .map_err(|e| ServerError::CertificateError(format!("Failed to run openssl: {}", e)))?;
-    
+
     let issuer = String::from_utf8_lossy(&output.stdout).to_lowercase();
     Ok(issuer.contains("cloudflare"))
 }

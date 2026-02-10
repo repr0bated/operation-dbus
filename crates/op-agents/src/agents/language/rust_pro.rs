@@ -1,4 +1,5 @@
-    //! Rust Pro Agent - Rust development environment
+
+//! Rust Pro Agent - Rust development environment
 //!
 //! Provides secure execution for Rust development tasks including:
 //! - Cargo check/build/test

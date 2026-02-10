@@ -109,7 +109,11 @@ impl GCloudAuth {
         let scopes = OAUTH_SCOPES.join(",");
 
         let output = Command::new("gcloud")
-            .args(["auth", "print-access-token", &format!("--scopes={}", scopes)])
+            .args([
+                "auth",
+                "print-access-token",
+                &format!("--scopes={}", scopes),
+            ])
             .output()
             .ok()?;
 
@@ -154,7 +158,11 @@ impl GCloudAuth {
         let scopes = OAUTH_SCOPES.join(",");
 
         let output = Command::new("gcloud")
-            .args(["auth", "print-access-token", &format!("--scopes={}", scopes)])
+            .args([
+                "auth",
+                "print-access-token",
+                &format!("--scopes={}", scopes),
+            ])
             .output()?;
 
         if !output.status.success() {

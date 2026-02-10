@@ -34,14 +34,14 @@ impl SelfRepositoryInfo {
     /// Gather information about the self-repository
     pub fn gather() -> Option<Self> {
         let path = get_self_repo_path()?;
-        
+
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string());
-        
+
         let has_git = path.join(".git").exists();
-        
+
         let (branch, commit, has_changes) = if has_git {
             (
                 Self::get_git_branch(&path),
@@ -51,12 +51,12 @@ impl SelfRepositoryInfo {
         } else {
             (None, None, false)
         };
-        
+
         info!(
             "Self-repository: {} at {:?} (branch: {:?}, commit: {:?})",
             name, path, branch, commit
         );
-        
+
         Some(Self {
             path,
             name,
@@ -66,14 +66,14 @@ impl SelfRepositoryInfo {
             has_git,
         })
     }
-    
+
     fn get_git_branch(path: &PathBuf) -> Option<String> {
         let output = Command::new("git")
             .args(["branch", "--show-current"])
             .current_dir(path)
             .output()
             .ok()?;
-        
+
         if output.status.success() {
             let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !branch.is_empty() {
@@ -82,14 +82,14 @@ impl SelfRepositoryInfo {
         }
         None
     }
-    
+
     fn get_git_commit(path: &PathBuf) -> Option<String> {
         let output = Command::new("git")
             .args(["rev-parse", "--short", "HEAD"])
             .current_dir(path)
             .output()
             .ok()?;
-        
+
         if output.status.success() {
             let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !commit.is_empty() {
@@ -98,7 +98,7 @@ impl SelfRepositoryInfo {
         }
         None
     }
-    
+
     fn check_git_changes(path: &PathBuf) -> bool {
         Command::new("git")
             .args(["status", "--porcelain"])
@@ -108,7 +108,7 @@ impl SelfRepositoryInfo {
             .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
             .unwrap_or(false)
     }
-    
+
     /// Generate system prompt context for self-awareness
     pub fn to_system_prompt_context(&self) -> String {
         let git_info = if self.has_git {
@@ -116,12 +116,16 @@ impl SelfRepositoryInfo {
                 "**Branch**: `{}`\n**Commit**: `{}`\n**Uncommitted Changes**: {}",
                 self.branch.as_deref().unwrap_or("unknown"),
                 self.commit.as_deref().unwrap_or("unknown"),
-                if self.has_changes { "Yes ⚠️" } else { "No ✓" }
+                if self.has_changes {
+                    "Yes ⚠️"
+                } else {
+                    "No ✓"
+                }
             )
         } else {
             "Not a git repository".to_string()
         };
-        
+
         format!(
             r#"## 🔮 SELF-AWARENESS: YOUR OWN SOURCE CODE
 

@@ -39,9 +39,9 @@
 use anyhow::Result;
 // use op_core::ExecutionTracker;
 use serde::{Deserialize, Serialize};
+use simd_json::prelude::*;
 use simd_json::OwnedValue;
 use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::error;
@@ -98,7 +98,7 @@ pub enum IssueSeverity {
 }
 
 /// Forced execution orchestrator
-/// 
+///
 /// Ensures all LLM interactions go through tools and verifies
 /// that claimed actions actually occurred.
 pub struct ForcedExecutionOrchestrator {
@@ -191,9 +191,9 @@ impl ForcedExecutionOrchestrator {
         let mut unverified_claims = Vec::new();
 
         // Check 1: Was respond_to_user called?
-        let has_response_tool = executed_tools
-            .iter()
-            .any(|t| t == "respond_to_user" || t == "cannot_perform" || t == "request_clarification");
+        let has_response_tool = executed_tools.iter().any(|t| {
+            t == "respond_to_user" || t == "cannot_perform" || t == "request_clarification"
+        });
 
         if !has_response_tool {
             issues.push(HallucinationIssue {
@@ -252,9 +252,7 @@ impl ForcedExecutionOrchestrator {
             }
         }
 
-        let verified = !issues
-            .iter()
-            .any(|i| i.severity >= IssueSeverity::Error);
+        let verified = !issues.iter().any(|i| i.severity >= IssueSeverity::Error);
 
         if !verified {
             error!(
@@ -326,7 +324,7 @@ pub struct TurnStats {
 }
 
 /// Parse tool calls from LLM response
-/// 
+///
 /// Handles various formats:
 /// - OpenAI function calling format
 /// - Anthropic tool_use format
@@ -341,8 +339,7 @@ pub fn parse_tool_calls(llm_response: &Value) -> Vec<ToolCall> {
                 call.get("function")
                     .and_then(|f| f.get("name"))
                     .and_then(|n| n.as_str()),
-                call.get("function")
-                    .and_then(|f| f.get("arguments")),
+                call.get("function").and_then(|f| f.get("arguments")),
             ) {
                 let arguments = if args.is_str() {
                     unsafe { simd_json::from_str(&mut args.as_str().unwrap().to_string()) }
@@ -377,7 +374,10 @@ pub fn parse_tool_calls(llm_response: &Value) -> Vec<ToolCall> {
     }
 
     // Try generic format
-    if let Some(tools) = llm_response.get("tools").and_then(|v: &OwnedValue| v.as_array()) {
+    if let Some(tools) = llm_response
+        .get("tools")
+        .and_then(|v: &OwnedValue| v.as_array())
+    {
         for tool in tools {
             if let (Some(name), arguments) = (
                 tool.get("name").and_then(|n: &OwnedValue| n.as_str()),
@@ -404,7 +404,11 @@ pub fn detect_raw_text_output(llm_response: &Value) -> Option<String> {
                 || llm_response
                     .get("content")
                     .and_then(|c: &OwnedValue| c.as_array())
-                    .map(|arr: &Vec<OwnedValue>| arr.iter().any(|b: &OwnedValue| b.get("type").and_then(|t: &OwnedValue| t.as_str()) == Some("tool_use")))
+                    .map(|arr: &Vec<OwnedValue>| {
+                        arr.iter().any(|b: &OwnedValue| {
+                            b.get("type").and_then(|t: &OwnedValue| t.as_str()) == Some("tool_use")
+                        })
+                    })
                     .unwrap_or(false);
 
             if !has_tool_calls && !text.is_empty() {

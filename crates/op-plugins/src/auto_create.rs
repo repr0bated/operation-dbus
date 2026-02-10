@@ -1,15 +1,17 @@
 //! Auto-Discovery and Creation of Plugins
-//! 
+//!
 //! This module provides the capability to automatically discover system services
 //! and create corresponding state plugins.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use simd_json::{json, OwnedValue as Value};
+use op_state::{
+    ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin,
+};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use op_state::{StatePlugin, StateDiff, StateAction, ApplyResult, Checkpoint, PluginCapabilities, DiffMetadata};
 
 /// Auto-creator for systemd-based plugins
 pub struct SystemdAutoCreator;
@@ -18,11 +20,11 @@ impl SystemdAutoCreator {
     /// Discover systemd units and create plugins
     pub async fn discover_units() -> Result<Vec<(String, Value)>> {
         let mut plugins = Vec::new();
-        
+
         // Example discovery: find all active .service units
         // In a real implementation, this would query systemd via D-Bus
         let discovered_units = vec!["nginx.service", "redis.service", "postgresql.service"];
-        
+
         for unit in discovered_units {
             plugins.push((
                 unit.to_string(),
@@ -31,10 +33,10 @@ impl SystemdAutoCreator {
                     "name": unit,
                     "state": "active",
                     "enabled": true
-                })
+                }),
             ));
         }
-        
+
         Ok(plugins)
     }
 }
@@ -70,7 +72,11 @@ impl StatePlugin for AutoPlugin {
         Ok(self.current_state.read().await.clone())
     }
 
-    async fn calculate_diff(&self, current: &Value, desired: &Value) -> Result<op_state::StateDiff> {
+    async fn calculate_diff(
+        &self,
+        current: &Value,
+        desired: &Value,
+    ) -> Result<op_state::StateDiff> {
         // Simple generic diff: if not equal, replace
         let mut actions = Vec::new();
         if current != desired {

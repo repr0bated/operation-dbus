@@ -54,8 +54,8 @@ pub use headless_oauth::{HeadlessOAuthProvider, OAuthToken};
 pub use huggingface::HuggingFaceClient;
 pub use perplexity::PerplexityClient;
 pub use provider::{
-    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, 
-    ProviderConfig, ProviderType, ToolChoice, ToolDefinition,
+    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderConfig, ProviderType,
+    ToolChoice, ToolDefinition,
 };
 
 /// Prelude for convenient imports
@@ -68,7 +68,7 @@ pub mod prelude {
     pub use super::huggingface::HuggingFaceClient;
     pub use super::perplexity::PerplexityClient;
     pub use super::provider::{
-        ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, 
-        ProviderConfig, ProviderType, ToolChoice, ToolDefinition,
+        ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderConfig,
+        ProviderType, ToolChoice, ToolDefinition,
     };
 }

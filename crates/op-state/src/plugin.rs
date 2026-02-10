@@ -2,8 +2,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
@@ -20,7 +20,10 @@ pub struct DesiredState {
 
 impl DesiredState {
     pub fn new(state: Value) -> Self {
-        let hash = format!("{:x}", md5::compute(simd_json::to_string(&state).unwrap_or_default()));
+        let hash = format!(
+            "{:x}",
+            md5::compute(simd_json::to_string(&state).unwrap_or_default())
+        );
         Self {
             state,
             timestamp: Utc::now(),

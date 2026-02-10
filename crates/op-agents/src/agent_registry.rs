@@ -235,8 +235,8 @@ impl AgentRegistry {
             .context("Failed to read agent specifications file")?;
 
         let mut content = content;
-        let specs: Vec<AgentSpec> =
-            unsafe { simd_json::from_str(&mut content) }.context("Failed to parse agent specifications")?;
+        let specs: Vec<AgentSpec> = unsafe { simd_json::from_str(&mut content) }
+            .context("Failed to parse agent specifications")?;
 
         for spec in specs {
             self.register_spec(spec).await?;
@@ -271,7 +271,11 @@ impl AgentRegistry {
     }
 
     /// Spawn an agent instance
-    pub async fn spawn_agent(&self, agent_type: &str, _config: Option<OwnedValue>) -> Result<String> {
+    pub async fn spawn_agent(
+        &self,
+        agent_type: &str,
+        _config: Option<OwnedValue>,
+    ) -> Result<String> {
         // Get the specification
         let specs = self.specs.read().await;
         let spec = specs

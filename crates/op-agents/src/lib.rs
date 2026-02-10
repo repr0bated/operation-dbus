@@ -3,20 +3,19 @@
 //! This crate provides agent types and the factory function to create them.
 //! Agents are domain-specific AI assistants that can be invoked via D-Bus or MCP.
 
-pub mod agents;
-pub mod dbus_service;
-pub mod security;
 pub mod agent_catalog;
 pub mod agent_registry;
+pub mod agents;
+pub mod dbus_service;
 pub mod router;
+pub mod security;
 
 // Re-export key types
-pub use agents::base::{AgentTask, AgentTrait, TaskResult};
-pub use agents::*;
 pub use agent_catalog::{builtin_agent_descriptors, AgentDescriptor};
 pub use agent_registry::{AgentRegistry, AgentStatus};
+pub use agents::base::{AgentTask, AgentTrait, TaskResult};
+pub use agents::*;
 pub use router::{create_router, AgentsServiceRouter, AgentsState};
-
 
 /// Create an agent by type name
 ///
@@ -33,20 +32,49 @@ pub fn create_agent(
     agent_id: String,
 ) -> Result<Box<dyn AgentTrait + Send + Sync>, String> {
     use agents::{
-        aiml::{AIEngineerAgent, DataEngineerAgent, DataScientistAgent, MLEngineerAgent, MLOpsEngineerAgent, PromptEngineerAgent},
-        analysis::{CodeReviewerAgent, DebuggerAgent, PerformanceEngineerAgent, SecurityAuditorAgent},
+        aiml::{
+            AIEngineerAgent, DataEngineerAgent, DataScientistAgent, MLEngineerAgent,
+            MLOpsEngineerAgent, PromptEngineerAgent,
+        },
+        analysis::{
+            CodeReviewerAgent, DebuggerAgent, PerformanceEngineerAgent, SecurityAuditorAgent,
+        },
         architecture::{BackendArchitectAgent, FrontendDeveloperAgent, GraphQLArchitectAgent},
-        business::{BusinessAnalystAgent, CustomerSupportAgent, HRProAgent, LegalAdvisorAgent, PaymentIntegrationAgent, SalesAutomatorAgent},
-        content::{ApiDocumenterAgent, DocsArchitectAgent, MermaidExpertAgent, TutorialEngineerAgent},
+        business::{
+            BusinessAnalystAgent, CustomerSupportAgent, HRProAgent, LegalAdvisorAgent,
+            PaymentIntegrationAgent, SalesAutomatorAgent,
+        },
+        content::{
+            ApiDocumenterAgent, DocsArchitectAgent, MermaidExpertAgent, TutorialEngineerAgent,
+        },
         database::{DatabaseArchitectAgent, DatabaseOptimizerAgent, SqlProAgent},
-        infrastructure::{CloudArchitectAgent, DeploymentAgent, KubernetesAgent, NetworkEngineerAgent, TerraformAgent},
-        language::{BashProAgent, CProAgent, CppProAgent, CSharpProAgent, ElixirProAgent, GolangProAgent, JavaProAgent, JavaScriptProAgent, JuliaProAgent, PhpProAgent, PythonProAgent, RubyProAgent, RustProAgent, ScalaProAgent, TypeScriptProAgent},
+        infrastructure::{
+            CloudArchitectAgent, DeploymentAgent, KubernetesAgent, NetworkEngineerAgent,
+            TerraformAgent,
+        },
+        language::{
+            BashProAgent, CProAgent, CSharpProAgent, CppProAgent, ElixirProAgent, GolangProAgent,
+            JavaProAgent, JavaScriptProAgent, JuliaProAgent, PhpProAgent, PythonProAgent,
+            RubyProAgent, RustProAgent, ScalaProAgent, TypeScriptProAgent,
+        },
         mobile::{FlutterExpertAgent, IOSDeveloperAgent, MobileDeveloperAgent},
         operations::{DevOpsTroubleshooterAgent, IncidentResponderAgent, TestAutomatorAgent},
-        orchestration::{ContextManagerAgent, DxOptimizerAgent, MemoryAgent, SequentialThinkingAgent, TddOrchestratorAgent},
-        security::{BackendSecurityCoderAgent, FrontendSecurityCoderAgent, MobileSecurityCoderAgent},
-        seo::{ContentMarketerAgent, SearchSpecialistAgent, SEOContentWriterAgent, SEOKeywordStrategistAgent, SEOMetaOptimizerAgent},
-        specialty::{ARMCortexExpertAgent, BlockchainDeveloperAgent, ErrorDetectiveAgent, HybridCloudArchitectAgent, LegacyModernizerAgent, ObservabilityEngineerAgent, QuantAnalystAgent, UIUXDesignerAgent, UnityDeveloperAgent},
+        orchestration::{
+            ContextManagerAgent, DxOptimizerAgent, MemoryAgent, SequentialThinkingAgent,
+            TddOrchestratorAgent,
+        },
+        security::{
+            BackendSecurityCoderAgent, FrontendSecurityCoderAgent, MobileSecurityCoderAgent,
+        },
+        seo::{
+            ContentMarketerAgent, SEOContentWriterAgent, SEOKeywordStrategistAgent,
+            SEOMetaOptimizerAgent, SearchSpecialistAgent,
+        },
+        specialty::{
+            ARMCortexExpertAgent, BlockchainDeveloperAgent, ErrorDetectiveAgent,
+            HybridCloudArchitectAgent, LegacyModernizerAgent, ObservabilityEngineerAgent,
+            QuantAnalystAgent, UIUXDesignerAgent, UnityDeveloperAgent,
+        },
         webframeworks::{DjangoProAgent, FastAPIProAgent, TemporalPythonProAgent},
     };
 
@@ -70,7 +98,9 @@ pub fn create_agent(
 
         // Architecture agents
         "backend-architect" | "backend_architect" => Box::new(BackendArchitectAgent::new(agent_id)),
-        "frontend-developer" | "frontend_developer" => Box::new(FrontendDeveloperAgent::new(agent_id)),
+        "frontend-developer" | "frontend_developer" => {
+            Box::new(FrontendDeveloperAgent::new(agent_id))
+        }
         "graphql-architect" | "graphql_architect" => Box::new(GraphQLArchitectAgent::new(agent_id)),
 
         // Infrastructure agents
@@ -83,21 +113,31 @@ pub fn create_agent(
         // Orchestration agents
         "memory" => Box::new(MemoryAgent::new(agent_id)),
         "context-manager" | "context_manager" => Box::new(ContextManagerAgent::new(agent_id)),
-        "sequential-thinking" | "sequential_thinking" => Box::new(SequentialThinkingAgent::new(agent_id)),
+        "sequential-thinking" | "sequential_thinking" => {
+            Box::new(SequentialThinkingAgent::new(agent_id))
+        }
         "dx-optimizer" | "dx_optimizer" => Box::new(DxOptimizerAgent::new(agent_id)),
         "tdd-orchestrator" | "tdd_orchestrator" => Box::new(TddOrchestratorAgent::new(agent_id)),
 
         // Analysis agents
         "debugger" => Box::new(DebuggerAgent::new(agent_id)),
         "code-reviewer" | "code_reviewer" => Box::new(CodeReviewerAgent::new(agent_id)),
-        "performance-engineer" | "performance_engineer" => Box::new(PerformanceEngineerAgent::new(agent_id)),
+        "performance-engineer" | "performance_engineer" => {
+            Box::new(PerformanceEngineerAgent::new(agent_id))
+        }
         "security-auditor" | "security_auditor" => Box::new(SecurityAuditorAgent::new(agent_id)),
 
         // SEO agents
         "search-specialist" | "search_specialist" => Box::new(SearchSpecialistAgent::new(agent_id)),
-        "seo-content-writer" | "seo_content_writer" => Box::new(SEOContentWriterAgent::new(agent_id)),
-        "seo-keyword-strategist" | "seo_keyword_strategist" => Box::new(SEOKeywordStrategistAgent::new(agent_id)),
-        "seo-meta-optimizer" | "seo_meta_optimizer" => Box::new(SEOMetaOptimizerAgent::new(agent_id)),
+        "seo-content-writer" | "seo_content_writer" => {
+            Box::new(SEOContentWriterAgent::new(agent_id))
+        }
+        "seo-keyword-strategist" | "seo_keyword_strategist" => {
+            Box::new(SEOKeywordStrategistAgent::new(agent_id))
+        }
+        "seo-meta-optimizer" | "seo_meta_optimizer" => {
+            Box::new(SEOMetaOptimizerAgent::new(agent_id))
+        }
         "content-marketer" | "content_marketer" => Box::new(ContentMarketerAgent::new(agent_id)),
 
         // AI/ML agents
@@ -109,26 +149,42 @@ pub fn create_agent(
         "data-engineer" | "data_engineer" => Box::new(DataEngineerAgent::new(agent_id)),
 
         // Database agents
-        "database-architect" | "database_architect" => Box::new(DatabaseArchitectAgent::new(agent_id)),
-        "database-optimizer" | "database_optimizer" => Box::new(DatabaseOptimizerAgent::new(agent_id)),
+        "database-architect" | "database_architect" => {
+            Box::new(DatabaseArchitectAgent::new(agent_id))
+        }
+        "database-optimizer" | "database_optimizer" => {
+            Box::new(DatabaseOptimizerAgent::new(agent_id))
+        }
         "sql-pro" | "sql_pro" => Box::new(SqlProAgent::new(agent_id)),
 
         // Operations agents
-        "devops-troubleshooter" | "devops_troubleshooter" => Box::new(DevOpsTroubleshooterAgent::new(agent_id)),
-        "incident-responder" | "incident_responder" => Box::new(IncidentResponderAgent::new(agent_id)),
+        "devops-troubleshooter" | "devops_troubleshooter" => {
+            Box::new(DevOpsTroubleshooterAgent::new(agent_id))
+        }
+        "incident-responder" | "incident_responder" => {
+            Box::new(IncidentResponderAgent::new(agent_id))
+        }
         "test-automator" | "test_automator" => Box::new(TestAutomatorAgent::new(agent_id)),
 
         // Security agents
-        "backend-security-coder" | "backend_security_coder" => Box::new(BackendSecurityCoderAgent::new(agent_id)),
-        "frontend-security-coder" | "frontend_security_coder" => Box::new(FrontendSecurityCoderAgent::new(agent_id)),
-        "mobile-security-coder" | "mobile_security_coder" => Box::new(MobileSecurityCoderAgent::new(agent_id)),
+        "backend-security-coder" | "backend_security_coder" => {
+            Box::new(BackendSecurityCoderAgent::new(agent_id))
+        }
+        "frontend-security-coder" | "frontend_security_coder" => {
+            Box::new(FrontendSecurityCoderAgent::new(agent_id))
+        }
+        "mobile-security-coder" | "mobile_security_coder" => {
+            Box::new(MobileSecurityCoderAgent::new(agent_id))
+        }
 
         // Business agents
         "business-analyst" | "business_analyst" => Box::new(BusinessAnalystAgent::new(agent_id)),
         "customer-support" | "customer_support" => Box::new(CustomerSupportAgent::new(agent_id)),
         "hr-pro" | "hr_pro" => Box::new(HRProAgent::new(agent_id)),
         "legal-advisor" | "legal_advisor" => Box::new(LegalAdvisorAgent::new(agent_id)),
-        "payment-integration" | "payment_integration" => Box::new(PaymentIntegrationAgent::new(agent_id)),
+        "payment-integration" | "payment_integration" => {
+            Box::new(PaymentIntegrationAgent::new(agent_id))
+        }
         "sales-automator" | "sales_automator" => Box::new(SalesAutomatorAgent::new(agent_id)),
 
         // Content agents
@@ -144,11 +200,17 @@ pub fn create_agent(
 
         // Specialty agents
         "arm-cortex-expert" | "arm_cortex_expert" => Box::new(ARMCortexExpertAgent::new(agent_id)),
-        "blockchain-developer" | "blockchain_developer" => Box::new(BlockchainDeveloperAgent::new(agent_id)),
+        "blockchain-developer" | "blockchain_developer" => {
+            Box::new(BlockchainDeveloperAgent::new(agent_id))
+        }
         "error-detective" | "error_detective" => Box::new(ErrorDetectiveAgent::new(agent_id)),
-        "hybrid-cloud-architect" | "hybrid_cloud_architect" => Box::new(HybridCloudArchitectAgent::new(agent_id)),
+        "hybrid-cloud-architect" | "hybrid_cloud_architect" => {
+            Box::new(HybridCloudArchitectAgent::new(agent_id))
+        }
         "legacy-modernizer" | "legacy_modernizer" => Box::new(LegacyModernizerAgent::new(agent_id)),
-        "observability-engineer" | "observability_engineer" => Box::new(ObservabilityEngineerAgent::new(agent_id)),
+        "observability-engineer" | "observability_engineer" => {
+            Box::new(ObservabilityEngineerAgent::new(agent_id))
+        }
         "quant-analyst" | "quant_analyst" => Box::new(QuantAnalystAgent::new(agent_id)),
         "ui-ux-designer" | "ui_ux_designer" => Box::new(UIUXDesignerAgent::new(agent_id)),
         "unity-developer" | "unity_developer" => Box::new(UnityDeveloperAgent::new(agent_id)),
@@ -156,7 +218,9 @@ pub fn create_agent(
         // Web framework agents
         "django-pro" | "django_pro" => Box::new(DjangoProAgent::new(agent_id)),
         "fastapi-pro" | "fastapi_pro" => Box::new(FastAPIProAgent::new(agent_id)),
-        "temporal-python-pro" | "temporal_python_pro" => Box::new(TemporalPythonProAgent::new(agent_id)),
+        "temporal-python-pro" | "temporal_python_pro" => {
+            Box::new(TemporalPythonProAgent::new(agent_id))
+        }
 
         _ => return Err(format!("Unknown agent type: {}", agent_type)),
     };
@@ -168,42 +232,97 @@ pub fn create_agent(
 pub fn list_agent_types() -> Vec<&'static str> {
     vec![
         // Language
-        "rust-pro", "python-pro", "javascript-pro", "typescript-pro", "golang-pro",
-        "java-pro", "csharp-pro", "cpp-pro", "c-pro", "ruby-pro", "php-pro",
-        "scala-pro", "elixir-pro", "julia-pro", "bash-pro",
+        "rust-pro",
+        "python-pro",
+        "javascript-pro",
+        "typescript-pro",
+        "golang-pro",
+        "java-pro",
+        "csharp-pro",
+        "cpp-pro",
+        "c-pro",
+        "ruby-pro",
+        "php-pro",
+        "scala-pro",
+        "elixir-pro",
+        "julia-pro",
+        "bash-pro",
         // Architecture
-        "backend-architect", "frontend-developer", "graphql-architect",
+        "backend-architect",
+        "frontend-developer",
+        "graphql-architect",
         // Infrastructure
-        "network-engineer", "deployment", "kubernetes", "terraform", "cloud-architect",
+        "network-engineer",
+        "deployment",
+        "kubernetes",
+        "terraform",
+        "cloud-architect",
         // Orchestration
-        "memory", "context-manager", "sequential-thinking", "dx-optimizer", "tdd-orchestrator",
+        "memory",
+        "context-manager",
+        "sequential-thinking",
+        "dx-optimizer",
+        "tdd-orchestrator",
         // Analysis
-        "debugger", "code-reviewer", "performance-engineer", "security-auditor",
+        "debugger",
+        "code-reviewer",
+        "performance-engineer",
+        "security-auditor",
         // SEO
-        "search-specialist", "seo-content-writer", "seo-keyword-strategist",
-        "seo-meta-optimizer", "content-marketer",
+        "search-specialist",
+        "seo-content-writer",
+        "seo-keyword-strategist",
+        "seo-meta-optimizer",
+        "content-marketer",
         // AI/ML
-        "prompt-engineer", "ai-engineer", "ml-engineer", "mlops-engineer",
-        "data-scientist", "data-engineer",
+        "prompt-engineer",
+        "ai-engineer",
+        "ml-engineer",
+        "mlops-engineer",
+        "data-scientist",
+        "data-engineer",
         // Database
-        "database-architect", "database-optimizer", "sql-pro",
+        "database-architect",
+        "database-optimizer",
+        "sql-pro",
         // Operations
-        "devops-troubleshooter", "incident-responder", "test-automator",
+        "devops-troubleshooter",
+        "incident-responder",
+        "test-automator",
         // Security
-        "backend-security-coder", "frontend-security-coder", "mobile-security-coder",
+        "backend-security-coder",
+        "frontend-security-coder",
+        "mobile-security-coder",
         // Business
-        "business-analyst", "customer-support", "hr-pro", "legal-advisor",
-        "payment-integration", "sales-automator",
+        "business-analyst",
+        "customer-support",
+        "hr-pro",
+        "legal-advisor",
+        "payment-integration",
+        "sales-automator",
         // Content
-        "api-documenter", "docs-architect", "mermaid-expert", "tutorial-engineer",
+        "api-documenter",
+        "docs-architect",
+        "mermaid-expert",
+        "tutorial-engineer",
         // Mobile
-        "flutter-expert", "ios-developer", "mobile-developer",
+        "flutter-expert",
+        "ios-developer",
+        "mobile-developer",
         // Specialty
-        "arm-cortex-expert", "blockchain-developer", "error-detective",
-        "hybrid-cloud-architect", "legacy-modernizer", "observability-engineer",
-        "quant-analyst", "ui-ux-designer", "unity-developer",
+        "arm-cortex-expert",
+        "blockchain-developer",
+        "error-detective",
+        "hybrid-cloud-architect",
+        "legacy-modernizer",
+        "observability-engineer",
+        "quant-analyst",
+        "ui-ux-designer",
+        "unity-developer",
         // Web frameworks
-        "django-pro", "fastapi-pro", "temporal-python-pro",
+        "django-pro",
+        "fastapi-pro",
+        "temporal-python-pro",
     ]
 }
 

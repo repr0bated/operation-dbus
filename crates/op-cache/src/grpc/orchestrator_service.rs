@@ -15,10 +15,10 @@ use tracing::{debug, info};
 use super::agent_service::AgentServiceImpl;
 use super::cache_service::CacheServiceImpl;
 use super::proto::{
-    agent_service_server::AgentService, orchestrator_service_server::OrchestratorService, Empty, ExecuteAgentsRequest, FindByCapabilityRequest, GetPatternsResponse,
-    OrchestratorRequest, OrchestratorResponse, OrchestratorStats, PatternSuggestion,
-    PromotePatternRequest, PromotePatternResponse, ResolveRequest, ResolveResponse,
-    WorkstackStepResult,
+    agent_service_server::AgentService, orchestrator_service_server::OrchestratorService, Empty,
+    ExecuteAgentsRequest, FindByCapabilityRequest, GetPatternsResponse, OrchestratorRequest,
+    OrchestratorResponse, OrchestratorStats, PatternSuggestion, PromotePatternRequest,
+    PromotePatternResponse, ResolveRequest, ResolveResponse, WorkstackStepResult,
 };
 
 /// Tracked pattern for promotion suggestions
@@ -43,10 +43,7 @@ pub struct OrchestratorServiceImpl {
 }
 
 impl OrchestratorServiceImpl {
-    pub fn new(
-        agent_service: Arc<AgentServiceImpl>,
-        cache_service: Arc<CacheServiceImpl>,
-    ) -> Self {
+    pub fn new(agent_service: Arc<AgentServiceImpl>, cache_service: Arc<CacheServiceImpl>) -> Self {
         Self {
             agent_service,
             cache_service,
@@ -81,7 +78,6 @@ impl OrchestratorServiceImpl {
         preferred: &[String],
         excluded: &[String],
     ) -> Result<(Vec<super::proto::Agent>, Vec<i32>, Vec<i32>), Status> {
-
         let mut selected_agents = Vec::new();
         let mut fulfilled = HashSet::new();
         let excluded_set: HashSet<&String> = excluded.iter().collect();
@@ -98,14 +94,19 @@ impl OrchestratorServiceImpl {
                 match_all: false,
             });
 
-            let response: tonic::Response<super::proto::FindByCapabilityResponse> = self.agent_service.find_by_capability(req).await?;
+            let response: tonic::Response<super::proto::FindByCapabilityResponse> =
+                self.agent_service.find_by_capability(req).await?;
             let candidates = response.into_inner().agents;
 
             // Filter excluded and select best
             let mut viable: Vec<_> = candidates
                 .into_iter()
                 .filter(|a| !excluded_set.contains(&a.id))
-                .filter(|a| !selected_agents.iter().any(|s: &super::proto::Agent| s.id == a.id))
+                .filter(|a| {
+                    !selected_agents
+                        .iter()
+                        .any(|s: &super::proto::Agent| s.id == a.id)
+                })
                 .collect();
 
             // Sort by preference and latency
@@ -240,21 +241,27 @@ impl OrchestratorServiceImpl {
     }
 
     /// Track pattern for potential promotion
-    async fn track_pattern(&self, agent_ids: &[String], latency_ms: u64) -> Option<PatternSuggestion> {
+    async fn track_pattern(
+        &self,
+        agent_ids: &[String],
+        latency_ms: u64,
+    ) -> Option<PatternSuggestion> {
         let pattern_id = Self::hash_sequence(agent_ids);
         let now = Instant::now();
 
         let mut patterns = self.patterns.write().await;
 
-        let pattern = patterns.entry(pattern_id.clone()).or_insert_with(|| TrackedPattern {
-            pattern_id: pattern_id.clone(),
-            agent_sequence: agent_ids.to_vec(),
-            call_count: 0,
-            total_latency_ms: 0,
-            first_seen: now,
-            last_called: now,
-            promoted: false,
-        });
+        let pattern = patterns
+            .entry(pattern_id.clone())
+            .or_insert_with(|| TrackedPattern {
+                pattern_id: pattern_id.clone(),
+                agent_sequence: agent_ids.to_vec(),
+                call_count: 0,
+                total_latency_ms: 0,
+                first_seen: now,
+                last_called: now,
+                promoted: false,
+            });
 
         pattern.call_count += 1;
         pattern.total_latency_ms += latency_ms;
@@ -271,7 +278,8 @@ impl OrchestratorServiceImpl {
                 avg_latency_ms: avg_latency,
                 suggested_name,
                 confidence_score: Self::calculate_confidence(pattern),
-                estimated_time_saved_ms: (avg_latency as f64 * 0.4 * pattern.call_count as f64) as u64,
+                estimated_time_saved_ms: (avg_latency as f64 * 0.4 * pattern.call_count as f64)
+                    as u64,
             });
         }
 
@@ -478,9 +486,7 @@ impl OrchestratorService for OrchestratorServiceImpl {
                                             .await;
                                         (result.output, false)
                                     } else {
-                                        let _ = tx
-                                            .send(Err(Status::internal(result.error)))
-                                            .await;
+                                        let _ = tx.send(Err(Status::internal(result.error))).await;
                                         return;
                                     }
                                 }
@@ -535,7 +541,9 @@ impl OrchestratorService for OrchestratorServiceImpl {
             }
         });
 
-        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
     }
 
     async fn execute_agents(
@@ -644,7 +652,8 @@ impl OrchestratorService for OrchestratorServiceImpl {
                     avg_latency_ms: avg_latency,
                     suggested_name: Self::generate_workstack_name(&p.agent_sequence),
                     confidence_score: Self::calculate_confidence(p),
-                    estimated_time_saved_ms: (avg_latency as f64 * 0.4 * p.call_count as f64) as u64,
+                    estimated_time_saved_ms: (avg_latency as f64 * 0.4 * p.call_count as f64)
+                        as u64,
                 }
             })
             .collect();
@@ -711,11 +720,7 @@ impl OrchestratorService for OrchestratorServiceImpl {
 
         Ok(Response::new(OrchestratorStats {
             registered_agents: agents_response.agents.len() as u32,
-            enabled_agents: agents_response
-                .agents
-                .iter()
-                .filter(|a| a.enabled)
-                .count() as u32,
+            enabled_agents: agents_response.agents.iter().filter(|a| a.enabled).count() as u32,
             available_capabilities: caps_response.capabilities.len() as u32,
             tracked_patterns: tracked_count,
             promoted_patterns: promoted_count,

@@ -15,7 +15,7 @@ use tracing::{debug, info};
 /// API keys that bypass IP restrictions and grant TrustedMesh access
 const BYPASS_API_KEYS: &[&str] = &[
     "4f8c2b5d-9a1e-4b7c-8d2f-3a6b5c9e4d1f", // Primary MCP access key
-    "test-key-huggingface-2024",              // Hugging Face test key
+    "test-key-huggingface-2024",            // Hugging Face test key
 ];
 
 /// Check for API key in headers that bypasses IP restrictions
@@ -29,7 +29,7 @@ fn check_bypass_api_key(headers: &HeaderMap) -> Option<&'static str> {
             }
         }
     }
-    
+
     // Check Authorization: Bearer <key> header
     if let Some(auth) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
         if let Some(key) = auth.trim().strip_prefix("Bearer ") {
@@ -41,7 +41,7 @@ fn check_bypass_api_key(headers: &HeaderMap) -> Option<&'static str> {
             }
         }
     }
-    
+
     // Check x-op-mcp-token header
     if let Some(key) = headers.get("x-op-mcp-token").and_then(|v| v.to_str().ok()) {
         let key = key.trim();
@@ -51,7 +51,7 @@ fn check_bypass_api_key(headers: &HeaderMap) -> Option<&'static str> {
             }
         }
     }
-    
+
     None
 }
 
@@ -103,7 +103,7 @@ pub fn extract_ip(headers: &HeaderMap, addr: Option<&SocketAddr>) -> String {
 }
 
 /// Middleware to identify Client IP and attach AccessZone to the request
-/// 
+///
 /// Security Logic:
 /// 1. If request has a valid bypass API key -> TrustedMesh (full access)
 /// 2. Otherwise, determine zone from IP address
@@ -115,14 +115,14 @@ pub async fn ip_security_middleware(
     let headers = request.headers();
     let addr = connect_info.map(|ci| ci.0);
     let client_ip = extract_ip(headers, addr.as_ref());
-    
+
     // Check for bypass API key first
     let zone = if let Some(key) = check_bypass_api_key(headers) {
         info!(
             "API key bypass granted: IP={} key={}...{}",
             client_ip,
             &key[..8],
-            &key[key.len()-4..]
+            &key[key.len() - 4..]
         );
         AccessZone::TrustedMesh
     } else {

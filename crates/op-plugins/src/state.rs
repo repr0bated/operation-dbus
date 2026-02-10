@@ -4,8 +4,8 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 
 /// Desired state configuration
@@ -65,7 +65,9 @@ impl DesiredState {
 
 impl Default for DesiredState {
     fn default() -> Self {
-        Self::new(Value::Object(Box::new(simd_json::value::owned::Object::new())))
+        Self::new(Value::Object(Box::new(
+            simd_json::value::owned::Object::new(),
+        )))
     }
 }
 
@@ -276,11 +278,8 @@ mod tests {
 
     #[test]
     fn test_state_change_hash() {
-        let change = StateChange::create(
-            "/test/path",
-            simd_json::json!({"value": 42}),
-            "Test change",
-        );
+        let change =
+            StateChange::create("/test/path", simd_json::json!({"value": 42}), "Test change");
         assert!(!change.hash.is_empty());
     }
 }

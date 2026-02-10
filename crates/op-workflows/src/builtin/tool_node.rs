@@ -42,17 +42,13 @@ impl WorkflowNode for ToolNode {
     }
 
     fn inputs(&self) -> Vec<NodePort> {
-        vec![
-            NodePort::optional("arguments", "Arguments", "object")
-                .with_description("Arguments to pass to the tool"),
-        ]
+        vec![NodePort::optional("arguments", "Arguments", "object")
+            .with_description("Arguments to pass to the tool")]
     }
 
     fn outputs(&self) -> Vec<NodePort> {
-        vec![
-            NodePort::required("result", "Result", "object")
-                .with_description("Result from tool execution"),
-        ]
+        vec![NodePort::required("result", "Result", "object")
+            .with_description("Result from tool execution")]
     }
 
     fn state(&self) -> NodeState {

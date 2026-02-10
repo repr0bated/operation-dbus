@@ -88,7 +88,10 @@ impl ToolDiscoverySource for PluginDiscoverySource {
             // Diff tool
             tools.push(ToolDefinition {
                 name: format!("plugin_{}_diff", plugin),
-                description: format!("Calculate diff between current and desired state for {} plugin", plugin),
+                description: format!(
+                    "Calculate diff between current and desired state for {} plugin",
+                    plugin
+                ),
                 input_schema: simd_json::json!({
                     "type": "object",
                     "properties": {
@@ -131,7 +134,11 @@ impl ToolDiscoverySource for PluginDiscoverySource {
             });
         }
 
-        debug!("Discovered {} plugin tools from {} plugins", tools.len(), self.plugins.len());
+        debug!(
+            "Discovered {} plugin tools from {} plugins",
+            tools.len(),
+            self.plugins.len()
+        );
         Ok(tools)
     }
 }

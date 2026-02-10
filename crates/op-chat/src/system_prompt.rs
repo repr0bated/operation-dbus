@@ -13,7 +13,7 @@ use op_core::self_identity::SelfRepositoryInfo;
 use op_llm::provider::ChatMessage;
 use std::path::Path;
 use tokio::sync::RwLock;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 /// Paths to check for custom prompt (in order)
 const CUSTOM_PROMPT_PATHS: &[&str] = &[
@@ -344,21 +344,21 @@ async fn cache_prompt(content: &str, source: &str) {
 /// Save custom prompt to file
 pub async fn save_custom_prompt(content: &str) -> anyhow::Result<String> {
     let path = Path::new(CUSTOM_PROMPT_PATHS[0]); // /etc/op-dbus/custom-prompt.txt
-    
+
     // Ensure directory exists
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    
+
     tokio::fs::write(path, content).await?;
     info!("Saved custom prompt to: {:?}", path);
-    
+
     // Invalidate cache
     {
         let mut cache = CUSTOM_PROMPT_CACHE.write().await;
         *cache = None;
     }
-    
+
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -376,62 +376,67 @@ pub async fn invalidate_prompt_cache() {
 /// Get the fixed (immutable) part of the system prompt
 pub fn get_fixed_prompt() -> String {
     let mut fixed = String::new();
-    
+
     fixed.push_str(FIXED_BASE_PROMPT);
     fixed.push_str("\n\n");
     fixed.push_str(FIXED_TOPOLOGY_SPEC);
-    
+
     fixed
 }
 
 /// Generate complete system prompt (fixed + custom + dynamic)
 pub async fn generate_system_prompt() -> ChatMessage {
     let mut prompt = String::new();
-    
+
     // 1. Fixed part (immutable)
     prompt.push_str(&get_fixed_prompt());
     prompt.push_str("\n\n");
-    
+
     // 2. Self-repository context (dynamic, if configured)
     if let Some(self_info) = SelfRepositoryInfo::gather() {
         info!("Adding self-repository context to system prompt");
         prompt.push_str(&self_info.to_system_prompt_context());
         prompt.push_str("\n\n");
     }
-    
+
     // 3. Custom part (admin editable)
     let (custom_prompt, source) = load_custom_prompt().await;
     prompt.push_str("\n\n## 📝 CUSTOM INSTRUCTIONS\n");
     prompt.push_str(&format!("<!-- Loaded from: {} -->\n", source));
     prompt.push_str(&custom_prompt);
     prompt.push_str("\n\n");
-    
+
     // 4. Tool summary (dynamic)
     prompt.push_str(&generate_tool_summary().await);
-    
+
     ChatMessage::system(prompt)
 }
 
 /// Generate a summary of available tools
 async fn generate_tool_summary() -> String {
     let mut summary = String::from("## AVAILABLE TOOLS\n\n");
-    
+
     summary.push_str("### Core Categories:\n");
     summary.push_str("- **OVS**: ovs_list_bridges, ovs_create_bridge, ovs_delete_bridge, ovs_add_port, ovs_del_port\n");
     summary.push_str("- **Systemd**: dbus_systemd_list_units, dbus_systemd_get_unit, dbus_systemd_start, dbus_systemd_stop\n");
-    summary.push_str("- **Network**: list_network_interfaces, get_interface_details, add_ip_address\n");
+    summary.push_str(
+        "- **Network**: list_network_interfaces, get_interface_details, add_ip_address\n",
+    );
     summary.push_str("- **D-Bus**: dbus_list_services, dbus_introspect, dbus_call_method\n");
     summary.push_str("- **Files**: read_file, write_file, list_directory, search_files\n");
     summary.push_str("- **Shell**: shell_execute (use only when no native tool exists)\n");
-    
+
     // Self tools if available
     if std::env::var("OP_SELF_REPO_PATH").is_ok() {
         summary.push_str("\n### Self-Repository Tools:\n");
-        summary.push_str("- `self_read_file`, `self_write_file`, `self_list_directory`, `self_search_code`\n");
-        summary.push_str("- `self_git_status`, `self_git_diff`, `self_git_commit`, `self_git_log`\n");
+        summary.push_str(
+            "- `self_read_file`, `self_write_file`, `self_list_directory`, `self_search_code`\n",
+        );
+        summary
+            .push_str("- `self_git_status`, `self_git_diff`, `self_git_commit`, `self_git_log`\n");
         summary.push_str("- `self_build`, `self_deploy`\n");
     }
-    
+
     summary
 }
 
@@ -440,7 +445,7 @@ pub fn generate_minimal_prompt() -> ChatMessage {
     ChatMessage::system(
         "You are a Linux system admin assistant. Use tools for all actions. \
          Never suggest CLI commands - use native tools directly. \
-         Report actual tool outputs only."
+         Report actual tool outputs only.",
     )
 }
 
@@ -452,7 +457,7 @@ pub async fn create_session_with_system_prompt() -> Vec<ChatMessage> {
 /// Get prompt metadata for admin UI
 pub async fn get_prompt_metadata() -> PromptMetadata {
     let (custom_content, source) = load_custom_prompt().await;
-    
+
     PromptMetadata {
         fixed_part: get_fixed_prompt(),
         custom_part: custom_content,
@@ -475,7 +480,7 @@ pub struct PromptMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_system_prompt_generation() {
         let prompt = generate_system_prompt().await;
@@ -483,14 +488,14 @@ mod tests {
         assert!(prompt.content.contains("ovs-br0"));
         assert!(prompt.content.contains("CUSTOM INSTRUCTIONS"));
     }
-    
+
     #[test]
     fn test_fixed_prompt() {
         let fixed = get_fixed_prompt();
         assert!(fixed.contains("CRITICAL RULES"));
         assert!(fixed.contains("TOPOLOGY"));
     }
-    
+
     #[tokio::test]
     async fn test_load_custom_prompt() {
         let (content, source) = load_custom_prompt().await;

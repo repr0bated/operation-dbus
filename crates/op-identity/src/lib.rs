@@ -2,11 +2,13 @@
 //! org.freedesktop.secrets. Zero passwords; the WireGuard handshake is the login.
 
 pub mod gcloud_auth;
+pub mod registration;
 pub mod session;
-pub mod wireguard;
 pub mod token; // Keeping for now if needed internally
+pub mod wireguard;
 
-pub use session::{SessionManager, Session};
 pub use gcloud_auth::GCloudAuth;
-pub use wireguard::{WireGuardIdentity, PeerInfo};
-pub use token::{TokenManager, CachedToken};
+pub use registration::{generate_magic_link_token, generate_wireguard_keypair, WireGuardKeyPair};
+pub use session::{Session, SessionManager};
+pub use token::{CachedToken, TokenManager};
+pub use wireguard::{PeerInfo, WireGuardIdentity};

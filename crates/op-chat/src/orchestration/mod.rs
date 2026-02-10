@@ -57,16 +57,16 @@ pub mod skills;
 pub mod workstack_executor;
 
 // Re-exports
-pub use error::{ErrorCode, OrchestrationError, OrchestrationResult, RetryInfo, ResultExt};
+pub use error::{ErrorCode, OrchestrationError, OrchestrationResult, ResultExt, RetryInfo};
 pub use grpc_pool::{
-    AgentPoolConfig, GrpcAgentPool, AgentOperation, AgentOperationResult,
-    PoolStatus, StreamChunk, StreamType, AgentHealth, CircuitState,
+    AgentHealth, AgentOperation, AgentOperationResult, AgentPoolConfig, CircuitState,
+    GrpcAgentPool, PoolStatus, StreamChunk, StreamType,
 };
 pub use skills::{Skill, SkillMetadata, SkillRegistry};
 pub use workstack_executor::{
-    Workstack, WorkstackPhase, PhaseToolCall, PhaseStatus,
-    WorkstackExecutor, WorkstackResult, PhaseResult, ToolResult, AgentResult,
-    WorkstackEvent, ExecutionStatus, WorkstackInfo, ToolExecutor,
+    AgentResult, ExecutionStatus, PhaseResult, PhaseStatus, PhaseToolCall, ToolExecutor,
+    ToolResult, Workstack, WorkstackEvent, WorkstackExecutor, WorkstackInfo, WorkstackPhase,
+    WorkstackResult,
 };
 
 // ============================================================================
@@ -112,7 +112,9 @@ pub fn builtin_workstacks() -> Vec<Workstack> {
             tools: vec![],
             agents: vec!["sequential_thinking".to_string()],
             agent_operation: Some("think_stream".to_string()),
-            agent_arguments: Some(json!({ "problem": "Design implementation for feature", "max_steps": 5 })),
+            agent_arguments: Some(
+                json!({ "problem": "Design implementation for feature", "max_steps": 5 }),
+            ),
             depends_on: vec!["analyze".to_string()],
             condition: Some("analyze.success".to_string()),
             rollback: vec![],
@@ -165,7 +167,6 @@ pub fn builtin_workstacks() -> Vec<Workstack> {
             continue_on_failure: true,
             timeout_secs: 30,
         }),
-
         // Code Review Workstack
         Workstack::new(
             "code_review",
@@ -216,7 +217,6 @@ pub fn builtin_workstacks() -> Vec<Workstack> {
             continue_on_failure: false,
             timeout_secs: 60,
         }),
-
         // OVS Network Setup (example with tools + rollback)
         Workstack::new(
             "ovs_network_setup",
@@ -274,27 +274,31 @@ pub fn builtin_workstacks() -> Vec<Workstack> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_builtin_workstacks() {
         let workstacks = builtin_workstacks();
         assert!(!workstacks.is_empty());
-        
+
         // Check that full_stack_feature exists
         let full_stack = workstacks.iter().find(|w| w.id == "full_stack_feature");
         assert!(full_stack.is_some());
-        
+
         let ws = full_stack.unwrap();
         assert!(!ws.phases.is_empty());
         assert!(!ws.required_agents.is_empty());
     }
-    
+
     #[test]
     fn test_error_types() {
-        let err = OrchestrationError::agent_timeout("rust_pro", "build", std::time::Duration::from_secs(30));
+        let err = OrchestrationError::agent_timeout(
+            "rust_pro",
+            "build",
+            std::time::Duration::from_secs(30),
+        );
         assert_eq!(err.code, ErrorCode::AgentTimeout);
         assert!(err.is_retryable());
-        
+
         let err2 = OrchestrationError::invalid_arguments("bad args");
         assert_eq!(err2.code, ErrorCode::InvalidArguments);
         assert!(!err2.is_retryable());

@@ -18,7 +18,7 @@ use simd_json::prelude::*;
 use crate::error::{OpDbusError, Result};
 use crate::mcp::McpCompactDispatcher;
 use op_state_store::{StateStore, StoredObject};
-use op_execution_tracker::{ExecutionRecord, ExecutionStatus};
+use op_execution_tracker::ExecutionRecord;
 use crate::blockchain::ChainBlock;
 use op_plugins::plugin::{PluginMetadata as PluginCore, PluginTunables};
 use crate::policy::{Policy, ComplianceProfile};

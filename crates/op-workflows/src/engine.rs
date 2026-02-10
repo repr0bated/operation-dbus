@@ -7,16 +7,16 @@
 //! - Collects results
 
 use anyhow::Result;
+use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn, error};
-use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
+use tracing::{debug, error, info, warn};
 
 use crate::context::WorkflowContext;
 use crate::flow::{Workflow, WorkflowDefinition, WorkflowState};
-use crate::node::{WorkflowNode, NodeState, NodeResult};
+use crate::node::{NodeResult, NodeState, WorkflowNode};
 
 /// Workflow execution result
 #[derive(Debug, Clone)]
@@ -128,11 +128,10 @@ impl WorkflowEngine {
         // Create node instances
         let mut nodes: HashMap<String, Box<dyn WorkflowNode>> = HashMap::new();
         for node_def in &definition.nodes {
-            match self.node_factory.create_node(
-                &node_def.node_type,
-                &node_def.id,
-                &node_def.config,
-            ) {
+            match self
+                .node_factory
+                .create_node(&node_def.node_type, &node_def.id, &node_def.config)
+            {
                 Ok(node) => {
                     nodes.insert(node_def.id.clone(), node);
                 }
@@ -176,7 +175,7 @@ impl WorkflowEngine {
 
             // Execute ready nodes (in parallel up to max_parallel)
             let batch: Vec<_> = ready_nodes.into_iter().take(self.max_parallel).collect();
-            
+
             for node_id in batch {
                 debug!(workflow_id = %workflow_id, node_id = %node_id, "Executing node");
 
@@ -187,7 +186,9 @@ impl WorkflowEngine {
                 if let Some(node) = nodes.get_mut(&node_id) {
                     // Update state
                     node.set_state(NodeState::Running);
-                    workflow.node_states.insert(node_id.clone(), NodeState::Running);
+                    workflow
+                        .node_states
+                        .insert(node_id.clone(), NodeState::Running);
 
                     // Execute
                     match node.execute(node_inputs).await {
@@ -206,10 +207,8 @@ impl WorkflowEngine {
                             error!(node_id = %node_id, error = %e, "Node execution error");
                             workflow.fail_node(&node_id, &e.to_string());
                             node.set_state(NodeState::Failed);
-                            node_results.insert(
-                                node_id.clone(),
-                                NodeResult::failure(e.to_string()),
-                            );
+                            node_results
+                                .insert(node_id.clone(), NodeResult::failure(e.to_string()));
                         }
                     }
                 }

@@ -24,8 +24,8 @@ use anyhow::{Context, Result};
 use op_core::BusType;
 use op_introspection::ServiceScanner;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -75,67 +75,70 @@ impl AgentsServer {
             bus_type,
         }
     }
-    
+
     /// Initialize - connect to D-Bus and discover agents
     pub async fn initialize(&self) -> Result<()> {
         info!("Initializing Agents MCP Server (D-Bus first)");
-        
+
         // Connect to D-Bus
         let conn = match self.bus_type {
             BusType::System => Connection::system().await?,
             BusType::Session => Connection::session().await?,
         };
-        
+
         {
             let mut connection = self.connection.write().await;
             *connection = Some(conn);
         }
-        
+
         // Discover agents
         self.discover_agents().await?;
-        
+
         Ok(())
     }
-    
+
     /// Discover agents via D-Bus introspection
     pub async fn discover_agents(&self) -> Result<()> {
         info!("Discovering D-Bus agents...");
-        
+
         // List all services on the bus
         let services = self.scanner.list_services(self.bus_type).await?;
-        
+
         // Filter for agent services
         let agent_services: Vec<_> = services
             .iter()
             .filter(|s| s.name.starts_with("org.dbusmcp.Agent."))
             .collect();
-        
+
         info!("Found {} agent services on D-Bus", agent_services.len());
-        
+
         let mut discovered = self.discovered_agents.write().await;
         let mut tools = self.tools.write().await;
-        
+
         discovered.clear();
         tools.clear();
-        
+
         // Introspect each agent service
         for service in agent_services {
             match self.introspect_agent(&service.name).await {
                 Ok(agent) => {
                     info!("  ✓ {} ({} operations)", agent.name, agent.operations.len());
-                    
+
                     // Create tools for each operation
                     for op in &agent.operations {
                         let tool = AgentTool {
                             name: format!("{}_{}", agent.id, op),
-                            description: format!("[{}] {} - {} operation", agent.name, agent.description, op),
+                            description: format!(
+                                "[{}] {} - {} operation",
+                                agent.name, agent.description, op
+                            ),
                             agent_id: agent.id.clone(),
                             operation: op.clone(),
                             input_schema: self.get_operation_schema(&agent.agent_type, op),
                         };
                         tools.push(tool);
                     }
-                    
+
                     discovered.insert(agent.id.clone(), agent);
                 }
                 Err(e) => {
@@ -143,18 +146,23 @@ impl AgentsServer {
                 }
             }
         }
-        
-        info!("Discovered {} agents with {} total tools", discovered.len(), tools.len());
-        
+
+        info!(
+            "Discovered {} agents with {} total tools",
+            discovered.len(),
+            tools.len()
+        );
+
         Ok(())
     }
-    
+
     /// Introspect a single agent service
     async fn introspect_agent(&self, service_name: &str) -> Result<DiscoveredAgent> {
         let connection = self.connection.read().await;
-        let conn = connection.as_ref()
+        let conn = connection
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not connected to D-Bus"))?;
-        
+
         // Extract agent type from service name
         // org.dbusmcp.Agent.RustPro -> rust_pro
         let agent_type_pascal = service_name
@@ -162,28 +170,30 @@ impl AgentsServer {
             .ok_or_else(|| anyhow::anyhow!("Invalid agent service name"))?;
         let agent_type = pascal_to_snake(agent_type_pascal);
         let agent_id = agent_type.clone();
-        
+
         // Object path
         let object_path = format!("/org/dbusmcp/Agent/{}", agent_type_pascal);
-        
+
         // Create proxy to call introspection methods
-        let proxy = zbus::Proxy::new(
-            conn,
-            &*service_name,
-            &*object_path,
-            "org.dbusmcp.Agent",
-        ).await?;
-        
+        let proxy =
+            zbus::Proxy::new(conn, &*service_name, &*object_path, "org.dbusmcp.Agent").await?;
+
         // Get agent metadata
-        let name: String = proxy.call("name", &()).await
+        let name: String = proxy
+            .call("name", &())
+            .await
             .unwrap_or_else(|_| agent_type_pascal.to_string());
-        
-        let description: String = proxy.call("description", &()).await
+
+        let description: String = proxy
+            .call("description", &())
+            .await
             .unwrap_or_else(|_| "D-Bus agent".to_string());
-        
-        let operations: Vec<String> = proxy.call("operations", &()).await
+
+        let operations: Vec<String> = proxy
+            .call("operations", &())
+            .await
             .unwrap_or_else(|_| vec!["execute".to_string()]);
-        
+
         Ok(DiscoveredAgent {
             id: agent_id,
             name,
@@ -195,7 +205,7 @@ impl AgentsServer {
             available: true,
         })
     }
-    
+
     /// Get input schema for an operation
     fn get_operation_schema(&self, _agent_type: &str, _operation: &str) -> Value {
         // Default schema - agents can override via D-Bus properties
@@ -207,45 +217,49 @@ impl AgentsServer {
                     "description": "Path to operate on"
                 },
                 "args": {
-                    "type": "string", 
+                    "type": "string",
                     "description": "Additional arguments"
                 }
             }
         })
     }
-    
+
     /// Execute a tool by calling the D-Bus agent
     pub async fn execute_tool(&self, tool_name: &str, arguments: Value) -> Result<Value> {
         debug!("Executing tool: {} with args: {:?}", tool_name, arguments);
-        
+
         // Find the tool
         let tools = self.tools.read().await;
-        let tool = tools.iter()
+        let tool = tools
+            .iter()
             .find(|t| t.name == tool_name)
             .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", tool_name))?;
-        
+
         // Find the agent
         let agents = self.discovered_agents.read().await;
-        let agent = agents.get(&tool.agent_id)
+        let agent = agents
+            .get(&tool.agent_id)
             .ok_or_else(|| anyhow::anyhow!("Agent not found: {}", tool.agent_id))?;
-        
+
         if !agent.available {
             return Err(anyhow::anyhow!("Agent {} is not available", agent.id));
         }
-        
+
         // Get D-Bus connection
         let connection = self.connection.read().await;
-        let conn = connection.as_ref()
+        let conn = connection
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not connected to D-Bus"))?;
-        
+
         // Create proxy
         let proxy = zbus::Proxy::new(
             conn,
             &*agent.service_name,
             &*agent.object_path,
             "org.dbusmcp.Agent",
-        ).await?;
-        
+        )
+        .await?;
+
         // Build task JSON
         let task = json!({
             "task_type": agent.agent_type,
@@ -254,37 +268,44 @@ impl AgentsServer {
             "args": arguments.get("args").and_then(|v| v.as_str()),
             "config": arguments.get("config").cloned().unwrap_or(json!({}))
         });
-        
+
         let task_json = simd_json::to_string(&task)?;
-        
+
         // Call D-Bus method
-        let result: String = proxy.call("Execute", &(task_json,)).await
+        let result: String = proxy
+            .call("Execute", &(task_json,))
+            .await
             .context("D-Bus Execute call failed")?;
-        
+
         // Execute operation
         let mut result_mut = result.clone();
         let result_value: Value = unsafe { simd_json::from_str(&mut result_mut) }
             .unwrap_or(json!({ "raw_output": result }));
-        
+
         Ok(result_value)
     }
-    
+
     /// Get list of available agents
     pub async fn list_agents(&self) -> Vec<DiscoveredAgent> {
         let agents = self.discovered_agents.read().await;
         agents.values().cloned().collect()
     }
-    
+
     /// Get list of available tools (for MCP tools/list)
     pub async fn list_tools(&self) -> Vec<Value> {
         let tools = self.tools.read().await;
-        tools.iter().map(|t| json!({
-            "name": t.name,
-            "description": t.description,
-            "inputSchema": t.input_schema
-        })).collect()
+        tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "inputSchema": t.input_schema
+                })
+            })
+            .collect()
     }
-    
+
     /// Refresh agent discovery
     pub async fn refresh(&self) -> Result<()> {
         info!("Refreshing agent discovery...");
@@ -311,7 +332,7 @@ fn pascal_to_snake(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_pascal_to_snake() {
         assert_eq!(pascal_to_snake("RustPro"), "rust_pro");

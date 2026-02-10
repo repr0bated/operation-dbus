@@ -169,7 +169,10 @@ impl StateEncryption {
         self.encrypt(&json)
     }
 
-    pub fn decrypt_json<T: serde::de::DeserializeOwned>(&self, encrypted: &EncryptedState) -> Result<T> {
+    pub fn decrypt_json<T: serde::de::DeserializeOwned>(
+        &self,
+        encrypted: &EncryptedState,
+    ) -> Result<T> {
         let plaintext = self.decrypt(encrypted)?;
         let mut plaintext_mut = plaintext;
         simd_json::from_slice(&mut plaintext_mut).context("Failed to deserialize decrypted data")
@@ -202,8 +205,8 @@ pub mod state_file {
     pub fn load_encrypted(path: &Path, encryption: &StateEncryption) -> Result<State> {
         let mut contents = std::fs::read_to_string(path).context("Failed to read state file")?;
 
-        let encrypted: EncryptedState =
-            unsafe { simd_json::from_str(&mut contents) }.context("Failed to parse encrypted state")?;
+        let encrypted: EncryptedState = unsafe { simd_json::from_str(&mut contents) }
+            .context("Failed to parse encrypted state")?;
 
         encryption.decrypt_json(&encrypted)
     }
@@ -236,7 +239,8 @@ pub mod state_file {
         // Read plain state
         let mut contents = std::fs::read_to_string(path).context("Failed to read state file")?;
 
-        let state: State = unsafe { simd_json::from_str(&mut contents) }.context("Failed to parse state")?;
+        let state: State =
+            unsafe { simd_json::from_str(&mut contents) }.context("Failed to parse state")?;
 
         // Backup original
         let backup_path = path.with_extension("bak");

@@ -139,7 +139,7 @@ impl AgentDiscoverySource {
                 if entry.file_type().await?.is_dir() {
                     let plugin_name = entry.file_name().to_string_lossy().to_string();
                     let agents_subdir = entry.path().join("agents");
-                    
+
                     if agents_subdir.exists() {
                         let mut agent_entries = tokio::fs::read_dir(&agents_subdir).await?;
                         while let Some(agent_entry) = agent_entries.next_entry().await? {
@@ -151,11 +151,15 @@ impl AgentDiscoverySource {
                                     .unwrap_or_default();
 
                                 tools.push(ToolDefinition {
-                                    name: format!("llm_agent_{}_{}",
+                                    name: format!(
+                                        "llm_agent_{}_{}",
                                         plugin_name.replace('-', "_"),
                                         agent_name.replace('-', "_")
                                     ),
-                                    description: format!("LLM agent: {} / {}", plugin_name, agent_name),
+                                    description: format!(
+                                        "LLM agent: {} / {}",
+                                        plugin_name, agent_name
+                                    ),
                                     input_schema: simd_json::json!({
                                         "type": "object",
                                         "properties": {
@@ -170,7 +174,8 @@ impl AgentDiscoverySource {
                                         },
                                         "required": ["prompt"]
                                     }),
-                                    schema_version: "https://json-schema.org/draft/next/schema".to_string(),
+                                    schema_version: "https://json-schema.org/draft/next/schema"
+                                        .to_string(),
                                     category: "llm_agent".to_string(),
                                     tags: vec![
                                         "llm".to_string(),

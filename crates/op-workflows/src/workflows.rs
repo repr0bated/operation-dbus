@@ -5,10 +5,10 @@ use anyhow::Result;
 use async_trait::async_trait;
 use pocketflow_rs::{Context, Flow, Node, ProcessResult, ProcessState};
 use serde_json;
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Workflow states for MCP operations
 #[derive(Debug, Clone, PartialEq)]
@@ -76,7 +76,10 @@ impl Node for CodeReviewNode {
 
     async fn prepare(&self, context: &mut Context) -> Result<()> {
         log::info!("🔍 Preparing code review for {} code", self.language);
-        context.set("review_language", serde_json::Value::String(self.language.clone()));
+        context.set(
+            "review_language",
+            serde_json::Value::String(self.language.clone()),
+        );
         Ok(())
     }
 
@@ -359,7 +362,11 @@ impl McpWorkflowManager {
     }
 
     /// Execute a workflow with given context
-    pub async fn run_workflow(&self, workflow_name: &str, context: Context) -> Result<serde_json::Value> {
+    pub async fn run_workflow(
+        &self,
+        workflow_name: &str,
+        context: Context,
+    ) -> Result<serde_json::Value> {
         if let Some(workflow) = self.flows.get(workflow_name) {
             log::info!("🚀 Running workflow: {}", workflow_name);
             let result = workflow.run(context).await?;

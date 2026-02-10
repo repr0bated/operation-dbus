@@ -14,18 +14,18 @@ pub mod cache;
 pub mod indexer;
 pub mod indexer_manager;
 pub mod parser;
-pub mod scanner;
 pub mod projection;
+pub mod scanner;
 
 pub use cache::IntrospectionCache;
 pub use indexer::{DbusIndexer, IndexStatistics, SearchResult};
 pub use indexer_manager::IndexerManager;
 pub use parser::IntrospectionParser;
-pub use scanner::ServiceScanner;
 pub use projection::DbusProjection;
+pub use scanner::ServiceScanner;
 
-use op_core::types::{BusType, ObjectInfo, ServiceInfo};
 use op_core::error::Result;
+use op_core::types::{BusType, ObjectInfo, ServiceInfo};
 use simd_json::ValueBuilder;
 use std::sync::Arc;
 
@@ -104,7 +104,7 @@ impl Default for IntrospectionService {
 /// Prelude for convenient imports
 pub mod prelude {
     pub use super::{
-        DbusIndexer, IndexStatistics, IndexerManager, IntrospectionCache, IntrospectionParser,
-        IntrospectionService, SearchResult, ServiceScanner, DbusProjection,
+        DbusIndexer, DbusProjection, IndexStatistics, IndexerManager, IntrospectionCache,
+        IntrospectionParser, IntrospectionService, SearchResult, ServiceScanner,
     };
 }

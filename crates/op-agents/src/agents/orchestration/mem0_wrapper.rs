@@ -27,7 +27,9 @@ impl Default for Mem0State {
         Self {
             initialized: false,
             available: false,
-            last_error: Some("Mem0 temporarily disabled - pending embedder configuration".to_string()),
+            last_error: Some(
+                "Mem0 temporarily disabled - pending embedder configuration".to_string(),
+            ),
         }
     }
 }
@@ -43,11 +45,11 @@ pub struct Mem0WrapperAgent {
 
 impl Mem0WrapperAgent {
     pub fn new(id: String) -> Self {
-        let python_path = std::env::var("PYTHON_PATH")
-            .unwrap_or_else(|_| "/usr/bin/python3".to_string());
-        let mem0_dir = std::env::var("MEM0_DIR")
-            .unwrap_or_else(|_| "/var/lib/op-dbus/.mem0".to_string());
-            
+        let python_path =
+            std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/bin/python3".to_string());
+        let mem0_dir =
+            std::env::var("MEM0_DIR").unwrap_or_else(|_| "/var/lib/op-dbus/.mem0".to_string());
+
         Self {
             id,
             state: Mutex::new(Mem0State::default()),
@@ -90,9 +92,9 @@ impl AgentTrait for Mem0WrapperAgent {
         // Return graceful "not available" response
         let error_msg = "Mem0 temporarily disabled - pending embedder configuration. \
                          To enable: configure HuggingFace embeddings or provide OPENAI_API_KEY";
-        
+
         warn!("Mem0 agent called but disabled: {}", task.operation);
-        
+
         Ok(TaskResult {
             success: false,
             operation: task.operation,
@@ -100,7 +102,8 @@ impl AgentTrait for Mem0WrapperAgent {
                 "available": false,
                 "error": error_msg,
                 "hint": "Use memory_remember/memory_recall for key-value memory instead"
-            }).to_string(),
+            })
+            .to_string(),
             metadata: {
                 let mut m = HashMap::new();
                 m.insert("status".to_string(), json!("disabled"));

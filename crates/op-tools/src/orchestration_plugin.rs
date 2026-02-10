@@ -31,8 +31,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -188,15 +188,18 @@ impl OrchestrationPluginRegistry {
     }
 
     /// Register a plugin
-    pub async fn register(&self, plugin: Arc<dyn OrchestrationActivityPlugin>) -> anyhow::Result<()> {
+    pub async fn register(
+        &self,
+        plugin: Arc<dyn OrchestrationActivityPlugin>,
+    ) -> anyhow::Result<()> {
         let name = plugin.name().to_string();
-        
+
         // Initialize the plugin
         plugin.on_init().await?;
-        
+
         self.plugins.write().await.push(plugin);
         info!(plugin = %name, "Registered orchestration activity plugin");
-        
+
         Ok(())
     }
 
@@ -249,17 +252,22 @@ impl Default for OrchestrationPluginRegistry {
 // ============================================================================
 
 // Global orchestration plugin registry (initialized eagerly)
-static ORCHESTRATION_REGISTRY: std::sync::OnceLock<Arc<OrchestrationPluginRegistry>> = std::sync::OnceLock::new();
+static ORCHESTRATION_REGISTRY: std::sync::OnceLock<Arc<OrchestrationPluginRegistry>> =
+    std::sync::OnceLock::new();
 
 /// Initialize the global orchestration plugin registry (call once at startup)
 pub fn init_orchestration_registry() {
-    ORCHESTRATION_REGISTRY.set(Arc::new(OrchestrationPluginRegistry::new()))
+    ORCHESTRATION_REGISTRY
+        .set(Arc::new(OrchestrationPluginRegistry::new()))
         .unwrap_or_else(|_| panic!("Orchestration registry already initialized"));
 }
 
 /// Get the global orchestration plugin registry
 pub fn get_orchestration_registry() -> Arc<OrchestrationPluginRegistry> {
-    ORCHESTRATION_REGISTRY.get().expect("Orchestration registry not initialized").clone()
+    ORCHESTRATION_REGISTRY
+        .get()
+        .expect("Orchestration registry not initialized")
+        .clone()
 }
 
 // ============================================================================

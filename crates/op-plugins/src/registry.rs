@@ -5,14 +5,14 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::process::Command;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
 
 use op_state::StatePlugin;
 
@@ -42,7 +42,7 @@ impl PluginRegistry {
     /// Register a plugin instance
     pub async fn register(&self, name: String, plugin: Arc<RwLock<dyn StatePlugin>>) -> Result<()> {
         let mut plugins = self.plugins.write().await;
-        
+
         if plugins.contains_key(&name) {
             return Err(anyhow!("Plugin '{}' already registered", name));
         }
@@ -50,12 +50,15 @@ impl PluginRegistry {
         // Ensure BTRFS subvolume for plugin storage
         let storage_path = self.create_plugin_subvolume(&name).await?;
 
-        plugins.insert(name.clone(), PluginRecord {
-            name,
-            plugin,
-            storage_path,
-            change_count: 0,
-        });
+        plugins.insert(
+            name.clone(),
+            PluginRecord {
+                name,
+                plugin,
+                storage_path,
+                change_count: 0,
+            },
+        );
 
         Ok(())
     }
@@ -68,7 +71,7 @@ impl PluginRegistry {
 
     async fn create_plugin_subvolume(&self, name: &str) -> Result<PathBuf> {
         let path = self.base_path.join("plugins").join(name);
-        
+
         if path.exists() {
             return Ok(path);
         }
@@ -84,7 +87,10 @@ impl PluginRegistry {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.contains("not a btrfs filesystem") {
-                warn!("BTRFS subvolume creation failed: {}. Falling back to directory.", stderr);
+                warn!(
+                    "BTRFS subvolume creation failed: {}. Falling back to directory.",
+                    stderr
+                );
             }
             tokio::fs::create_dir_all(&path).await?;
         }

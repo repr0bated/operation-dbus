@@ -49,15 +49,14 @@ pub async fn sse_handler(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.sse_broadcaster.subscribe();
-    
-    let stream = BroadcastStream::new(rx)
-        .filter_map(|result: Result<SseEvent, tokio_stream::wrappers::errors::BroadcastStreamRecvError>| {
-            result.ok().map(|event| {
-                Ok(Event::default()
-                    .event(event.event_type)
-                    .data(event.data))
-            })
-        });
+
+    let stream = BroadcastStream::new(rx).filter_map(
+        |result: Result<SseEvent, tokio_stream::wrappers::errors::BroadcastStreamRecvError>| {
+            result
+                .ok()
+                .map(|event| Ok(Event::default().event(event.event_type).data(event.data)))
+        },
+    );
 
     // Add keepalive
     let keepalive = stream::repeat_with(|| Ok(Event::default().comment("keepalive")))

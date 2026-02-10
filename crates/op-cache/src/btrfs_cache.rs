@@ -18,7 +18,7 @@ use std::sync::{
 };
 use tracing::{debug, info, warn};
 
-use super::numa::{NumaNode, NumaTopology, NumaStats};
+use super::numa::{NumaNode, NumaStats, NumaTopology};
 use super::snapshot_manager::{SnapshotConfig, SnapshotManager};
 
 /// NUMA-aware cache placement strategy
@@ -309,9 +309,10 @@ impl BtrfsCache {
                 let index = self.current_node_index.fetch_add(1, Ordering::Relaxed);
                 nodes.get(index % nodes.len()).copied()
             }
-            CachePlacementStrategy::MostMemory => {
-                nodes.iter().max_by_key(|node| node.memory_total_kb).copied()
-            }
+            CachePlacementStrategy::MostMemory => nodes
+                .iter()
+                .max_by_key(|node| node.memory_total_kb)
+                .copied(),
             CachePlacementStrategy::Disabled => None,
         };
 

@@ -8,12 +8,12 @@
 //! - WebSocket (full duplex)
 //! - gRPC (high-performance RPC) [optional feature]
 
-mod stdio;
 mod http;
+mod stdio;
 mod websocket;
 
+pub use http::{HttpSseTransport, HttpTransport, SseTransport};
 pub use stdio::StdioTransport;
-pub use http::{HttpTransport, SseTransport, HttpSseTransport};
 pub use websocket::WebSocketTransport;
 
 use anyhow::Result;

@@ -23,9 +23,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use simd_json::prelude::*;
 use simd_json::OwnedValue as Value;
 use simd_json::ValueBuilder;
-use simd_json::prelude::*;
 use std::collections::HashMap;
 
 use crate::schema_validator::canonicalize_json;
@@ -264,10 +264,7 @@ pub struct EventBatch {
 
 impl EventBatch {
     /// Create a new batch from a list of event hashes
-    pub fn from_events(
-        events: &[ChainEvent],
-        prev_batch_root: Option<String>,
-    ) -> Option<Self> {
+    pub fn from_events(events: &[ChainEvent], prev_batch_root: Option<String>) -> Option<Self> {
         if events.is_empty() {
             return None;
         }
@@ -359,12 +356,7 @@ pub struct StateSnapshot {
 
 impl StateSnapshot {
     /// Create a new snapshot
-    pub fn new(
-        at_event_id: u64,
-        plugin_id: String,
-        schema_version: String,
-        state: Value,
-    ) -> Self {
+    pub fn new(at_event_id: u64, plugin_id: String, schema_version: String, state: Value) -> Self {
         let canonical = canonicalize_json(&state);
         let effective_hash = compute_hash(&canonical);
 
@@ -574,10 +566,9 @@ impl EventChain {
 
             if !event.verify() {
                 result.valid = false;
-                result.errors.push(format!(
-                    "Event {} hash verification failed",
-                    event.event_id
-                ));
+                result
+                    .errors
+                    .push(format!("Event {} hash verification failed", event.event_id));
             }
 
             expected_prev = event.event_hash.clone();
@@ -923,11 +914,7 @@ mod tests {
             "containers": [{"id": "100", "running": true}]
         });
 
-        let snapshot = chain.create_snapshot(
-            "lxc".to_string(),
-            "2.0.0".to_string(),
-            state,
-        );
+        let snapshot = chain.create_snapshot("lxc".to_string(), "2.0.0".to_string(), state);
 
         assert!(snapshot.verify());
         assert_eq!(snapshot.at_event_id, 1);

@@ -14,13 +14,12 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use tokio::sync::RwLock;
 use tracing::info;
-
 
 /// Tool groups configuration storage
 #[derive(Debug)]
@@ -42,54 +41,63 @@ const GROUPS_CONFIG_PATH: &str = "/var/lib/op-dbus/tool-groups.json";
 impl GroupsConfig {
     pub fn new() -> Self {
         let mut profiles = HashMap::new();
-        
+
         // Try to load from disk
         if let Ok(content) = std::fs::read_to_string(GROUPS_CONFIG_PATH) {
             let mut raw = content.clone();
-            if let Ok(saved) = unsafe { simd_json::from_str::<HashMap<String, EnabledGroups>>(&mut raw) } {
-                info!("Loaded {} tool group profiles from {}", saved.len(), GROUPS_CONFIG_PATH);
+            if let Ok(saved) =
+                unsafe { simd_json::from_str::<HashMap<String, EnabledGroups>>(&mut raw) }
+            {
+                info!(
+                    "Loaded {} tool group profiles from {}",
+                    saved.len(),
+                    GROUPS_CONFIG_PATH
+                );
                 profiles = saved;
             }
         }
-        
+
         // Default profile
         if !profiles.contains_key("default") {
             let mut default_groups = HashSet::new();
             default_groups.insert("respond".to_string());
             default_groups.insert("info".to_string());
-            profiles.insert("default".to_string(), EnabledGroups {
-                groups: default_groups,
-                preset: Some("minimal".to_string()),
-            });
+            profiles.insert(
+                "default".to_string(),
+                EnabledGroups {
+                    groups: default_groups,
+                    preset: Some("minimal".to_string()),
+                },
+            );
         }
-        
+
         Self {
             profiles: RwLock::new(profiles),
             trusted_networks: RwLock::new(vec![]),
         }
     }
-    
+
     pub async fn get_profile(&self, name: &str) -> Option<EnabledGroups> {
         self.profiles.read().await.get(name).cloned()
     }
-    
+
     pub async fn set_profile(&self, name: String, config: EnabledGroups) {
         self.profiles.write().await.insert(name, config);
         self.save_to_disk().await;
     }
-    
+
     pub async fn list_profiles(&self) -> Vec<String> {
         self.profiles.read().await.keys().cloned().collect()
     }
-    
+
     pub async fn add_trusted_network(&self, prefix: String) {
         self.trusted_networks.write().await.push(prefix);
     }
-    
+
     pub async fn get_trusted_networks(&self) -> Vec<String> {
         self.trusted_networks.read().await.clone()
     }
-    
+
     async fn save_to_disk(&self) {
         if let Ok(json) = simd_json::to_string_pretty(&*self.profiles.read().await) {
             if let Err(e) = tokio::fs::write(GROUPS_CONFIG_PATH, json).await {
@@ -118,7 +126,10 @@ pub fn create_groups_admin_router() -> Router {
         .route("/api/profiles", get(list_profiles))
         .route("/api/profiles/:name", get(get_profile).post(save_profile))
         .route("/api/access-zone", get(get_access_zone))
-        .route("/api/trusted-networks", get(get_trusted_networks).post(add_trusted_network))
+        .route(
+            "/api/trusted-networks",
+            get(get_trusted_networks).post(add_trusted_network),
+        )
 }
 
 /// Serve the groups admin HTML page
@@ -130,9 +141,9 @@ async fn groups_admin_page() -> Html<String> {
 async fn list_groups() -> Json<Value> {
     // Import from aggregator
     let groups = op_mcp_aggregator::builtin_groups();
-    
+
     let mut by_domain: HashMap<String, Vec<Value>> = HashMap::new();
-    
+
     for group in groups {
         let entry = by_domain.entry(group.domain.clone()).or_default();
         entry.push(json!({
@@ -146,7 +157,7 @@ async fn list_groups() -> Json<Value> {
             "tags": group.tags,
         }));
     }
-    
+
     // Sort groups within each domain
     for groups in by_domain.values_mut() {
         groups.sort_by(|a, b| {
@@ -155,24 +166,42 @@ async fn list_groups() -> Json<Value> {
             a_name.cmp(b_name)
         });
     }
-    
+
     // Domain order
-    let domain_order = ["core", "files", "shell", "systemd", "network", "dbus", 
-                        "monitoring", "git", "devops", "security", "business", 
-                        "architect", "database", "ovs", "agents", "system"];
-    
-    let domains: Vec<Value> = domain_order.iter()
+    let domain_order = [
+        "core",
+        "files",
+        "shell",
+        "systemd",
+        "network",
+        "dbus",
+        "monitoring",
+        "git",
+        "devops",
+        "security",
+        "business",
+        "architect",
+        "database",
+        "ovs",
+        "agents",
+        "system",
+    ];
+
+    let domains: Vec<Value> = domain_order
+        .iter()
         .filter_map(|d| {
-            by_domain.get(*d).map(|groups| json!({
-                "domain": d,
-                "groups": groups,
-                "total_tools": groups.iter()
-                    .map(|g| g.get("count").and_then(|c| c.as_u64()).unwrap_or(0))
-                    .sum::<u64>()
-            }))
+            by_domain.get(*d).map(|groups| {
+                json!({
+                    "domain": d,
+                    "groups": groups,
+                    "total_tools": groups.iter()
+                        .map(|g| g.get("count").and_then(|c| c.as_u64()).unwrap_or(0))
+                        .sum::<u64>()
+                })
+            })
         })
         .collect();
-    
+
     Json(json!({
         "domains": domains,
         "max_tools": 40
@@ -182,16 +211,21 @@ async fn list_groups() -> Json<Value> {
 /// List available presets
 async fn list_presets() -> Json<Value> {
     let presets = op_mcp_aggregator::builtin_presets();
-    
-    let presets_json: Vec<Value> = presets.iter().map(|p| json!({
-        "id": p.id,
-        "name": p.name,
-        "description": p.description,
-        "groups": p.groups,
-        "estimated_total": p.estimated_total,
-        "requires_localhost": p.requires_localhost,
-    })).collect();
-    
+
+    let presets_json: Vec<Value> = presets
+        .iter()
+        .map(|p| {
+            json!({
+                "id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "groups": p.groups,
+                "estimated_total": p.estimated_total,
+                "requires_localhost": p.requires_localhost,
+            })
+        })
+        .collect();
+
     Json(json!({ "presets": presets_json }))
 }
 
@@ -202,9 +236,7 @@ async fn list_profiles() -> Json<Value> {
 }
 
 /// Get a specific profile
-async fn get_profile(
-    axum::extract::Path(name): axum::extract::Path<String>,
-) -> Json<Value> {
+async fn get_profile(axum::extract::Path(name): axum::extract::Path<String>) -> Json<Value> {
     match GROUPS_CONFIG.get_profile(&name).await {
         Some(config) => {
             let groups: Vec<String> = config.groups.into_iter().collect();
@@ -217,7 +249,7 @@ async fn get_profile(
         }
         None => Json(json!({
             "error": format!("Profile '{}' not found", name)
-        }))
+        })),
     }
 }
 
@@ -236,12 +268,12 @@ async fn save_profile(
         groups: request.groups.into_iter().collect(),
         preset: request.preset,
     };
-    
+
     let count = config.groups.len();
     GROUPS_CONFIG.set_profile(name.clone(), config).await;
-    
+
     info!("Saved tool groups profile '{}' with {} groups", name, count);
-    
+
     Json(json!({
         "success": true,
         "profile": name,
@@ -251,14 +283,12 @@ async fn save_profile(
 }
 
 /// Get access zone for client IP
-async fn get_access_zone(
-    connect_info: Option<ConnectInfo<SocketAddr>>,
-) -> Json<Value> {
+async fn get_access_zone(connect_info: Option<ConnectInfo<SocketAddr>>) -> Json<Value> {
     let ip = connect_info
         .map(|ci| ci.0.ip().to_string())
         .unwrap_or_else(|| "0.0.0.0".to_string());
     let zone = op_core::security::AccessZone::from_ip(&ip);
-    
+
     Json(json!({
         "client_ip": ip,
         "zone": format!("{:?}", zone).to_lowercase(),
@@ -284,10 +314,10 @@ struct AddNetworkRequest {
 }
 
 /// Add a trusted network
-async fn add_trusted_network(
-    Json(request): Json<AddNetworkRequest>,
-) -> Json<Value> {
-    GROUPS_CONFIG.add_trusted_network(request.prefix.clone()).await;
+async fn add_trusted_network(Json(request): Json<AddNetworkRequest>) -> Json<Value> {
+    GROUPS_CONFIG
+        .add_trusted_network(request.prefix.clone())
+        .await;
     info!("Added trusted network: {}", request.prefix);
     Json(json!({ "success": true, "prefix": request.prefix }))
 }

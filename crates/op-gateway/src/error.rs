@@ -24,15 +24,15 @@ impl GatewayError {
     pub fn internal(msg: impl Into<String>) -> Self {
         Self::Internal(msg.into())
     }
-    
+
     pub fn auth_failed(msg: impl Into<String>) -> Self {
         Self::AuthFailed(msg.into())
     }
-    
+
     pub fn crypto(msg: impl Into<String>) -> Self {
         Self::Crypto(msg.into())
     }
-    
+
     pub fn storage(msg: impl Into<String>) -> Self {
         Self::Storage(msg.into())
     }

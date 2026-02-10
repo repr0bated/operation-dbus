@@ -1,13 +1,13 @@
 //! LLM API Handlers
 
 use axum::{
-    extract::{Path, Extension},
+    extract::{Extension, Path},
     response::Json,
 };
 use serde::{Deserialize, Serialize};
 use simd_json::{json, OwnedValue as Value};
-use std::sync::Arc;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use crate::state::AppState;
 use op_llm::provider::ProviderType;
@@ -50,16 +50,11 @@ pub async fn list_providers_handler(
         .map(|provider| provider.to_string())
         .collect();
     let current = state.chat_manager.current_provider().await.to_string();
-    Json(LlmProvidersResponse {
-        providers,
-        current,
-    })
+    Json(LlmProvidersResponse { providers, current })
 }
 
 /// GET /api/llm/models - List available models
-pub async fn list_models_handler(
-    Extension(state): Extension<Arc<AppState>>,
-) -> Json<Value> {
+pub async fn list_models_handler(Extension(state): Extension<Arc<AppState>>) -> Json<Value> {
     match state.chat_manager.list_models().await {
         Ok(models) => {
             let current = state.chat_manager.current_model().await;
@@ -82,7 +77,11 @@ pub async fn list_models_for_provider_handler(
     Path(provider): Path<String>,
 ) -> Json<Value> {
     match ProviderType::from_str(&provider) {
-        Ok(provider_type) => match state.chat_manager.list_models_for_provider(&provider_type).await {
+        Ok(provider_type) => match state
+            .chat_manager
+            .list_models_for_provider(&provider_type)
+            .await
+        {
             Ok(models) => Json(json!({
                 "provider": provider,
                 "models": models,

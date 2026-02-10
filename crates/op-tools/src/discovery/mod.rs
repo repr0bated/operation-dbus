@@ -13,11 +13,11 @@ use tracing::{debug, info, warn};
 
 use crate::registry::ToolDefinition;
 
-pub mod sources;
 pub mod projection_engine;
+pub mod sources;
 
-pub use sources::{AgentDiscoverySource, DbusDiscoverySource, PluginDiscoverySource};
 pub use projection_engine::ProjectionEngine;
+pub use sources::{AgentDiscoverySource, DbusDiscoverySource, PluginDiscoverySource};
 
 /// Source type for tool discovery
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -3,22 +3,13 @@
 //! Handles user signup, magic link verification, and config download.
 
 use axum::{
-    extract::{Path, Query, Extension},
+    extract::{Extension, Path, Query},
     http::{StatusCode, Uri},
     response::{Json, Redirect},
 };
 use oauth2::{
-    AuthorizationCode,
-    AuthUrl,
-    ClientId,
-    ClientSecret,
-    CsrfToken,
-    PkceCodeChallenge,
-    PkceCodeVerifier,
-    RedirectUrl,
-    Scope,
-    TokenResponse,
-    TokenUrl
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
+    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -113,7 +104,11 @@ pub async fn signup(
         match state.user_store.create_magic_link(&existing.id).await {
             Ok(link) => {
                 // Send email
-                if let Err(e) = state.email_sender.send_magic_link(&email, &link.token).await {
+                if let Err(e) = state
+                    .email_sender
+                    .send_magic_link(&email, &link.token)
+                    .await
+                {
                     error!("Failed to send magic link email: {}", e);
                 }
                 return (
@@ -151,7 +146,11 @@ pub async fn signup(
             match state.user_store.create_magic_link(&user.id).await {
                 Ok(link) => {
                     // Send email
-                    if let Err(e) = state.email_sender.send_magic_link(&email, &link.token).await {
+                    if let Err(e) = state
+                        .email_sender
+                        .send_magic_link(&email, &link.token)
+                        .await
+                    {
                         error!("Failed to send magic link email: {}", e);
                     }
                     info!("New privacy user registered: {}", email);
@@ -311,26 +310,41 @@ pub async fn set_credentials(
         preferred_provider: request.preferred_provider,
     };
 
-    match state.user_store.set_user_api_credentials(&request.user_id, credentials).await {
+    match state
+        .user_store
+        .set_user_api_credentials(&request.user_id, credentials)
+        .await
+    {
         Ok(()) => {
             info!("Set API credentials for user {}", request.user_id);
-            (StatusCode::OK, Json(SetCredentialsResponse {
-                success: true,
-                message: "API credentials updated successfully".to_string(),
-            }))
+            (
+                StatusCode::OK,
+                Json(SetCredentialsResponse {
+                    success: true,
+                    message: "API credentials updated successfully".to_string(),
+                }),
+            )
         }
         Err(e) => {
-            error!("Failed to set API credentials for user {}: {}", request.user_id, e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(SetCredentialsResponse {
-                success: false,
-                message: format!("Failed to update credentials: {}", e),
-            }))
+            error!(
+                "Failed to set API credentials for user {}: {}",
+                request.user_id, e
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(SetCredentialsResponse {
+                    success: false,
+                    message: format!("Failed to update credentials: {}", e),
+                }),
+            )
         }
     }
 }
 
 /// GET /api/privacy/google/auth - Initiate Google OAuth login
-pub async fn google_auth(Extension(state): Extension<Arc<AppState>>) -> Result<Redirect, (StatusCode, Json<VerifyResponse>)> {
+pub async fn google_auth(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Redirect, (StatusCode, Json<VerifyResponse>)> {
     let config = match state.google_oauth_config.as_ref() {
         Some(config) => config,
         None => {
@@ -441,24 +455,22 @@ pub async fn google_callback(
         .await;
 
     let user_info: GoogleUserInfo = match user_info_result {
-        Ok(response) => {
-            match response.json().await {
-                Ok(info) => info,
-                Err(e) => {
-                    error!("Failed to parse Google user info: {}", e);
-                    return Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(VerifyResponse {
-                            success: false,
-                            user_id: None,
-                            config: None,
-                            qr_code: None,
-                            message: "Failed to get user information".to_string(),
-                        }),
-                    ));
-                }
+        Ok(response) => match response.json().await {
+            Ok(info) => info,
+            Err(e) => {
+                error!("Failed to parse Google user info: {}", e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(VerifyResponse {
+                        success: false,
+                        user_id: None,
+                        config: None,
+                        qr_code: None,
+                        message: "Failed to get user information".to_string(),
+                    }),
+                ));
             }
-        }
+        },
         Err(e) => {
             error!("Failed to get Google user info: {}", e);
             return Err((

@@ -29,10 +29,24 @@ impl Default for OrchestratorConfig {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OrchestratorEvent {
     Thinking,
-    ToolExecution { name: String, args: Value },
-    ToolResult { name: String, success: bool, result: Option<Value>, error: Option<String> },
-    Finished { success: bool, message: String, tools_executed: Vec<String> },
-    Error { message: String },
+    ToolExecution {
+        name: String,
+        args: Value,
+    },
+    ToolResult {
+        name: String,
+        success: bool,
+        result: Option<Value>,
+        error: Option<String>,
+    },
+    Finished {
+        success: bool,
+        message: String,
+        tools_executed: Vec<String>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// Response from tool execution

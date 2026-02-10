@@ -1,7 +1,7 @@
 //! Direct-mode handler for LLM MCP methods.
 
-use identity::{SessionManager, CachedToken};
 use crate::cloudaicompanion::CloudAICompanion;
+use identity::{CachedToken, SessionManager};
 use simd_json::OwnedValue;
 
 pub struct DirectLLM {
@@ -34,11 +34,14 @@ impl DirectLLM {
             Ok(text) => Value::Object(simd_json::value::owned::Object::from_iter([
                 ("jsonrpc".into(), Value::String("2.0".into())),
                 ("id".into(), id.clone()),
-                ("result".into(), Value::Object(simd_json::value::owned::Object::from_iter([
-                    ("completion".into(), Value::String(text)),
-                    ("model".into(), Value::String("gemini-2.0-flash".into())),
-                    ("stopReason".into(), Value::String("stop".into())),
-                ]))),
+                (
+                    "result".into(),
+                    Value::Object(simd_json::value::owned::Object::from_iter([
+                        ("completion".into(), Value::String(text)),
+                        ("model".into(), Value::String("gemini-2.0-flash".into())),
+                        ("stopReason".into(), Value::String("stop".into())),
+                    ])),
+                ),
             ])),
             Err(e) => error(id, -32603, format!("generate: {e}")),
         }
@@ -69,9 +72,12 @@ fn error(id: &Value, code: i32, msg: impl Into<String>) -> Value {
     Value::Object(simd_json::value::owned::Object::from_iter([
         ("jsonrpc".into(), Value::String("2.0".into())),
         ("id".into(), id.clone()),
-        ("error".into(), Value::Object(simd_json::value::owned::Object::from_iter([
-            ("code".into(), Value::Number(code.into())),
-            ("message".into(), Value::String(msg.into())),
-        ]))),
+        (
+            "error".into(),
+            Value::Object(simd_json::value::owned::Object::from_iter([
+                ("code".into(), Value::Number(code.into())),
+                ("message".into(), Value::String(msg.into())),
+            ])),
+        ),
     ]))
 }

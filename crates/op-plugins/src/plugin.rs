@@ -3,11 +3,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use simd_json::ValueBuilder;
-use std::collections::HashMap;
 use std::any::Any;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::state::{DesiredState, StateChange, ValidationResult};
@@ -83,7 +83,6 @@ impl Default for PluginCapabilities {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureSchema {

@@ -1,6 +1,6 @@
-use simd_json::json;
-use op_llm::provider::ToolDefinition;
 use super::UnifiedOrchestrator;
+use op_llm::provider::ToolDefinition;
+use simd_json::json;
 
 impl UnifiedOrchestrator {
     /// Build compact mode tool definitions (4 meta-tools)
@@ -127,7 +127,7 @@ WORKFLOW:
 
 AVAILABLE TOOL CATEGORIES:
 - **OVS**: Open vSwitch management (ovs_list_bridges, ovs_add_port, etc.)
-- **Systemd**: Service management via D-Bus (dbus_systemd_restart_unit, etc.)
+- **Service**: Service management via D-Bus dinit tools (dbus_dinit_start_service, etc.)
 - **D-Bus**: Direct D-Bus calls (dbus_call, dbus_introspect, etc.)
 - **File**: File operations (file_read, file_write, file_list, etc.)
 - **Shell**: Command execution (shell_exec, shell_which, etc.)
@@ -150,14 +150,15 @@ User: "List all OVS bridges"
 2. execute_tool({"tool_name": "ovs_list_bridges", "arguments": {}})
 
 User: "Restart nginx"
-1. search_tools({"query": "restart"})  → Find dbus_systemd_restart_unit
-2. get_tool_schema({"tool_name": "dbus_systemd_restart_unit"})  → See it needs "unit" param
-3. execute_tool({"tool_name": "dbus_systemd_restart_unit", "arguments": {"unit": "nginx.service"}})
+1. search_tools({"query": "dinit nginx"})  → Find dbus_dinit_stop_service and dbus_dinit_start_service
+2. get_tool_schema({"tool_name": "dbus_dinit_stop_service"})  → See it needs "service" param
+3. execute_tool({"tool_name": "dbus_dinit_stop_service", "arguments": {"service": "nginx"}})
+4. execute_tool({"tool_name": "dbus_dinit_start_service", "arguments": {"service": "nginx"}})
 
 User: "What tools are available for networking?"
 1. list_tools({"category": "network"})  → Browse network tools
 
-REMEMBER: You have access to D-Bus (systemd, NetworkManager), OVSDB (OVS), and Netlink (kernel) - all via native protocols, not CLI.
+REMEMBER: You have access to D-Bus (dinit, NetworkManager), OVSDB (OVS), and Netlink (kernel) - all via native protocols, not CLI.
 
 HINT - OVS NETWORKING:
 Creating an OVS bridge (`ovs_create_bridge`) does NOT create a Linux network interface automatically.
@@ -174,7 +175,8 @@ Example:
     /// Combines the base prompt with the injected tool list.
     pub(crate) fn build_system_prompt(&self, tool_list: &str) -> String {
         let base_prompt = self.config.system_prompt.clone().unwrap_or_else(|| {
-            "You are a helpful system administration assistant with access to various tools.".to_string()
+            "You are a helpful system administration assistant with access to various tools."
+                .to_string()
         });
 
         format!(

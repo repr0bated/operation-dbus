@@ -397,7 +397,8 @@ impl WorkflowTracker {
                 |row| {
                     let mut agent_sequence_json: String = row.get(1)?;
                     let agent_sequence: Vec<String> =
-                        unsafe { simd_json::from_str(&mut agent_sequence_json) }.unwrap_or_default();
+                        unsafe { simd_json::from_str(&mut agent_sequence_json) }
+                            .unwrap_or_default();
                     let call_count: u32 = row.get(2)?;
                     let total_latency: i64 = row.get(5)?;
 
@@ -558,14 +559,11 @@ impl WorkflowTracker {
 
     /// Calculate confidence score for promotion
     fn calculate_confidence(&self, pattern: &WorkflowPattern) -> f64 {
-        let recency_days =
-            (chrono::Utc::now().timestamp() - pattern.last_called) as f64 / 86400.0;
-        let frequency_score = (pattern.call_count as f64 / self.config.promotion_threshold as f64)
-            .min(2.0)
-            / 2.0;
+        let recency_days = (chrono::Utc::now().timestamp() - pattern.last_called) as f64 / 86400.0;
+        let frequency_score =
+            (pattern.call_count as f64 / self.config.promotion_threshold as f64).min(2.0) / 2.0;
         let recency_score = (1.0 - recency_days / 7.0).max(0.0);
-        let length_score = if pattern.agent_sequence.len() >= 2
-            && pattern.agent_sequence.len() <= 5
+        let length_score = if pattern.agent_sequence.len() >= 2 && pattern.agent_sequence.len() <= 5
         {
             1.0
         } else {
@@ -587,12 +585,7 @@ impl WorkflowTracker {
         if pattern.agent_sequence.len() == 2 {
             format!("{}-to-{}", first, last)
         } else {
-            format!(
-                "{}-to-{}-{}step",
-                first,
-                last,
-                pattern.agent_sequence.len()
-            )
+            format!("{}-to-{}-{}step", first, last, pattern.agent_sequence.len())
         }
     }
 
@@ -609,8 +602,10 @@ impl WorkflowTracker {
 
         let calls_deleted = db.execute("DELETE FROM agent_calls WHERE timestamp < ?1", [cutoff])?;
 
-        let sequences_deleted =
-            db.execute("DELETE FROM detected_sequences WHERE detected_at < ?1", [cutoff])?;
+        let sequences_deleted = db.execute(
+            "DELETE FROM detected_sequences WHERE detected_at < ?1",
+            [cutoff],
+        )?;
 
         let patterns_deleted = db.execute(
             "DELETE FROM workflow_patterns WHERE last_called < ?1 AND promoted = 0 AND call_count < ?2",
@@ -699,7 +694,10 @@ mod tests {
 
         let suggestion = result.unwrap();
         assert_eq!(suggestion.pattern.call_count, 2);
-        assert_eq!(suggestion.pattern.agent_sequence, vec!["agent_a", "agent_b"]);
+        assert_eq!(
+            suggestion.pattern.agent_sequence,
+            vec!["agent_a", "agent_b"]
+        );
     }
 
     #[tokio::test]

@@ -1,7 +1,7 @@
 //! SQLite storage
 
+use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::path::Path;
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use tracing::info;
 
 use crate::schema::{ServiceDef, ServiceName};
@@ -24,7 +24,8 @@ impl Store {
     }
 
     async fn migrate(&self) -> anyhow::Result<()> {
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS services (
                 name TEXT PRIMARY KEY,
                 definition TEXT NOT NULL,
@@ -32,9 +33,13 @@ impl Store {
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
-        "#).execute(&self.pool).await?;
+        "#,
+        )
+        .execute(&self.pool)
+        .await?;
 
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 service_name TEXT,
@@ -42,19 +47,21 @@ impl Store {
                 details TEXT,
                 timestamp TEXT DEFAULT CURRENT_TIMESTAMP
             )
-        "#).execute(&self.pool).await?;
+        "#,
+        )
+        .execute(&self.pool)
+        .await?;
 
         info!("Database migrated");
         Ok(())
     }
 
     pub async fn get_service(&self, name: &ServiceName) -> anyhow::Result<Option<ServiceDef>> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT definition FROM services WHERE name = ?"
-        )
-        .bind(name.as_str())
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT definition FROM services WHERE name = ?")
+                .bind(name.as_str())
+                .fetch_optional(&self.pool)
+                .await?;
 
         match row {
             Some((json,)) => Ok(Some(serde_json::from_str(&json)?)),
@@ -93,15 +100,18 @@ impl Store {
             .collect()
     }
 
-    pub async fn audit(&self, service: Option<&str>, action: &str, details: Option<&str>) -> anyhow::Result<()> {
-        sqlx::query(
-            "INSERT INTO audit_log (service_name, action, details) VALUES (?, ?, ?)"
-        )
-        .bind(service)
-        .bind(action)
-        .bind(details)
-        .execute(&self.pool)
-        .await?;
+    pub async fn audit(
+        &self,
+        service: Option<&str>,
+        action: &str,
+        details: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query("INSERT INTO audit_log (service_name, action, details) VALUES (?, ?, ?)")
+            .bind(service)
+            .bind(action)
+            .bind(details)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

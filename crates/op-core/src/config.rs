@@ -24,11 +24,7 @@ use tracing::{debug, info, warn};
 pub const DEFAULT_ENV_FILE: &str = "/etc/op-dbus/environment";
 
 /// Alternative paths to check (in order of priority)
-pub const ENV_FILE_PATHS: &[&str] = &[
-    "/etc/op-dbus/environment",
-    "/etc/op-dbus.env",
-    ".env",
-];
+pub const ENV_FILE_PATHS: &[&str] = &["/etc/op-dbus/environment", "/etc/op-dbus.env", ".env"];
 
 /// Load environment variables from the canonical configuration file.
 ///
@@ -45,14 +41,14 @@ pub fn load_environment() -> Option<String> {
             return Some(path);
         }
     }
-    
+
     // Try each path in order
     for path in ENV_FILE_PATHS {
         if let Some(loaded_path) = try_load_env_file(path) {
             return Some(loaded_path);
         }
     }
-    
+
     debug!("No environment file found, using existing environment");
     None
 }
@@ -60,43 +56,54 @@ pub fn load_environment() -> Option<String> {
 /// Try to load an environment file from the given path.
 fn try_load_env_file(path: &str) -> Option<String> {
     let path_obj = Path::new(path);
-    
+
     if !path_obj.exists() {
         return None;
     }
-    
+
     match fs::read_to_string(path_obj) {
         Ok(content) => {
             let mut loaded_count = 0;
             let mut skipped_count = 0;
-            
+
             for line in content.lines() {
                 let line = line.trim();
-                
+
                 // Skip comments and empty lines
                 if line.is_empty() || line.starts_with('#') {
                     continue;
                 }
-                
+
                 // Parse KEY=VALUE
                 if let Some((key, value)) = parse_env_line(line) {
                     // Don't override existing environment variables
                     if std::env::var(&key).is_err() {
                         std::env::set_var(&key, &value);
                         loaded_count += 1;
-                        debug!("Loaded: {}={}", key, if key.contains("KEY") || key.contains("TOKEN") || key.contains("SECRET") { "***" } else { &value });
+                        debug!(
+                            "Loaded: {}={}",
+                            key,
+                            if key.contains("KEY")
+                                || key.contains("TOKEN")
+                                || key.contains("SECRET")
+                            {
+                                "***"
+                            } else {
+                                &value
+                            }
+                        );
                     } else {
                         skipped_count += 1;
                         debug!("Skipped (already set): {}", key);
                     }
                 }
             }
-            
+
             info!(
                 "Loaded {} environment variables from {} ({} skipped - already set)",
                 loaded_count, path, skipped_count
             );
-            
+
             Some(path.to_string())
         }
         Err(e) => {
@@ -112,17 +119,18 @@ fn parse_env_line(line: &str) -> Option<(String, String)> {
     let mut parts = line.splitn(2, '=');
     let key = parts.next()?.trim();
     let value = parts.next()?.trim();
-    
+
     if key.is_empty() {
         return None;
     }
-    
+
     // Remove surrounding quotes
     let value = value
-        .strip_prefix('"').and_then(|v| v.strip_suffix('"'))
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
         .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
         .unwrap_or(value);
-    
+
     Some((key.to_string(), value.to_string()))
 }
 
@@ -154,28 +162,28 @@ pub fn get_config_int(key: &str, default: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_env_line_simple() {
         let (k, v) = parse_env_line("FOO=bar").unwrap();
         assert_eq!(k, "FOO");
         assert_eq!(v, "bar");
     }
-    
+
     #[test]
     fn test_parse_env_line_quoted() {
         let (k, v) = parse_env_line("FOO=\"bar baz\"").unwrap();
         assert_eq!(k, "FOO");
         assert_eq!(v, "bar baz");
     }
-    
+
     #[test]
     fn test_parse_env_line_single_quoted() {
         let (k, v) = parse_env_line("FOO='bar'").unwrap();
         assert_eq!(k, "FOO");
         assert_eq!(v, "bar");
     }
-    
+
     #[test]
     fn test_parse_env_line_empty() {
         assert!(parse_env_line("").is_none());

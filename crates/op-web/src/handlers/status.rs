@@ -2,11 +2,38 @@
 
 use axum::{extract::Extension, response::Json};
 use serde::Serialize;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use sysinfo::System;
 
 use crate::state::AppState;
+
+fn categorize_tool(name: &str) -> &'static str {
+    if name.starts_with("ovs_") {
+        "ovs"
+    } else if name.starts_with("systemd_") || name.starts_with("dinit_") {
+        "service"
+    } else if name.starts_with("nm_") || name.starts_with("connman.") {
+        "network"
+    } else if name.starts_with("file_") {
+        "file"
+    } else if name.starts_with("system_") {
+        "system"
+    } else if name.starts_with("plugin_") {
+        "plugin"
+    } else if name.starts_with("dbus_")
+        || name.starts_with("DBus.")
+        || name.starts_with("org.")
+        || name.contains('.')
+    {
+        // D-Bus projected methods generally include bus/interface path segments.
+        "dbus"
+    } else if name.starts_with("agent_") {
+        "agent"
+    } else {
+        "other"
+    }
+}
 
 #[derive(Serialize)]
 pub struct StatusResponse {
@@ -69,9 +96,7 @@ pub struct InterfaceInfo {
 }
 
 /// GET /api/status - Comprehensive system status
-pub async fn status_handler(
-    Extension(state): Extension<Arc<AppState>>,
-) -> Json<StatusResponse> {
+pub async fn status_handler(Extension(state): Extension<Arc<AppState>>) -> Json<StatusResponse> {
     // Get system info
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -106,22 +131,9 @@ pub async fn status_handler(
     let tools_list = state.tool_registry.list().await;
     let mut by_category: HashMap<String, usize> = HashMap::new();
     for tool in &tools_list {
-        let category = if tool.name.starts_with("ovs_") {
-            "ovs"
-        } else if tool.name.starts_with("systemd_") {
-            "systemd"
-        } else if tool.name.starts_with("nm_") {
-            "networkmanager"
-        } else if tool.name.starts_with("file_") {
-            "file"
-        } else if tool.name.starts_with("system_") {
-            "system"
-        } else if tool.name.starts_with("plugin_") {
-            "plugin"
-        } else {
-            "other"
-        };
-        *by_category.entry(category.to_string()).or_insert(0) += 1;
+        *by_category
+            .entry(categorize_tool(&tool.name).to_string())
+            .or_insert(0) += 1;
     }
 
     let tools = ToolsInfo {
@@ -140,7 +152,13 @@ pub async fn status_handler(
 
     // Get agents info
     let agent_types = op_agents::list_agent_types().len();
-    let agent_instances = state.agent_registry.read().await.list_instances().await.len();
+    let agent_instances = state
+        .agent_registry
+        .read()
+        .await
+        .list_instances()
+        .await
+        .len();
     let agents = AgentsInfo {
         types_available: agent_types,
         instances_running: agent_instances,

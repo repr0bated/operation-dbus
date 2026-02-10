@@ -6,8 +6,8 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::{ValueAsContainer, ValueAsMutContainer, ValueAsScalar, ValueObjectAccess};
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use tracing::{info, warn};
 
@@ -128,7 +128,9 @@ impl Skill {
 
     /// Add a system prompt addition
     pub fn with_prompt(mut self, prompt: &str) -> Self {
-        self.context.system_prompt_additions.push(prompt.to_string());
+        self.context
+            .system_prompt_additions
+            .push(prompt.to_string());
         self
     }
 
@@ -171,7 +173,9 @@ impl Skill {
     /// Transform input arguments based on skill context
     pub fn transform_input(&self, tool_name: &str, mut args: Value) -> Value {
         if let Some(transform) = self.context.input_transformations.get(tool_name) {
-            if let (Some(args_obj), Some(transform_obj)) = (args.as_object_mut(), transform.as_object()) {
+            if let (Some(args_obj), Some(transform_obj)) =
+                (args.as_object_mut(), transform.as_object())
+            {
                 for (key, value) in transform_obj {
                     if !args_obj.contains_key(key) {
                         args_obj.insert(key.clone(), value.clone());
@@ -312,25 +316,23 @@ impl SkillRegistry {
     #[allow(dead_code)]
     pub fn combined_context(&self) -> SkillContext {
         let mut combined = SkillContext::default();
-        
+
         for skill in self.active_skills() {
-            combined.system_prompt_additions.extend(
-                skill.context.system_prompt_additions.clone()
-            );
-            combined.input_transformations.extend(
-                skill.context.input_transformations.clone()
-            );
-            combined.output_transformations.extend(
-                skill.context.output_transformations.clone()
-            );
-            combined.variables.extend(
-                skill.context.variables.clone()
-            );
-            combined.constraints.extend(
-                skill.context.constraints.clone()
-            );
+            combined
+                .system_prompt_additions
+                .extend(skill.context.system_prompt_additions.clone());
+            combined
+                .input_transformations
+                .extend(skill.context.input_transformations.clone());
+            combined
+                .output_transformations
+                .extend(skill.context.output_transformations.clone());
+            combined.variables.extend(skill.context.variables.clone());
+            combined
+                .constraints
+                .extend(skill.context.constraints.clone());
         }
-        
+
         combined
     }
 
@@ -347,22 +349,30 @@ impl SkillRegistry {
 
         // Rust optimization skill
         self.register(
-            Skill::new("rust_optimization", "Rust performance optimization guidance", "optimization")
-                .with_prompt("Focus on zero-cost abstractions, avoid unnecessary allocations, use iterators.")
-                .with_required_tool("agent_rust_pro")
-                .with_priority(10)
+            Skill::new(
+                "rust_optimization",
+                "Rust performance optimization guidance",
+                "optimization",
+            )
+            .with_prompt(
+                "Focus on zero-cost abstractions, avoid unnecessary allocations, use iterators.",
+            )
+            .with_required_tool("agent_rust_pro")
+            .with_priority(10),
         );
 
         // Security audit skill
         self.register(
             Skill::new("security_audit", "Security-focused code review", "security")
-                .with_prompt("Check for: SQL injection, XSS, CSRF, path traversal, secrets in code.")
+                .with_prompt(
+                    "Check for: SQL injection, XSS, CSRF, path traversal, secrets in code.",
+                )
                 .with_constraint(SkillConstraint {
                     constraint_type: ConstraintType::RequireConfirmation,
                     target: "*".to_string(),
                     value: json!(true),
                 })
-                .with_priority(20)
+                .with_priority(20),
         );
 
         // TDD skill
@@ -374,31 +384,43 @@ impl SkillRegistry {
 
         // Documentation skill
         self.register(
-            Skill::new("documentation", "Comprehensive documentation generation", "documentation")
-                .with_prompt("Generate clear docstrings, README sections, and API documentation.")
-                .with_priority(5)
+            Skill::new(
+                "documentation",
+                "Comprehensive documentation generation",
+                "documentation",
+            )
+            .with_prompt("Generate clear docstrings, README sections, and API documentation.")
+            .with_priority(5),
         );
 
         // OVS networking skill
         self.register(
-            Skill::new("ovs_networking", "Open vSwitch networking expertise", "networking")
-                .with_prompt("Use OVSDB JSON-RPC for bridge/port management. Never use ovs-vsctl CLI.")
-                .with_required_tool("ovs_create_bridge")
-                .with_required_tool("ovs_list_bridges")
-                .with_priority(10)
+            Skill::new(
+                "ovs_networking",
+                "Open vSwitch networking expertise",
+                "networking",
+            )
+            .with_prompt("Use OVSDB JSON-RPC for bridge/port management. Never use ovs-vsctl CLI.")
+            .with_required_tool("ovs_create_bridge")
+            .with_required_tool("ovs_list_bridges")
+            .with_priority(10),
         );
 
         // Systemd management skill
         self.register(
-            Skill::new("systemd_management", "Systemd service management expertise", "system")
-                .with_prompt("Use D-Bus for systemd operations. Check service status before changes.")
-                .with_required_tool("systemd_status")
-                .with_constraint(SkillConstraint {
-                    constraint_type: ConstraintType::RequireBefore,
-                    target: "systemd_restart".to_string(),
-                    value: json!("systemd_status"),
-                })
-                .with_priority(10)
+            Skill::new(
+                "systemd_management",
+                "Systemd service management expertise",
+                "system",
+            )
+            .with_prompt("Use D-Bus for systemd operations. Check service status before changes.")
+            .with_required_tool("systemd_status")
+            .with_constraint(SkillConstraint {
+                constraint_type: ConstraintType::RequireBefore,
+                target: "systemd_restart".to_string(),
+                value: json!("systemd_status"),
+            })
+            .with_priority(10),
         );
     }
 }
@@ -428,25 +450,24 @@ mod tests {
     #[test]
     fn test_skill_registry() {
         let mut registry = SkillRegistry::with_defaults();
-        
+
         assert!(registry.get("python_debugging").is_some());
         assert!(registry.get("nonexistent").is_none());
-        
+
         registry.activate("python_debugging").unwrap();
         assert_eq!(registry.active_skills().len(), 1);
-        
+
         registry.deactivate("python_debugging").unwrap();
         assert_eq!(registry.active_skills().len(), 0);
     }
 
     #[test]
     fn test_constraint_checking() {
-        let skill = Skill::new("test", "test", "test")
-            .with_constraint(SkillConstraint {
-                constraint_type: ConstraintType::RequireArgument,
-                target: "test_tool".to_string(),
-                value: json!("required_arg"),
-            });
+        let skill = Skill::new("test", "test", "test").with_constraint(SkillConstraint {
+            constraint_type: ConstraintType::RequireArgument,
+            target: "test_tool".to_string(),
+            value: json!("required_arg"),
+        });
 
         // Should fail - missing required argument
         let result = skill.check_constraints("test_tool", &json!({"other": "value"}));

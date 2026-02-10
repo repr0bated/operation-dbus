@@ -45,7 +45,10 @@ pub struct ProxmoxToken {
 impl ProxmoxToken {
     /// Format the authorization header value
     pub fn to_auth_header(&self) -> String {
-        format!("PVEAPIToken={}!{}={}", self.user, self.token_id, self.secret)
+        format!(
+            "PVEAPIToken={}!{}={}",
+            self.user, self.token_id, self.secret
+        )
     }
 }
 
@@ -288,8 +291,8 @@ impl ProxmoxClient {
         };
 
         // Check for base URL override
-        let base_url = std::env::var("PVE_API_URL")
-            .unwrap_or_else(|_| "https://localhost:8006".to_string());
+        let base_url =
+            std::env::var("PVE_API_URL").unwrap_or_else(|_| "https://localhost:8006".to_string());
 
         Ok(Self::with_config(&base_url, &node, token))
     }
@@ -391,7 +394,10 @@ impl ProxmoxClient {
     }
 
     /// Get container configuration
-    pub async fn get_container_config(&self, vmid: u32) -> Result<HashMap<String, simd_json::OwnedValue>> {
+    pub async fn get_container_config(
+        &self,
+        vmid: u32,
+    ) -> Result<HashMap<String, simd_json::OwnedValue>> {
         let path = format!("/api2/json/nodes/{}/lxc/{}/config", self.node, vmid);
         self.get(&path).await
     }
@@ -401,7 +407,10 @@ impl ProxmoxClient {
     /// Returns the task UPID for tracking the creation progress
     pub async fn create_container(&self, config: &CreateContainerRequest) -> Result<String> {
         let path = format!("/api2/json/nodes/{}/lxc", self.node);
-        info!("Creating container {} with hostname {:?}", config.vmid, config.hostname);
+        info!(
+            "Creating container {} with hostname {:?}",
+            config.vmid, config.hostname
+        );
         self.post(&path, config).await
     }
 
@@ -427,7 +436,10 @@ impl ProxmoxClient {
     ///
     /// Returns the task UPID
     pub async fn shutdown_container(&self, vmid: u32, timeout: Option<u32>) -> Result<String> {
-        let path = format!("/api2/json/nodes/{}/lxc/{}/status/shutdown", self.node, vmid);
+        let path = format!(
+            "/api2/json/nodes/{}/lxc/{}/status/shutdown",
+            self.node, vmid
+        );
         info!("Shutting down container {} (timeout: {:?})", vmid, timeout);
 
         #[derive(Serialize)]
@@ -451,7 +463,10 @@ impl ProxmoxClient {
 
     /// Force stop and delete a container
     pub async fn force_delete_container(&self, vmid: u32) -> Result<String> {
-        let path = format!("/api2/json/nodes/{}/lxc/{}?force=1&purge=1", self.node, vmid);
+        let path = format!(
+            "/api2/json/nodes/{}/lxc/{}?force=1&purge=1",
+            self.node, vmid
+        );
         info!("Force deleting container {}", vmid);
         self.delete(&path).await
     }
@@ -493,7 +508,10 @@ impl ProxmoxClient {
             Ok(_) => Ok(true),
             Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("500") || msg.contains("does not exist") || msg.contains("not found") {
+                if msg.contains("500")
+                    || msg.contains("does not exist")
+                    || msg.contains("not found")
+                {
                     Ok(false)
                 } else {
                     Err(e)

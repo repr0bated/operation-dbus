@@ -1,8 +1,8 @@
-use async_trait::async_trait;
-use simd_json::{json, OwnedValue as Value};
-use simd_json::prelude::*;
 use crate::tool::Tool;
 use anyhow::Result;
+use async_trait::async_trait;
+use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 
 /// A dynamically generated tool wrapping a specific D-Bus method
 #[derive(Clone)]
@@ -12,28 +12,36 @@ pub struct DynamicDbusTool {
     pub path: String,
     pub interface: String,
     pub method: String,
-    pub signature: String, 
+    pub signature: String,
     pub arg_names: Vec<String>,
 }
 
 impl DynamicDbusTool {
     pub fn new(
-        service: String, 
-        path: String, 
-        interface: String, 
+        service: String,
+        path: String,
+        interface: String,
         method: String,
         signature: String,
-        arg_names: Vec<String>
+        arg_names: Vec<String>,
     ) -> Self {
         let name = Self::compute_name(&service, &interface, &method);
-        Self { name, service, path, interface, method, signature, arg_names }
+        Self {
+            name,
+            service,
+            path,
+            interface,
+            method,
+            signature,
+            arg_names,
+        }
     }
-    
+
     fn compute_name(service: &str, interface: &str, method: &str) -> String {
         let svc_short = service.split('.').last().unwrap_or(service);
         let iface_short = interface.split('.').last().unwrap_or(interface);
-        
-        let method_snake = method 
+
+        let method_snake = method
             .chars()
             .enumerate()
             .map(|(i, c)| {
@@ -44,8 +52,13 @@ impl DynamicDbusTool {
                 }
             })
             .collect::<String>();
-            
-        format!("{}.{}.{}", svc_short, iface_short.to_lowercase(), method_snake)
+
+        format!(
+            "{}.{}.{}",
+            svc_short,
+            iface_short.to_lowercase(),
+            method_snake
+        )
     }
 }
 
@@ -62,9 +75,9 @@ impl Tool for DynamicDbusTool {
     fn input_schema(&self) -> Value {
         let mut props = simd_json::value::owned::Object::new();
         for arg in &self.arg_names {
-            props.insert(arg.clone(), json!({"type": "string"})); 
+            props.insert(arg.clone(), json!({"type": "string"}));
         }
-        
+
         json!({
             "type": "object",
             "properties": props,
@@ -73,7 +86,8 @@ impl Tool for DynamicDbusTool {
     }
 
     async fn execute(&self, input: Value) -> Result<Value> {
-        let connection = zbus::Connection::system().await
+        let connection = zbus::Connection::system()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to connect to system bus: {}", e))?;
 
         let proxy: zbus::Proxy = zbus::proxy::Builder::new(&connection)
@@ -86,7 +100,9 @@ impl Tool for DynamicDbusTool {
         // Convert input map to ordered arguments based on arg_names
         let mut args = Vec::new();
         for name in &self.arg_names {
-            let val = input.get(name).ok_or_else(|| anyhow::anyhow!("Missing argument: {}", name))?;
+            let val = input
+                .get(name)
+                .ok_or_else(|| anyhow::anyhow!("Missing argument: {}", name))?;
 
             // Basic conversion - use zbus::zvariant::Value<'static>
             let zval: zbus::zvariant::Value<'static> = if let Some(s) = val.as_str() {

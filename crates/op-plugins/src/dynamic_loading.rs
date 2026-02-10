@@ -6,16 +6,16 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
-use simd_json::prelude::*;
 use sha2::{Digest, Sha256};
+use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::plugin::{Plugin, PluginCapabilities, PluginContext, PluginMetadata};
-use crate::state::{DesiredState, StateChange, ValidationResult, ChangeOperation};
+use crate::state::{ChangeOperation, DesiredState, StateChange, ValidationResult};
 
 /// Dynamic Loading Plugin Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,7 +206,8 @@ impl Plugin for DynamicLoadingPlugin {
 
         // Apply configuration changes
         if let Some(config) = desired.state.get("config") {
-            let new_config: DynamicLoadingConfig = simd_json::serde::from_owned_value(config.clone())?;
+            let new_config: DynamicLoadingConfig =
+                simd_json::serde::from_owned_value(config.clone())?;
             *self.config.write().await = new_config;
         }
 
@@ -218,7 +219,7 @@ impl Plugin for DynamicLoadingPlugin {
             self.name.clone(),
             None,
             None,
-            "Dynamic loading configuration applied"
+            "Dynamic loading configuration applied",
         )])
     }
 
@@ -238,7 +239,7 @@ impl Plugin for DynamicLoadingPlugin {
                     self.name.clone(),
                     json!(current_size),
                     json!(desired_size),
-                    format!("Cache size change: {} -> {}", current_size, desired_size)
+                    format!("Cache size change: {} -> {}", current_size, desired_size),
                 ));
             }
         }
@@ -250,7 +251,9 @@ impl Plugin for DynamicLoadingPlugin {
         if let Some(cache_size) = config.get("cache_size") {
             if let Some(size) = cache_size.as_u64() {
                 if size < 10 || size > 10000 {
-                    return Ok(ValidationResult::failure("Cache size must be between 10 and 10000"));
+                    return Ok(ValidationResult::failure(
+                        "Cache size must be between 10 and 10000",
+                    ));
                 }
             }
         }
@@ -293,7 +296,10 @@ impl Plugin for DynamicLoadingPlugin {
             description: self.description().to_string(),
             author: Some("OP-DBUS Team".to_string()),
             license: Some("MIT".to_string()),
-            dependencies: vec!["op-dynamic-loader".to_string(), "op-execution-tracker".to_string()],
+            dependencies: vec![
+                "op-dynamic-loader".to_string(),
+                "op-execution-tracker".to_string(),
+            ],
             dbus_services: vec![],
             object_schemas: std::collections::HashMap::new(),
             feature_schemas: Vec::new(),

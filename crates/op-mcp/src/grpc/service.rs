@@ -1,21 +1,21 @@
 //! MCP gRPC Service Implementation
 
 #[cfg(feature = "grpc")]
-use crate::grpc::proto::*;
-#[cfg(feature = "grpc")]
 use crate::grpc::proto::mcp_service_server::McpService;
+#[cfg(feature = "grpc")]
+use crate::grpc::proto::*;
 use crate::grpc::server::ServerMode;
 use anyhow::Result;
 use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 #[cfg(feature = "grpc")]
-use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
+use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 #[cfg(feature = "grpc")]
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn};
@@ -113,15 +113,10 @@ impl McpGrpcService {
         }
     }
 
-    pub fn with_infrastructure(
-        mode: ServerMode,
-        infrastructure: GrpcInfrastructure,
-    ) -> Self {
+    pub fn with_infrastructure(mode: ServerMode, infrastructure: GrpcInfrastructure) -> Self {
         info!(
             "gRPC service initialized with: cache={:?}, state_store={:?}, blockchain={:?}",
-            infrastructure.cache_path,
-            infrastructure.state_db_path,
-            infrastructure.blockchain_path
+            infrastructure.cache_path, infrastructure.state_db_path, infrastructure.blockchain_path
         );
         Self {
             mode,
@@ -135,7 +130,7 @@ impl McpGrpcService {
 
     async fn start_session_agents(&self, session_id: &str, client_name: &str) -> Vec<String> {
         let mut started = Vec::new();
-        
+
         let agents_to_start: Vec<&str> = match self.mode {
             ServerMode::Agents => vec![
                 "rust_pro",
@@ -146,21 +141,24 @@ impl McpGrpcService {
             ],
             _ => vec![],
         };
-        
+
         for agent_id in agents_to_start {
             info!(session = %session_id, agent = %agent_id, "Starting run-on-connection agent");
             started.push(agent_id.to_string());
         }
-        
+
         let session = Session {
             id: session_id.to_string(),
             client_name: client_name.to_string(),
             started_agents: started.clone(),
             created_at: Instant::now(),
         };
-        
-        self.sessions.write().await.insert(session_id.to_string(), session);
-        
+
+        self.sessions
+            .write()
+            .await
+            .insert(session_id.to_string(), session);
+
         started
     }
 
@@ -176,15 +174,12 @@ impl McpGrpcService {
 #[cfg(feature = "grpc")]
 #[tonic::async_trait]
 impl McpService for McpGrpcService {
-    async fn call(
-        &self,
-        request: Request<McpRequest>,
-    ) -> Result<Response<McpResponse>, Status> {
+    async fn call(&self, request: Request<McpRequest>) -> Result<Response<McpResponse>, Status> {
         self.request_counter.fetch_add(1, Ordering::Relaxed);
         let proto_req = request.into_inner();
-        
+
         debug!(method = %proto_req.method, "gRPC MCP call");
-        
+
         // Simulated response - integrate with actual MCP server
         let proto_resp = McpResponse {
             jsonrpc: "2.0".to_string(),
@@ -192,39 +187,41 @@ impl McpService for McpGrpcService {
             result_json: Some(json!({"status": "ok"}).to_string()),
             error: None,
         };
-        
+
         Ok(Response::new(proto_resp))
     }
-    
+
     type SubscribeStream = ResponseStream<McpEvent>;
-    
+
     async fn subscribe(
         &self,
         request: Request<SubscribeRequest>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         let req = request.into_inner();
         let session_id = req.session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-        
+
         info!(session = %session_id, event_types = ?req.event_types, "New subscription");
-        
+
         let (tx, rx) = mpsc::channel(32);
-        
+
         tokio::spawn(async move {
             let mut sequence = 0u32;
             let mut interval = tokio::time::interval(Duration::from_secs(30));
-            
+
             // Send initial event
-            let _ = tx.send(Ok(McpEvent {
-                event_type: "connected".to_string(),
-                data_json: json!({"session_id": session_id}).to_string(),
-                timestamp: chrono::Utc::now().timestamp(),
-                sequence,
-            })).await;
+            let _ = tx
+                .send(Ok(McpEvent {
+                    event_type: "connected".to_string(),
+                    data_json: json!({"session_id": session_id}).to_string(),
+                    timestamp: chrono::Utc::now().timestamp(),
+                    sequence,
+                }))
+                .await;
             sequence += 1;
-            
+
             loop {
                 interval.tick().await;
-                
+
                 let event = McpEvent {
                     event_type: "ping".to_string(),
                     data_json: json!({"sequence": sequence}).to_string(),
@@ -232,26 +229,26 @@ impl McpService for McpGrpcService {
                     sequence,
                 };
                 sequence += 1;
-                
+
                 if tx.send(Ok(event)).await.is_err() {
                     break;
                 }
             }
         });
-        
+
         let stream = ReceiverStream::new(rx);
         Ok(Response::new(Box::pin(stream) as Self::SubscribeStream))
     }
-    
+
     type StreamStream = ResponseStream<McpResponse>;
-    
+
     async fn stream(
         &self,
         request: Request<tonic::Streaming<McpRequest>>,
     ) -> Result<Response<Self::StreamStream>, Status> {
         let mut stream = request.into_inner();
         let (tx, rx) = mpsc::channel(32);
-        
+
         tokio::spawn(async move {
             while let Some(result) = stream.next().await {
                 match result {
@@ -262,7 +259,7 @@ impl McpService for McpGrpcService {
                             result_json: Some(json!({"status": "ok"}).to_string()),
                             error: None,
                         };
-                        
+
                         if tx.send(Ok(proto_resp)).await.is_err() {
                             break;
                         }
@@ -274,11 +271,11 @@ impl McpService for McpGrpcService {
                 }
             }
         });
-        
+
         let stream = ReceiverStream::new(rx);
         Ok(Response::new(Box::pin(stream) as Self::StreamStream))
     }
-    
+
     async fn health(
         &self,
         _request: Request<HealthRequest>,
@@ -288,7 +285,7 @@ impl McpService for McpGrpcService {
             .values()
             .flat_map(|s| s.started_agents.clone())
             .collect();
-        
+
         let response = HealthResponse {
             healthy: true,
             version: SERVER_VERSION.to_string(),
@@ -297,25 +294,27 @@ impl McpService for McpGrpcService {
             connected_agents,
             uptime_secs: self.start_time.elapsed().as_secs(),
         };
-        
+
         Ok(Response::new(response))
     }
-    
+
     async fn initialize(
         &self,
         request: Request<InitializeRequest>,
     ) -> Result<Response<InitializeResponse>, Status> {
         let req = request.into_inner();
         let session_id = req.session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-        
+
         info!(
             client = %req.client_name,
             session = %session_id,
             "Initializing gRPC session"
         );
-        
-        let started_agents = self.start_session_agents(&session_id, &req.client_name).await;
-        
+
+        let started_agents = self
+            .start_session_agents(&session_id, &req.client_name)
+            .await;
+
         let response = InitializeResponse {
             protocol_version: PROTOCOL_VERSION.to_string(),
             server_name: SERVER_NAME.to_string(),
@@ -324,10 +323,10 @@ impl McpService for McpGrpcService {
             started_agents,
             session_id,
         };
-        
+
         Ok(Response::new(response))
     }
-    
+
     async fn list_tools(
         &self,
         request: Request<ListToolsRequest>,
@@ -337,24 +336,29 @@ impl McpService for McpGrpcService {
         // Get tools from registry if available
         let tools = if let Some(ref registry) = self.infrastructure.tool_registry {
             let all_tools: Vec<op_core::ToolDefinition> = registry.list(0, 10000, None).await;
-            all_tools.into_iter().map(|t| ToolInfo {
-                name: t.name,
-                description: t.description,
-                input_schema_json: t.input_schema.to_string(),
-                category: if t.category.is_empty() { None } else { Some(t.category) },
-                tags: t.tags,
-            }).collect()
+            all_tools
+                .into_iter()
+                .map(|t| ToolInfo {
+                    name: t.name,
+                    description: t.description,
+                    input_schema_json: t.input_schema.to_string(),
+                    category: if t.category.is_empty() {
+                        None
+                    } else {
+                        Some(t.category)
+                    },
+                    tags: t.tags,
+                })
+                .collect()
         } else {
             // Fallback to placeholder
-            vec![
-                ToolInfo {
-                    name: "dbus_list_services".to_string(),
-                    description: "List all D-Bus services".to_string(),
-                    input_schema_json: json!({"type": "object", "properties": {}}).to_string(),
-                    category: Some("dbus".to_string()),
-                    tags: vec!["dbus".to_string(), "system".to_string()],
-                },
-            ]
+            vec![ToolInfo {
+                name: "dbus_list_services".to_string(),
+                description: "List all D-Bus services".to_string(),
+                input_schema_json: json!({"type": "object", "properties": {}}).to_string(),
+                category: Some("dbus".to_string()),
+                tags: vec!["dbus".to_string(), "system".to_string()],
+            }]
         };
 
         let total = tools.len() as u32;
@@ -365,7 +369,7 @@ impl McpService for McpGrpcService {
             has_more: false,
         }))
     }
-    
+
     async fn call_tool(
         &self,
         request: Request<CallToolRequest>,
@@ -376,42 +380,53 @@ impl McpService for McpGrpcService {
         debug!(tool = %req.tool_name, "Executing tool via gRPC");
 
         // Execute via tool registry if available
-        let (success, result, error_msg) = if let Some(ref registry) = self.infrastructure.tool_registry {
-            match registry.get(&req.tool_name).await {
-                Some(tool) => {
-                    // Parse input params
-                    let params_str = req.arguments_json.clone();
-                    let mut params_str = if params_str.is_empty() { "{}".to_string() } else { params_str };
-                    let params: Value = match unsafe { simd_json::from_str(&mut params_str) } {
-                        Ok(v) => v,
-                        Err(e) => {
-                            warn!(error = %e, "Failed to parse tool params");
-                            return Ok(Response::new(CallToolResponse {
-                                success: false,
-                                result_json: String::new(),
-                                error: Some(format!("Invalid params JSON: {}", e)),
-                                duration_ms: start.elapsed().as_millis() as u64,
-                            }));
-                        }
-                    };
+        let (success, result, error_msg) =
+            if let Some(ref registry) = self.infrastructure.tool_registry {
+                match registry.get(&req.tool_name).await {
+                    Some(tool) => {
+                        // Parse input params
+                        let params_str = req.arguments_json.clone();
+                        let mut params_str = if params_str.is_empty() {
+                            "{}".to_string()
+                        } else {
+                            params_str
+                        };
+                        let params: Value = match unsafe { simd_json::from_str(&mut params_str) } {
+                            Ok(v) => v,
+                            Err(e) => {
+                                warn!(error = %e, "Failed to parse tool params");
+                                return Ok(Response::new(CallToolResponse {
+                                    success: false,
+                                    result_json: String::new(),
+                                    error: Some(format!("Invalid params JSON: {}", e)),
+                                    duration_ms: start.elapsed().as_millis() as u64,
+                                }));
+                            }
+                        };
 
-                    // Execute tool
-                    match tool.execute(params).await {
-                        Ok(result) => (true, result, None),
-                        Err(e) => {
-                            warn!(tool = %req.tool_name, error = %e, "Tool execution failed");
-                            (false, json!({}), Some(format!("Execution error: {}", e)))
+                        // Execute tool
+                        match tool.execute(params).await {
+                            Ok(result) => (true, result, None),
+                            Err(e) => {
+                                warn!(tool = %req.tool_name, error = %e, "Tool execution failed");
+                                (false, json!({}), Some(format!("Execution error: {}", e)))
+                            }
                         }
                     }
+                    None => (
+                        false,
+                        json!({}),
+                        Some(format!("Tool not found: {}", req.tool_name)),
+                    ),
                 }
-                None => {
-                    (false, json!({}), Some(format!("Tool not found: {}", req.tool_name)))
-                }
-            }
-        } else {
-            // Fallback to simulated response
-            (true, json!({"success": true, "tool": req.tool_name, "simulated": true}), None)
-        };
+            } else {
+                // Fallback to simulated response
+                (
+                    true,
+                    json!({"success": true, "tool": req.tool_name, "simulated": true}),
+                    None,
+                )
+            };
 
         let response = CallToolResponse {
             success,
@@ -422,9 +437,9 @@ impl McpService for McpGrpcService {
 
         Ok(Response::new(response))
     }
-    
+
     type CallToolStreamingStream = ResponseStream<ToolOutput>;
-    
+
     async fn call_tool_streaming(
         &self,
         request: Request<CallToolRequest>,
@@ -432,34 +447,40 @@ impl McpService for McpGrpcService {
         let req = request.into_inner();
         let (tx, rx) = mpsc::channel(32);
         let tool_name = req.tool_name.clone();
-        
+
         tokio::spawn(async move {
             let mut sequence = 0u32;
-            
+
             // Send progress
-            let _ = tx.send(Ok(ToolOutput {
-                output_type: 3, // Progress
-                content: format!("Starting {}...", tool_name),
-                sequence,
-                is_final: false,
-                exit_code: None,
-            })).await;
+            let _ = tx
+                .send(Ok(ToolOutput {
+                    output_type: 3, // Progress
+                    content: format!("Starting {}...", tool_name),
+                    sequence,
+                    is_final: false,
+                    exit_code: None,
+                }))
+                .await;
             sequence += 1;
-            
+
             // Simulate execution
             tokio::time::sleep(Duration::from_millis(100)).await;
-            
+
             // Send result
-            let _ = tx.send(Ok(ToolOutput {
-                output_type: 4, // Result
-                content: json!({"success": true, "tool": tool_name}).to_string(),
-                sequence,
-                is_final: true,
-                exit_code: Some(0),
-            })).await;
+            let _ = tx
+                .send(Ok(ToolOutput {
+                    output_type: 4, // Result
+                    content: json!({"success": true, "tool": tool_name}).to_string(),
+                    sequence,
+                    is_final: true,
+                    exit_code: Some(0),
+                }))
+                .await;
         });
-        
+
         let stream = ReceiverStream::new(rx);
-        Ok(Response::new(Box::pin(stream) as Self::CallToolStreamingStream))
+        Ok(Response::new(
+            Box::pin(stream) as Self::CallToolStreamingStream
+        ))
     }
 }

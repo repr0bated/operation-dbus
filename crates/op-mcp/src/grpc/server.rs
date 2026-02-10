@@ -1,16 +1,16 @@
 //! gRPC Server Transport with Infrastructure Integration
 
 #[cfg(feature = "grpc")]
-use crate::grpc::service::{McpGrpcService, GrpcInfrastructure};
-#[cfg(feature = "grpc")]
 use crate::grpc::proto::mcp_service_server::McpServiceServer;
+#[cfg(feature = "grpc")]
+use crate::grpc::service::{GrpcInfrastructure, McpGrpcService};
 use anyhow::Result;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 #[cfg(feature = "grpc")]
 use tonic::transport::Server;
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// Server mode for MCP
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,19 +77,19 @@ impl GrpcConfig {
         self.address = addr;
         self
     }
-    
+
     pub fn with_mode(mut self, mode: ServerMode) -> Self {
         self.mode = mode;
         self
     }
-    
+
     pub fn with_tls(mut self, cert_path: impl Into<String>, key_path: impl Into<String>) -> Self {
         self.tls_enabled = true;
         self.tls_cert_path = Some(cert_path.into());
         self.tls_key_path = Some(key_path.into());
         self
     }
-    
+
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.request_timeout = timeout;
         self
@@ -132,12 +132,10 @@ impl GrpcTransport {
             config.cache_path.clone(),
             config.state_db_path.clone(),
             config.blockchain_path.clone(),
-        ).await?;
+        )
+        .await?;
 
-        let service = McpGrpcService::with_infrastructure(
-            config.mode,
-            infrastructure,
-        );
+        let service = McpGrpcService::with_infrastructure(config.mode, infrastructure);
 
         Ok(Self { config, service })
     }
@@ -146,13 +144,10 @@ impl GrpcTransport {
         config: GrpcConfig,
         infrastructure: GrpcInfrastructure,
     ) -> Result<Self> {
-        let service = McpGrpcService::with_infrastructure(
-            config.mode,
-            infrastructure,
-        );
+        let service = McpGrpcService::with_infrastructure(config.mode, infrastructure);
         Ok(Self { config, service })
     }
-    
+
     pub async fn with_defaults() -> Result<Self> {
         Self::new(GrpcConfig::default()).await
     }
@@ -162,21 +157,21 @@ impl GrpcTransport {
         let service = McpGrpcService::new(config.mode);
         Ok(Self { config, service })
     }
-    
+
     pub async fn serve(self) -> Result<()> {
         let addr = self.config.address;
-        
+
         info!(
             address = %addr,
             mode = %self.config.mode,
             tls = %self.config.tls_enabled,
             "Starting gRPC MCP server"
         );
-        
+
         let mcp_service = McpServiceServer::new(self.service)
             .max_decoding_message_size(self.config.max_message_size)
             .max_encoding_message_size(self.config.max_message_size);
-        
+
         Server::builder()
             .timeout(self.config.request_timeout)
             .max_concurrent_streams(self.config.max_concurrent_streams)
@@ -189,28 +184,28 @@ impl GrpcTransport {
                 error!(error = %e, "gRPC server error");
                 anyhow::anyhow!("gRPC server error: {}", e)
             })?;
-        
+
         Ok(())
     }
-    
+
     pub async fn serve_with_shutdown<F>(self, shutdown: F) -> Result<()>
     where
         F: std::future::Future<Output = ()>,
     {
         let addr = self.config.address;
-        
+
         info!(address = %addr, "Starting gRPC MCP server with graceful shutdown");
-        
+
         let mcp_service = McpServiceServer::new(self.service)
             .max_decoding_message_size(self.config.max_message_size)
             .max_encoding_message_size(self.config.max_message_size);
-        
+
         Server::builder()
             .timeout(self.config.request_timeout)
             .add_service(mcp_service)
             .serve_with_shutdown(addr, shutdown)
             .await?;
-        
+
         info!("gRPC server shut down gracefully");
         Ok(())
     }
@@ -228,15 +223,15 @@ pub async fn run_grpc_server_lightweight(address: SocketAddr, mode: ServerMode) 
         .with_address(address)
         .with_mode(mode)
         .without_infrastructure();
-    
+
     let service = McpGrpcService::new(mode);
-    
+
     info!(address = %address, mode = %mode, "Starting lightweight gRPC server");
-    
+
     Server::builder()
         .add_service(McpServiceServer::new(service))
         .serve(address)
         .await?;
-    
+
     Ok(())
 }

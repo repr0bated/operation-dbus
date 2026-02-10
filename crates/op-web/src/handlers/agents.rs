@@ -1,7 +1,7 @@
 //! Agent API Handlers
 
 use axum::{
-    extract::{Path, Extension},
+    extract::{Extension, Path},
     response::Json,
 };
 use serde::Deserialize;
@@ -12,9 +12,7 @@ use tracing::info;
 use crate::state::AppState;
 
 /// GET /api/agents - List running agent instances
-pub async fn list_agents_handler(
-    Extension(state): Extension<Arc<AppState>>,
-) -> Json<Value> {
+pub async fn list_agents_handler(Extension(state): Extension<Arc<AppState>>) -> Json<Value> {
     let registry = state.agent_registry.read().await;
     let agents = registry.list_instances().await;
     Json(json!({ "agents": agents }))
@@ -52,9 +50,12 @@ pub async fn spawn_agent_handler(
     Json(request): Json<SpawnAgentRequest>,
 ) -> Json<Value> {
     info!("Spawning agent of type: {}", request.agent_type);
-    
+
     let registry = state.agent_registry.write().await;
-    match registry.spawn_agent(&request.agent_type, request.config).await {
+    match registry
+        .spawn_agent(&request.agent_type, request.config)
+        .await
+    {
         Ok(id) => Json(json!({ "agent_id": id, "success": true })),
         Err(e) => Json(json!({ "error": e.to_string(), "success": false })),
     }
@@ -66,7 +67,7 @@ pub async fn kill_agent_handler(
     Path(id): Path<String>,
 ) -> Json<Value> {
     info!("Killing agent: {}", id);
-    
+
     let registry = state.agent_registry.write().await;
     match registry.kill_agent(&id).await {
         Ok(_) => Json(json!({ "killed": true })),

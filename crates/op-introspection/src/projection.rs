@@ -1,12 +1,12 @@
 use anyhow::Result;
 use futures::{stream::iter, StreamExt};
 use parking_lot::{Mutex, RwLock as SyncRwLock};
-use simd_json::OwnedValue as Value;
 use sha2::{Digest, Sha256};
+use simd_json::OwnedValue as Value;
 use std::sync::Arc;
 
-pub use op_core::types::BusType;
 use crate::IntrospectionService;
+pub use op_core::types::BusType;
 
 use op_blockchain::StreamingBlockchain;
 use op_core::types::ObjectSchemaRef;
@@ -62,13 +62,24 @@ impl DbusProjection {
     ///
     /// XML is parsed internally by op-introspection; this returns pure JSON
     pub async fn introspect(&self, bus_type: BusType, service: &str, path: &str) -> Result<Value> {
-        let json = self.introspection.introspect_json(bus_type, service, path).await?;
+        let json = self
+            .introspection
+            .introspect_json(bus_type, service, path)
+            .await?;
         Ok(json)
     }
 
     /// Introspect and get structured ObjectInfo (for plugin schema linking)
-    pub async fn introspect_object(&self, bus_type: BusType, service: &str, path: &str) -> Result<op_core::types::ObjectInfo> {
-        let info = self.introspection.introspect(bus_type, service, path).await?;
+    pub async fn introspect_object(
+        &self,
+        bus_type: BusType,
+        service: &str,
+        path: &str,
+    ) -> Result<op_core::types::ObjectInfo> {
+        let info = self
+            .introspection
+            .introspect(bus_type, service, path)
+            .await?;
         Ok(info)
     }
 
@@ -94,7 +105,11 @@ impl DbusProjection {
             hex::encode(hasher.finalize())
         };
 
-        let state_key = format!("dbus/{}/{}", service.replace('.', "_"), path.replace('/', "_"));
+        let state_key = format!(
+            "dbus/{}/{}",
+            service.replace('.', "_"),
+            path.replace('/', "_")
+        );
 
         // Write to BTRFS state subvolume AND trigger blockchain block
         if let Some(blockchain) = &self.blockchain {
@@ -104,15 +119,17 @@ impl DbusProjection {
             bc.write_state(&state_key, &json).await?;
 
             // Trigger blockchain block to signal state change for backup
-            bc.add_event(
-                op_blockchain::BlockEvent::new(
-                    "dbus.schema.update",
-                    &schema_hash,
-                    simd_json::json!({"service": service, "path": path})
-                )
-            ).await?;
+            bc.add_event(op_blockchain::BlockEvent::new(
+                "dbus.schema.update",
+                &schema_hash,
+                simd_json::json!({"service": service, "path": path}),
+            ))
+            .await?;
 
-            tracing::debug!("Persisted D-Bus schema to BTRFS state subvol: {}", state_key);
+            tracing::debug!(
+                "Persisted D-Bus schema to BTRFS state subvol: {}",
+                state_key
+            );
         }
 
         Ok(ObjectSchemaRef::new(
@@ -125,7 +142,11 @@ impl DbusProjection {
 
     /// Discover and persist all interfaces for a managed service
     /// (e.g., PackageKit, systemd, NetworkManager)
-    pub async fn discover_service(&self, bus_type: BusType, service: &str) -> Result<Vec<ObjectSchemaRef>> {
+    pub async fn discover_service(
+        &self,
+        bus_type: BusType,
+        service: &str,
+    ) -> Result<Vec<ObjectSchemaRef>> {
         let root_info = self.introspect_object(bus_type, service, "/").await?;
         let schemas = Arc::new(Mutex::new(Vec::new()));
 
@@ -139,12 +160,19 @@ impl DbusProjection {
         // Recursively discover children in parallel
         iter(root_info.children)
             .for_each_concurrent(None, |child: String| {
-                let child_path = if child.starts_with('/') { child.clone() } else { format!("/{}", child) };
+                let child_path = if child.starts_with('/') {
+                    child.clone()
+                } else {
+                    format!("/{}", child)
+                };
                 let schemas = schemas.clone();
                 let self_clone = self_clone.clone();
 
                 async move {
-                    if let Ok(schema) = self_clone.introspect_and_persist(bus_type, service, &child_path).await {
+                    if let Ok(schema) = self_clone
+                        .introspect_and_persist(bus_type, service, &child_path)
+                        .await
+                    {
                         schemas.lock().push(schema);
                     }
                 }
@@ -152,8 +180,11 @@ impl DbusProjection {
             .await;
 
         let final_schemas = Arc::try_unwrap(schemas).unwrap().into_inner();
-        tracing::info!("Discovered {} schemas for service {} (BTRFS state + blockchain trigger)",
-            final_schemas.len(), service);
+        tracing::info!(
+            "Discovered {} schemas for service {} (BTRFS state + blockchain trigger)",
+            final_schemas.len(),
+            service
+        );
         Ok(final_schemas)
     }
 

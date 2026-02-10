@@ -12,9 +12,9 @@ impl PluginFootprint {
 }
 use crate::plugin::StatePlugin;
 use anyhow::{Context, Result};
+use simd_json::prelude::*;
 use simd_json::OwnedValue as Value;
 use simd_json::ValueBuilder;
-use simd_json::prelude::*;
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use zbus::{Connection, Proxy};
@@ -235,9 +235,9 @@ pub trait DbusStatePluginBase: StatePlugin {
 /// Helper functions for D-Bus value conversion
 pub mod conversion {
     use super::Value;
+    use simd_json::prelude::*;
     use simd_json::OwnedValue;
     use simd_json::ValueBuilder;
-    use simd_json::prelude::*;
     use zbus::zvariant;
 
     /// Convert simd_json::OwnedValue to zbus::zvariant::Value

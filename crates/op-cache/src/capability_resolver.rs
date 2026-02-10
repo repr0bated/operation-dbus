@@ -15,19 +15,19 @@ use super::agent_registry::{AgentCapability, AgentDefinition, AgentRegistry};
 pub struct CapabilityRequest {
     /// Explicitly requested capabilities
     pub required_capabilities: Vec<AgentCapability>,
-    
+
     /// Preferred agents (use these if they provide the capability)
     pub preferred_agents: Vec<String>,
-    
+
     /// Agents to exclude
     pub excluded_agents: Vec<String>,
-    
+
     /// Allow parallel execution where possible
     pub allow_parallel: bool,
-    
+
     /// Maximum agents in sequence
     pub max_agents: usize,
-    
+
     /// Input data for the request
     pub input: Vec<u8>,
 }
@@ -79,19 +79,19 @@ impl CapabilityRequest {
 pub struct ResolvedSequence {
     /// Ordered list of agents to execute
     pub agents: Vec<AgentDefinition>,
-    
+
     /// Capabilities fulfilled by this sequence
     pub fulfilled_capabilities: HashSet<AgentCapability>,
-    
+
     /// Capabilities that couldn't be fulfilled
     pub missing_capabilities: HashSet<AgentCapability>,
-    
+
     /// Estimated total latency
     pub estimated_latency_ms: u64,
-    
+
     /// Groups of agents that can run in parallel
     pub parallel_groups: Vec<Vec<String>>,
-    
+
     /// Resolution metadata
     pub resolution_path: Vec<String>,
 }
@@ -156,7 +156,8 @@ impl CapabilityResolver {
         resolution_path.push(format!("candidates:{}", candidates.len()));
 
         // Greedy selection: for each required capability, pick best agent
-        let required: HashSet<AgentCapability> = request.required_capabilities.iter().copied().collect();
+        let required: HashSet<AgentCapability> =
+            request.required_capabilities.iter().copied().collect();
 
         for cap in &request.required_capabilities {
             // Skip if already fulfilled
@@ -165,8 +166,10 @@ impl CapabilityResolver {
             }
 
             // Find best candidate for this capability
-            if let Some(agent) = self.select_best_agent(&candidates, *cap, &selected_agents, request) {
-                resolution_path.push(format!("select:{}->{}" , cap.name(), agent.id));
+            if let Some(agent) =
+                self.select_best_agent(&candidates, *cap, &selected_agents, request)
+            {
+                resolution_path.push(format!("select:{}->{}", cap.name(), agent.id));
 
                 // Add all capabilities this agent provides
                 for provided_cap in &agent.capabilities {
@@ -188,16 +191,11 @@ impl CapabilityResolver {
         self.sort_agents(&mut selected_agents);
 
         // Calculate missing capabilities
-        let missing: HashSet<AgentCapability> = required
-            .difference(&fulfilled)
-            .copied()
-            .collect();
+        let missing: HashSet<AgentCapability> = required.difference(&fulfilled).copied().collect();
 
         // Calculate total latency
-        let estimated_latency_ms: u64 = selected_agents
-            .iter()
-            .map(|a| a.estimated_latency_ms)
-            .sum();
+        let estimated_latency_ms: u64 =
+            selected_agents.iter().map(|a| a.estimated_latency_ms).sum();
 
         // Build parallel groups if allowed
         let parallel_groups = if request.allow_parallel {
@@ -385,7 +383,10 @@ mod tests {
             .with_priority(AgentPriority::High)
             .with_latency(50);
 
-        registry.register(analyzer, make_test_executor()).await.unwrap();
+        registry
+            .register(analyzer, make_test_executor())
+            .await
+            .unwrap();
 
         // Test generator (requires analysis first)
         let tester = AgentDefinition::new("tester", "Test Generator")
@@ -394,7 +395,10 @@ mod tests {
             .with_priority(AgentPriority::Normal)
             .with_latency(100);
 
-        registry.register(tester, make_test_executor()).await.unwrap();
+        registry
+            .register(tester, make_test_executor())
+            .await
+            .unwrap();
 
         // Security auditor
         let security = AgentDefinition::new("security", "Security Auditor")
@@ -403,7 +407,10 @@ mod tests {
             .parallelizable(true)
             .with_latency(75);
 
-        registry.register(security, make_test_executor()).await.unwrap();
+        registry
+            .register(security, make_test_executor())
+            .await
+            .unwrap();
 
         // Doc generator
         let docs = AgentDefinition::new("docs", "Documentation Generator")
@@ -422,10 +429,7 @@ mod tests {
         let registry = setup_test_registry().await;
         let resolver = CapabilityResolver::new(registry);
 
-        let request = CapabilityRequest::new(
-            vec![AgentCapability::CodeAnalysis],
-            b"test".to_vec(),
-        );
+        let request = CapabilityRequest::new(vec![AgentCapability::CodeAnalysis], b"test".to_vec());
 
         let sequence = resolver.resolve(&request).await.unwrap();
 
@@ -491,7 +495,9 @@ mod tests {
         let sequence = resolver.resolve(&request).await.unwrap();
 
         assert!(!sequence.is_complete());
-        assert!(sequence.missing_capabilities.contains(&AgentCapability::Embedding));
+        assert!(sequence
+            .missing_capabilities
+            .contains(&AgentCapability::Embedding));
     }
 
     #[tokio::test]
@@ -503,16 +509,16 @@ mod tests {
             .with_capability(AgentCapability::CodeAnalysis)
             .with_latency(25); // Faster
 
-        registry.register(alt_analyzer, make_test_executor()).await.unwrap();
+        registry
+            .register(alt_analyzer, make_test_executor())
+            .await
+            .unwrap();
 
         let resolver = CapabilityResolver::new(registry);
 
         // Prefer the original analyzer even though alt is faster
-        let request = CapabilityRequest::new(
-            vec![AgentCapability::CodeAnalysis],
-            b"test".to_vec(),
-        )
-        .prefer_agents(&["analyzer"]);
+        let request = CapabilityRequest::new(vec![AgentCapability::CodeAnalysis], b"test".to_vec())
+            .prefer_agents(&["analyzer"]);
 
         let sequence = resolver.resolve(&request).await.unwrap();
 
@@ -524,11 +530,8 @@ mod tests {
         let registry = setup_test_registry().await;
         let resolver = CapabilityResolver::new(registry);
 
-        let request = CapabilityRequest::new(
-            vec![AgentCapability::CodeAnalysis],
-            b"test".to_vec(),
-        )
-        .exclude_agents(&["analyzer"]);
+        let request = CapabilityRequest::new(vec![AgentCapability::CodeAnalysis], b"test".to_vec())
+            .exclude_agents(&["analyzer"]);
 
         let sequence = resolver.resolve(&request).await.unwrap();
 

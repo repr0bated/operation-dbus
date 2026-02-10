@@ -6,7 +6,7 @@ use zbus::Connection;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         print_usage();
         return Ok(());
@@ -18,26 +18,35 @@ async fn main() -> anyhow::Result<()> {
         "org.opdbus.services",
         "/org/opdbus/services",
         "org.opdbus.services.v1.Manager",
-    ).await?;
+    )
+    .await?;
 
     match args[1].as_str() {
         "start" => {
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("missing service name"))?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing service name"))?;
             let result: String = proxy.call("Start", &(name.as_str(),)).await?;
             println!("Started {}", name);
         }
         "stop" => {
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("missing service name"))?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing service name"))?;
             let _: String = proxy.call("Stop", &(name.as_str(),)).await?;
             println!("Stopped {}", name);
         }
         "restart" => {
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("missing service name"))?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing service name"))?;
             let _: String = proxy.call("Restart", &(name.as_str(),)).await?;
             println!("Restarted {}", name);
         }
         "status" => {
-            let name = args.get(2).ok_or_else(|| anyhow::anyhow!("missing service name"))?;
+            let name = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing service name"))?;
             let result: String = proxy.call("GetStatus", &(name.as_str(),)).await?;
             println!("● {}", name);
             println!("{}", result);

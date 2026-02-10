@@ -6,7 +6,7 @@
 use crate::error::{Result, StateStoreError};
 use crate::execution_job::{ExecutionJob, ExecutionStatus};
 use crate::state_store::{StateStore, ToolRecord};
-use crate::{StoredObject, CanonicalDbExport};
+use crate::{CanonicalDbExport, StoredObject};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
@@ -124,9 +124,11 @@ impl SqliteStore {
             .execute(&self.pool)
             .await?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_checkpoints_plugin ON checkpoints(plugin_name)")
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_checkpoints_plugin ON checkpoints(plugin_name)",
+        )
+        .execute(&self.pool)
+        .await?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_plugin ON audit_log(plugin_name)")
             .execute(&self.pool)
@@ -158,8 +160,11 @@ impl SqliteStore {
                 let stmt = current_statement.trim();
                 if !stmt.is_empty() {
                     if let Err(e) = sqlx::query(stmt).execute(&self.pool).await {
-                        warn!("Failed to execute namespace schema statement: {} - Error: {}",
-                              stmt.chars().take(100).collect::<String>(), e);
+                        warn!(
+                            "Failed to execute namespace schema statement: {} - Error: {}",
+                            stmt.chars().take(100).collect::<String>(),
+                            e
+                        );
                         // Continue on error for idempotency (IF NOT EXISTS)
                     }
                 }
@@ -305,7 +310,10 @@ impl SqliteStore {
     }
 
     /// Get plugin state snapshot
-    pub async fn get_plugin_state(&self, plugin_name: &str) -> Result<Option<simd_json::OwnedValue>> {
+    pub async fn get_plugin_state(
+        &self,
+        plugin_name: &str,
+    ) -> Result<Option<simd_json::OwnedValue>> {
         let row = sqlx::query("SELECT state_json FROM plugin_state WHERE plugin_name = ?")
             .bind(plugin_name)
             .fetch_optional(&self.pool)
@@ -331,7 +339,9 @@ impl SqliteStore {
         backend_checkpoint: Option<&simd_json::OwnedValue>,
     ) -> Result<()> {
         let state_json = simd_json::to_string(state_snapshot)?;
-        let backend_json = backend_checkpoint.map(|v| simd_json::to_string(v)).transpose()?;
+        let backend_json = backend_checkpoint
+            .map(|v| simd_json::to_string(v))
+            .transpose()?;
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -384,7 +394,10 @@ impl SqliteStore {
     }
 
     /// Get latest checkpoint for a plugin
-    pub async fn get_latest_checkpoint(&self, plugin_name: &str) -> Result<Option<CheckpointRecord>> {
+    pub async fn get_latest_checkpoint(
+        &self,
+        plugin_name: &str,
+    ) -> Result<Option<CheckpointRecord>> {
         let row = sqlx::query(
             "SELECT id, plugin_name, timestamp, state_snapshot, backend_checkpoint, created_at FROM checkpoints WHERE plugin_name = ? ORDER BY timestamp DESC LIMIT 1",
         )
@@ -542,10 +555,12 @@ impl SqliteStore {
     pub async fn delete_old_jobs(&self, before: DateTime<Utc>) -> Result<u64> {
         let before_str = before.to_rfc3339();
 
-        let result = sqlx::query("DELETE FROM execution_jobs WHERE created_at < ? AND status IN ('Completed', 'Failed')")
-            .bind(&before_str)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query(
+            "DELETE FROM execution_jobs WHERE created_at < ? AND status IN ('Completed', 'Failed')",
+        )
+        .bind(&before_str)
+        .execute(&self.pool)
+        .await?;
 
         let deleted = result.rows_affected();
         info!("Deleted {} old jobs from before {}", deleted, before_str);
@@ -603,7 +618,11 @@ impl SqliteStore {
 impl StateStore for SqliteStore {
     async fn save_job(&self, job: &ExecutionJob) -> Result<()> {
         let arguments_json = simd_json::to_string(&job.arguments)?;
-        let result_json = job.result.as_ref().map(|r| simd_json::to_string(r)).transpose()?;
+        let result_json = job
+            .result
+            .as_ref()
+            .map(|r| simd_json::to_string(r))
+            .transpose()?;
         let status_str = status_to_string(&job.status);
 
         sqlx::query(
@@ -642,7 +661,11 @@ impl StateStore for SqliteStore {
 
     async fn update_job(&self, job: &ExecutionJob) -> Result<()> {
         let arguments_json = simd_json::to_string(&job.arguments)?;
-        let result_json = job.result.as_ref().map(|r| simd_json::to_string(r)).transpose()?;
+        let result_json = job
+            .result
+            .as_ref()
+            .map(|r| simd_json::to_string(r))
+            .transpose()?;
         let status_str = status_to_string(&job.status);
 
         let result = sqlx::query(
@@ -726,15 +749,18 @@ impl StateStore for SqliteStore {
             .fetch_all(&self.pool)
             .await?;
 
-        let objects: Vec<StoredObject> = rows.iter().map(|r| {
-            let mut data_json: String = r.get("data");
-            StoredObject {
-                id: r.get("id"),
-                object_type: r.get("object_type"),
-                namespace: r.get("namespace"),
-                data: unsafe { simd_json::from_str(&mut data_json).unwrap_or_default() },
-            }
-        }).collect();
+        let objects: Vec<StoredObject> = rows
+            .iter()
+            .map(|r| {
+                let mut data_json: String = r.get("data");
+                StoredObject {
+                    id: r.get("id"),
+                    object_type: r.get("object_type"),
+                    namespace: r.get("namespace"),
+                    data: unsafe { simd_json::from_str(&mut data_json).unwrap_or_default() },
+                }
+            })
+            .collect();
 
         Ok(CanonicalDbExport {
             objects,
@@ -812,9 +838,7 @@ impl StateStore for SqliteStore {
 
     /// Clear all tools (for migration/upgrade)
     async fn clear_tools(&self) -> Result<()> {
-        sqlx::query("DELETE FROM tools")
-            .execute(&self.pool)
-            .await?;
+        sqlx::query("DELETE FROM tools").execute(&self.pool).await?;
         info!("Cleared all tools from database");
         Ok(())
     }
@@ -1007,7 +1031,11 @@ mod tests {
             .await
             .unwrap();
 
-        let latest = store.get_latest_checkpoint("test_plugin").await.unwrap().unwrap();
+        let latest = store
+            .get_latest_checkpoint("test_plugin")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(latest.id, "cp-2");
     }
 
@@ -1021,7 +1049,12 @@ mod tests {
             .await
             .unwrap();
         store
-            .log_audit("plugin1", "update", &simd_json::json!({"id": "1"}), Some("abc123"))
+            .log_audit(
+                "plugin1",
+                "update",
+                &simd_json::json!({"id": "1"}),
+                Some("abc123"),
+            )
             .await
             .unwrap();
         store

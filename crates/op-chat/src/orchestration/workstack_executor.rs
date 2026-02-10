@@ -14,11 +14,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use simd_json::prelude::*;
 use simd_json::OwnedValue;
 use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, error, info, warn, instrument, Span};
+use tracing::{debug, error, info, instrument, warn, Span};
 
 use super::error::{ErrorCode, OrchestrationError, OrchestrationResult};
 use super::grpc_pool::{GrpcAgentPool, StreamChunk, StreamType};
@@ -53,7 +53,7 @@ impl Workstack {
             timeout_secs: None,
         }
     }
-    
+
     pub fn with_phase(mut self, phase: WorkstackPhase) -> Self {
         // Track required agents
         for agent in &phase.agents {
@@ -64,17 +64,17 @@ impl Workstack {
         self.phases.push(phase);
         self
     }
-    
+
     pub fn with_variable(mut self, key: &str, value: &str) -> Self {
         self.variables.insert(key.to_string(), value.to_string());
         self
     }
-    
+
     pub fn with_category(mut self, category: &str) -> Self {
         self.category = Some(category.to_string());
         self
     }
-    
+
     pub fn with_timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = Some(secs);
         self
@@ -290,18 +290,18 @@ impl ExecutionContext {
             workstack.id,
             chrono::Utc::now().format("%Y%m%d%H%M%S")
         );
-        
+
         // Merge workstack variables with input variables
         let mut variables: HashMap<String, Value> = workstack
             .variables
             .iter()
             .map(|(k, v)| (k.clone(), Value::String(v.clone())))
             .collect();
-        
+
         for (k, v) in input_variables {
             variables.insert(k, Value::String(v));
         }
-        
+
         Self {
             session_id,
             execution_id,
@@ -314,21 +314,21 @@ impl ExecutionContext {
             cancelled: false,
         }
     }
-    
+
     /// Store a variable
     fn set_variable(&mut self, key: &str, value: Value) {
         self.variables.insert(key.to_string(), value);
     }
-    
+
     /// Get a variable
     fn get_variable(&self, key: &str) -> Option<&Value> {
         self.variables.get(key)
     }
-    
+
     /// Interpolate variables in a string
     fn interpolate(&self, s: &str) -> String {
         let mut result = s.to_string();
-        
+
         for (key, value) in &self.variables {
             let placeholder = format!("${{{}}}", key);
             let value_str = if let Some(s) = value.as_str() {
@@ -346,17 +346,17 @@ impl ExecutionContext {
             };
             result = result.replace(&placeholder, &value_str);
         }
-        
+
         result
     }
-    
+
     /// Interpolate variables in a JSON value
     fn interpolate_value(&self, value: &Value) -> Value {
         match value {
             Value::String(s) => Value::String(self.interpolate(s)),
-            Value::Array(arr) => Value::Array(
-                arr.iter().map(|v| self.interpolate_value(v)).collect()
-            ),
+            Value::Array(arr) => {
+                Value::Array(arr.iter().map(|v| self.interpolate_value(v)).collect())
+            }
             Value::Object(obj) => {
                 let interpolated: simd_json::value::owned::Object = obj
                     .iter()
@@ -367,19 +367,22 @@ impl ExecutionContext {
             other => other.clone(),
         }
     }
-    
+
     /// Send an event
     async fn emit(&self, event: WorkstackEvent) {
         if let Some(tx) = &self.event_tx {
             let _ = tx.send(event).await;
         }
     }
-    
+
     /// Check if a phase's dependencies are satisfied
     fn dependencies_satisfied(&self, phase: &WorkstackPhase) -> bool {
-        phase.depends_on.iter().all(|dep| self.completed_phases.contains(dep))
+        phase
+            .depends_on
+            .iter()
+            .all(|dep| self.completed_phases.contains(dep))
     }
-    
+
     /// Check if a phase's condition is met
     fn condition_met(&self, phase: &WorkstackPhase) -> bool {
         // Simple condition evaluation
@@ -390,7 +393,7 @@ impl ExecutionContext {
                 let var_name = &condition[2..condition.len() - 1];
                 return self.variables.contains_key(var_name);
             }
-            
+
             // Check for "phase_id.success" pattern
             if condition.ends_with(".success") {
                 let phase_id = &condition[..condition.len() - 8];
@@ -400,7 +403,7 @@ impl ExecutionContext {
                     .map(|r| r.status == PhaseStatus::Completed)
                     .unwrap_or(false);
             }
-            
+
             // Default: condition not understood, assume true
             true
         } else {
@@ -455,10 +458,7 @@ pub enum ExecutionStatus {
 
 impl WorkstackExecutor {
     /// Create a new workstack executor
-    pub fn new(
-        agent_pool: Arc<GrpcAgentPool>,
-        tool_executor: Arc<dyn ToolExecutor>,
-    ) -> Self {
+    pub fn new(agent_pool: Arc<GrpcAgentPool>, tool_executor: Arc<dyn ToolExecutor>) -> Self {
         Self {
             agent_pool,
             tool_executor,
@@ -466,26 +466,26 @@ impl WorkstackExecutor {
             executions: RwLock::new(HashMap::new()),
         }
     }
-    
+
     /// Register a workstack
     pub async fn register(&self, workstack: Workstack) {
         let id = workstack.id.clone();
         self.workstacks.write().await.insert(id.clone(), workstack);
         info!(workstack = %id, "Registered workstack");
     }
-    
+
     /// Register multiple workstacks
     pub async fn register_all(&self, workstacks: Vec<Workstack>) {
         for ws in workstacks {
             self.register(ws).await;
         }
     }
-    
+
     /// Get a workstack by ID
     pub async fn get(&self, workstack_id: &str) -> Option<Workstack> {
         self.workstacks.read().await.get(workstack_id).cloned()
     }
-    
+
     /// List all workstacks
     pub async fn list(&self) -> Vec<WorkstackInfo> {
         self.workstacks
@@ -502,7 +502,7 @@ impl WorkstackExecutor {
             })
             .collect()
     }
-    
+
     /// Execute a workstack
     #[instrument(skip(self, event_tx), fields(
         session_id = %session_id,
@@ -523,10 +523,10 @@ impl WorkstackExecutor {
             .get(workstack_id)
             .cloned()
             .ok_or_else(|| OrchestrationError::workstack_not_found(workstack_id))?;
-        
+
         // Validate dependencies (detect cycles)
         self.validate_dependencies(&workstack)?;
-        
+
         // Create execution context
         let mut ctx = ExecutionContext::new(
             session_id.to_string(),
@@ -534,7 +534,7 @@ impl WorkstackExecutor {
             variables,
             event_tx,
         );
-        
+
         // Track execution
         let execution_state = ExecutionState {
             execution_id: ctx.execution_id.clone(),
@@ -544,18 +544,18 @@ impl WorkstackExecutor {
             started_at: Instant::now(),
             completed_at: None,
         };
-        
+
         self.executions
             .write()
             .await
             .insert(ctx.execution_id.clone(), execution_state);
-        
+
         info!(
             execution_id = %ctx.execution_id,
             phases = workstack.phases.len(),
             "Starting workstack execution"
         );
-        
+
         // Emit started event
         ctx.emit(WorkstackEvent::Started {
             workstack_id: workstack_id.to_string(),
@@ -563,10 +563,10 @@ impl WorkstackExecutor {
             total_phases: workstack.phases.len(),
         })
         .await;
-        
+
         // Execute phases
         let result = self.execute_phases(&mut ctx).await;
-        
+
         // Update execution state
         {
             let mut executions = self.executions.write().await;
@@ -579,14 +579,15 @@ impl WorkstackExecutor {
                 state.completed_at = Some(Instant::now());
             }
         }
-        
+
         // Build result
         let duration = ctx.started_at.elapsed();
         let phases: Vec<PhaseResult> = ctx.phase_results.values().cloned().collect();
-        let success = result.is_ok() && phases.iter().all(|p| {
-            p.status == PhaseStatus::Completed || p.status == PhaseStatus::Skipped
-        });
-        
+        let success = result.is_ok()
+            && phases
+                .iter()
+                .all(|p| p.status == PhaseStatus::Completed || p.status == PhaseStatus::Skipped);
+
         // Emit completed event
         ctx.emit(WorkstackEvent::Completed {
             workstack_id: workstack_id.to_string(),
@@ -595,7 +596,7 @@ impl WorkstackExecutor {
             duration,
         })
         .await;
-        
+
         Ok(WorkstackResult {
             workstack_id: workstack_id.to_string(),
             execution_id: ctx.execution_id.clone(),
@@ -606,15 +607,12 @@ impl WorkstackExecutor {
             error: result.err().map(|e| e.to_string()),
         })
     }
-    
+
     /// Execute phases in dependency order
-    async fn execute_phases(
-        &self,
-        ctx: &mut ExecutionContext,
-    ) -> OrchestrationResult<()> {
+    async fn execute_phases(&self, ctx: &mut ExecutionContext) -> OrchestrationResult<()> {
         let phase_ids: Vec<String> = ctx.workstack.phases.iter().map(|p| p.id.clone()).collect();
         let total_phases = phase_ids.len();
-        
+
         // Execute phases in order (respecting dependencies)
         for (index, phase_id) in phase_ids.iter().enumerate() {
             if ctx.cancelled {
@@ -623,7 +621,7 @@ impl WorkstackExecutor {
                     "Workstack execution cancelled",
                 ));
             }
-            
+
             // Find the phase
             let phase = ctx
                 .workstack
@@ -631,15 +629,17 @@ impl WorkstackExecutor {
                 .iter()
                 .find(|p| &p.id == phase_id)
                 .cloned()
-                .ok_or_else(|| OrchestrationError::new(
-                    ErrorCode::PhaseNotFound,
-                    format!("Phase not found: {}", phase_id),
-                ))?;
-            
+                .ok_or_else(|| {
+                    OrchestrationError::new(
+                        ErrorCode::PhaseNotFound,
+                        format!("Phase not found: {}", phase_id),
+                    )
+                })?;
+
             // Check dependencies
             if !ctx.dependencies_satisfied(&phase) {
                 warn!(phase = %phase_id, "Dependencies not satisfied, skipping");
-                
+
                 let result = PhaseResult {
                     phase_id: phase_id.clone(),
                     status: PhaseStatus::Skipped,
@@ -649,15 +649,15 @@ impl WorkstackExecutor {
                     tool_results: vec![],
                     agent_results: vec![],
                 };
-                
+
                 ctx.phase_results.insert(phase_id.clone(), result);
                 continue;
             }
-            
+
             // Check condition
             if !ctx.condition_met(&phase) {
                 info!(phase = %phase_id, "Condition not met, skipping");
-                
+
                 let result = PhaseResult {
                     phase_id: phase_id.clone(),
                     status: PhaseStatus::Skipped,
@@ -667,12 +667,12 @@ impl WorkstackExecutor {
                     tool_results: vec![],
                     agent_results: vec![],
                 };
-                
+
                 ctx.phase_results.insert(phase_id.clone(), result);
                 ctx.completed_phases.insert(phase_id.clone());
                 continue;
             }
-            
+
             // Emit phase started
             ctx.emit(WorkstackEvent::PhaseStarted {
                 phase_id: phase_id.clone(),
@@ -681,10 +681,10 @@ impl WorkstackExecutor {
                 total: total_phases,
             })
             .await;
-            
+
             // Execute the phase
             let phase_result = self.execute_phase(ctx, &phase).await;
-            
+
             // Handle result
             match phase_result {
                 Ok(result) => {
@@ -694,13 +694,13 @@ impl WorkstackExecutor {
                         duration: result.duration,
                     })
                     .await;
-                    
+
                     ctx.phase_results.insert(phase_id.clone(), result);
                     ctx.completed_phases.insert(phase_id.clone());
                 }
                 Err(e) => {
                     error!(phase = %phase_id, error = %e, "Phase failed");
-                    
+
                     let result = PhaseResult {
                         phase_id: phase_id.clone(),
                         status: PhaseStatus::Failed,
@@ -710,35 +710,32 @@ impl WorkstackExecutor {
                         tool_results: vec![],
                         agent_results: vec![],
                     };
-                    
+
                     ctx.emit(WorkstackEvent::PhaseCompleted {
                         phase_id: phase_id.clone(),
                         status: PhaseStatus::Failed,
                         duration: Duration::ZERO,
                     })
                     .await;
-                    
+
                     ctx.phase_results.insert(phase_id.clone(), result);
-                    
+
                     // Execute rollback for this phase
                     if !phase.rollback.is_empty() {
                         self.execute_rollback(ctx, &phase).await;
                     }
-                    
+
                     // Check if we should continue
                     if !phase.continue_on_failure {
-                        return Err(OrchestrationError::phase_failed(
-                            phase_id,
-                            &e.to_string(),
-                        ));
+                        return Err(OrchestrationError::phase_failed(phase_id, &e.to_string()));
                     }
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Execute a single phase
     async fn execute_phase(
         &self,
@@ -746,7 +743,7 @@ impl WorkstackExecutor {
         phase: &WorkstackPhase,
     ) -> OrchestrationResult<PhaseResult> {
         let start = Instant::now();
-        
+
         info!(
             phase = %phase.id,
             name = %phase.name,
@@ -754,27 +751,27 @@ impl WorkstackExecutor {
             agents = phase.agents.len(),
             "Executing phase"
         );
-        
+
         let mut tool_results = Vec::new();
         let mut agent_results = Vec::new();
-        
+
         // Execute tools first
         for tool_call in &phase.tools {
             let args = ctx.interpolate_value(&tool_call.arguments);
-            
+
             debug!(tool = %tool_call.tool, "Executing tool");
-            
+
             let tool_start = Instant::now();
             let result = self.tool_executor.execute(&tool_call.tool, &args).await;
             let tool_duration = tool_start.elapsed();
-            
+
             match result {
                 Ok(value) => {
                     // Store result if requested
                     if let Some(store_as) = &tool_call.store_as {
                         ctx.set_variable(store_as, value.clone());
                     }
-                    
+
                     tool_results.push(ToolResult {
                         tool: tool_call.tool.clone(),
                         success: true,
@@ -784,14 +781,14 @@ impl WorkstackExecutor {
                 }
                 Err(e) => {
                     warn!(tool = %tool_call.tool, error = %e, "Tool failed");
-                    
+
                     tool_results.push(ToolResult {
                         tool: tool_call.tool.clone(),
                         success: false,
                         result: simd_json::json!({ "error": e.to_string() }),
                         duration: tool_duration,
                     });
-                    
+
                     return Err(OrchestrationError::execution_failed(
                         "tool",
                         &tool_call.tool,
@@ -800,55 +797,53 @@ impl WorkstackExecutor {
                 }
             }
         }
-        
+
         // Execute agents
         for agent_id in &phase.agents {
-            let operation = phase
-                .agent_operation
-                .as_deref()
-                .unwrap_or("execute");
-            
+            let operation = phase.agent_operation.as_deref().unwrap_or("execute");
+
             let args = phase
                 .agent_arguments
                 .as_ref()
                 .map(|a| ctx.interpolate_value(a))
                 .unwrap_or(simd_json::json!({}));
-            
+
             debug!(agent = %agent_id, operation = %operation, "Executing agent");
-            
+
             let agent_start = Instant::now();
-            
+
             // Use streaming for known streaming agents
-            let result: OrchestrationResult<Value> = if Self::is_streaming_agent(agent_id, operation) {
-                let phase_id = phase.id.clone();
-                let agent_id_clone = agent_id.clone();
-                let event_tx = ctx.event_tx.clone();
-                
-                self.agent_pool
-                    .execute_streaming(
-                        &ctx.session_id,
-                        agent_id,
-                        operation,
-                        args,
-                        move |chunk| {
-                            if let Some(tx) = &event_tx {
-                                let _ = tx.try_send(WorkstackEvent::AgentOutput {
-                                    phase_id: phase_id.clone(),
-                                    agent_id: agent_id_clone.clone(),
-                                    chunk,
-                                });
-                            }
-                        },
-                    )
-                    .await
-            } else {
-                self.agent_pool
-                    .execute(&ctx.session_id, agent_id, operation, args)
-                    .await
-            };
-            
+            let result: OrchestrationResult<Value> =
+                if Self::is_streaming_agent(agent_id, operation) {
+                    let phase_id = phase.id.clone();
+                    let agent_id_clone = agent_id.clone();
+                    let event_tx = ctx.event_tx.clone();
+
+                    self.agent_pool
+                        .execute_streaming(
+                            &ctx.session_id,
+                            agent_id,
+                            operation,
+                            args,
+                            move |chunk| {
+                                if let Some(tx) = &event_tx {
+                                    let _ = tx.try_send(WorkstackEvent::AgentOutput {
+                                        phase_id: phase_id.clone(),
+                                        agent_id: agent_id_clone.clone(),
+                                        chunk,
+                                    });
+                                }
+                            },
+                        )
+                        .await
+                } else {
+                    self.agent_pool
+                        .execute(&ctx.session_id, agent_id, operation, args)
+                        .await
+                };
+
             let agent_duration = agent_start.elapsed();
-            
+
             match result {
                 Ok(value) => {
                     agent_results.push(AgentResult {
@@ -861,7 +856,7 @@ impl WorkstackExecutor {
                 }
                 Err(e) => {
                     warn!(agent = %agent_id, error = %e, "Agent failed");
-                    
+
                     agent_results.push(AgentResult {
                         agent_id: agent_id.clone(),
                         operation: operation.to_string(),
@@ -869,7 +864,7 @@ impl WorkstackExecutor {
                         result: simd_json::json!({ "error": e.to_string() }),
                         duration: agent_duration,
                     });
-                    
+
                     return Err(OrchestrationError::execution_failed(
                         agent_id,
                         operation,
@@ -878,9 +873,9 @@ impl WorkstackExecutor {
                 }
             }
         }
-        
+
         let duration = start.elapsed();
-        
+
         Ok(PhaseResult {
             phase_id: phase.id.clone(),
             status: PhaseStatus::Completed,
@@ -894,27 +889,23 @@ impl WorkstackExecutor {
             agent_results,
         })
     }
-    
+
     /// Execute rollback for a failed phase
-    async fn execute_rollback(
-        &self,
-        ctx: &mut ExecutionContext,
-        phase: &WorkstackPhase,
-    ) {
+    async fn execute_rollback(&self, ctx: &mut ExecutionContext, phase: &WorkstackPhase) {
         info!(phase = %phase.id, "Executing rollback");
-        
+
         ctx.emit(WorkstackEvent::RollbackStarted {
             phase_id: phase.id.clone(),
         })
         .await;
-        
+
         let mut success = true;
-        
+
         for rollback_call in &phase.rollback {
             let args = ctx.interpolate_value(&rollback_call.arguments);
-            
+
             debug!(tool = %rollback_call.tool, "Executing rollback tool");
-            
+
             if let Err(e) = self.tool_executor.execute(&rollback_call.tool, &args).await {
                 error!(
                     tool = %rollback_call.tool,
@@ -924,35 +915,35 @@ impl WorkstackExecutor {
                 success = false;
             }
         }
-        
+
         ctx.emit(WorkstackEvent::RollbackCompleted {
             phase_id: phase.id.clone(),
             success,
         })
         .await;
-        
+
         // Update phase status
         if let Some(result) = ctx.phase_results.get_mut(&phase.id) {
             result.status = PhaseStatus::RolledBack;
         }
     }
-    
+
     /// Check if an agent operation should use streaming
     fn is_streaming_agent(agent_id: &str, operation: &str) -> bool {
         matches!(
             (agent_id, operation),
             ("rust_pro", "build")
-            | ("rust_pro", "test")
-            | ("rust_pro", "clippy")
-            | ("rust_pro", "doc")
-            | ("sequential_thinking", _)
+                | ("rust_pro", "test")
+                | ("rust_pro", "clippy")
+                | ("rust_pro", "doc")
+                | ("sequential_thinking", _)
         )
     }
-    
+
     /// Validate workstack dependencies (detect cycles)
     fn validate_dependencies(&self, workstack: &Workstack) -> OrchestrationResult<()> {
         let phase_ids: HashSet<String> = workstack.phases.iter().map(|p| p.id.clone()).collect();
-        
+
         // Check that all dependencies exist
         for phase in &workstack.phases {
             for dep in &phase.depends_on {
@@ -964,11 +955,11 @@ impl WorkstackExecutor {
                 }
             }
         }
-        
+
         // Detect cycles using DFS
         let mut visited = HashSet::new();
         let mut rec_stack = HashSet::new();
-        
+
         for phase in &workstack.phases {
             if self.has_cycle(phase, workstack, &mut visited, &mut rec_stack) {
                 return Err(OrchestrationError::new(
@@ -977,10 +968,10 @@ impl WorkstackExecutor {
                 ));
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn has_cycle(
         &self,
         phase: &WorkstackPhase,
@@ -991,14 +982,14 @@ impl WorkstackExecutor {
         if rec_stack.contains(&phase.id) {
             return true;
         }
-        
+
         if visited.contains(&phase.id) {
             return false;
         }
-        
+
         visited.insert(phase.id.clone());
         rec_stack.insert(phase.id.clone());
-        
+
         for dep_id in &phase.depends_on {
             if let Some(dep_phase) = workstack.phases.iter().find(|p| &p.id == dep_id) {
                 if self.has_cycle(dep_phase, workstack, visited, rec_stack) {
@@ -1006,15 +997,15 @@ impl WorkstackExecutor {
                 }
             }
         }
-        
+
         rec_stack.remove(&phase.id);
         false
     }
-    
+
     /// Cancel a running execution
     pub async fn cancel(&self, execution_id: &str) -> OrchestrationResult<bool> {
         let mut executions = self.executions.write().await;
-        
+
         if let Some(state) = executions.get_mut(execution_id) {
             if state.status == ExecutionStatus::Running {
                 state.status = ExecutionStatus::Cancelled;
@@ -1022,10 +1013,10 @@ impl WorkstackExecutor {
                 return Ok(true);
             }
         }
-        
+
         Ok(false)
     }
-    
+
     /// Get execution status
     pub async fn get_status(&self, execution_id: &str) -> Option<ExecutionStatus> {
         self.executions
@@ -1054,15 +1045,17 @@ pub struct WorkstackInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     struct MockToolExecutor;
-    
+
     impl ToolExecutor for MockToolExecutor {
         fn execute<'a>(
             &'a self,
             tool: &'a str,
             _arguments: &'a Value,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = OrchestrationResult<Value>> + Send + 'a>> {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = OrchestrationResult<Value>> + Send + 'a>,
+        > {
             Box::pin(async move {
                 Ok(simd_json::json!({
                     "tool": tool,
@@ -1071,20 +1064,20 @@ mod tests {
             })
         }
     }
-    
+
     #[test]
     fn test_workstack_builder() {
         let ws = Workstack::new("test", "Test", "A test workstack")
             .with_category("testing")
             .with_variable("key", "value")
             .with_timeout(300);
-        
+
         assert_eq!(ws.id, "test");
         assert_eq!(ws.category, Some("testing".to_string()));
         assert_eq!(ws.variables.get("key"), Some(&"value".to_string()));
         assert_eq!(ws.timeout_secs, Some(300));
     }
-    
+
     #[test]
     fn test_variable_interpolation() {
         let ws = Workstack::new("test", "Test", "Test");
@@ -1094,33 +1087,33 @@ mod tests {
             HashMap::from([("name".to_string(), "world".to_string())]),
             None,
         );
-        
+
         ctx.set_variable("count", Value::from(42_u64));
-        
+
         assert_eq!(ctx.interpolate("Hello ${name}!"), "Hello world!");
         assert_eq!(ctx.interpolate("Count: ${count}"), "Count: 42");
     }
-    
+
     #[tokio::test]
     async fn test_executor_register_get() {
         let pool = Arc::new(GrpcAgentPool::with_defaults());
         let tool_exec = Arc::new(MockToolExecutor);
         let executor = WorkstackExecutor::new(pool, tool_exec);
-        
+
         let ws = Workstack::new("test-ws", "Test", "A test");
         executor.register(ws).await;
-        
+
         let retrieved = executor.get("test-ws").await;
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().id, "test-ws");
     }
-    
+
     #[test]
     fn test_cycle_detection() {
         let pool = Arc::new(GrpcAgentPool::with_defaults());
         let tool_exec = Arc::new(MockToolExecutor);
         let executor = WorkstackExecutor::new(pool, tool_exec);
-        
+
         // Valid workstack (no cycles)
         let valid = Workstack::new("valid", "Valid", "No cycles")
             .with_phase(WorkstackPhase {
@@ -1133,9 +1126,9 @@ mod tests {
                 depends_on: vec!["a".to_string()],
                 ..Default::default()
             });
-        
+
         assert!(executor.validate_dependencies(&valid).is_ok());
-        
+
         // Invalid workstack (cycle: a -> b -> a)
         let invalid = Workstack::new("invalid", "Invalid", "Has cycle")
             .with_phase(WorkstackPhase {
@@ -1148,7 +1141,7 @@ mod tests {
                 depends_on: vec!["a".to_string()],
                 ..Default::default()
             });
-        
+
         assert!(executor.validate_dependencies(&invalid).is_err());
     }
 }

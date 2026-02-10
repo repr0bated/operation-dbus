@@ -6,11 +6,11 @@
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
-use std::process::Command;
+use simd_json::{json, OwnedValue as Value};
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 use crate::Tool;
 
@@ -69,7 +69,7 @@ impl Tool for AnyDeskGetIdTool {
             Err(e) => Ok(json!({
                 "success": false,
                 "error": format!("Could not retrieve AnyDesk ID: {}", e)
-            }))
+            })),
         }
     }
 
@@ -82,7 +82,11 @@ impl Tool for AnyDeskGetIdTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["remote".to_string(), "desktop".to_string(), "anydesk".to_string()]
+        vec![
+            "remote".to_string(),
+            "desktop".to_string(),
+            "anydesk".to_string(),
+        ]
     }
 }
 
@@ -115,7 +119,7 @@ impl Tool for AnyDeskGetStatusTool {
             Err(e) => Ok(json!({
                 "success": false,
                 "error": format!("Could not get AnyDesk status: {}", e)
-            }))
+            })),
         }
     }
 
@@ -128,7 +132,12 @@ impl Tool for AnyDeskGetStatusTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["remote".to_string(), "desktop".to_string(), "anydesk".to_string(), "status".to_string()]
+        vec![
+            "remote".to_string(),
+            "desktop".to_string(),
+            "anydesk".to_string(),
+            "status".to_string(),
+        ]
     }
 }
 
@@ -175,7 +184,7 @@ impl Tool for AnyDeskServiceControlTool {
                 "success": false,
                 "action": action,
                 "error": format!("Failed to {} AnyDesk service: {}", action, e)
-            }))
+            })),
         }
     }
 
@@ -188,7 +197,12 @@ impl Tool for AnyDeskServiceControlTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["remote".to_string(), "desktop".to_string(), "anydesk".to_string(), "control".to_string()]
+        vec![
+            "remote".to_string(),
+            "desktop".to_string(),
+            "anydesk".to_string(),
+            "control".to_string(),
+        ]
     }
 }
 
@@ -227,7 +241,7 @@ impl Tool for AnyDeskGetConnectionsTool {
             Err(e) => Ok(json!({
                 "success": false,
                 "error": format!("Could not get AnyDesk connections: {}", e)
-            }))
+            })),
         }
     }
 
@@ -240,7 +254,12 @@ impl Tool for AnyDeskGetConnectionsTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["remote".to_string(), "desktop".to_string(), "anydesk".to_string(), "connections".to_string()]
+        vec![
+            "remote".to_string(),
+            "desktop".to_string(),
+            "anydesk".to_string(),
+            "connections".to_string(),
+        ]
     }
 }
 
@@ -270,7 +289,7 @@ impl Tool for AnyDeskCheckX11DisplayTool {
             Err(e) => Ok(json!({
                 "success": false,
                 "error": format!("Failed to check X11 display environment: {}", e)
-            }))
+            })),
         }
     }
 
@@ -283,7 +302,13 @@ impl Tool for AnyDeskCheckX11DisplayTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["remote".to_string(), "desktop".to_string(), "anydesk".to_string(), "x11".to_string(), "display".to_string()]
+        vec![
+            "remote".to_string(),
+            "desktop".to_string(),
+            "anydesk".to_string(),
+            "x11".to_string(),
+            "display".to_string(),
+        ]
     }
 }
 
@@ -313,7 +338,7 @@ impl Tool for AnyDeskDiagnoseX11AccessTool {
             Err(e) => Ok(json!({
                 "success": false,
                 "error": format!("Failed to diagnose X11 access: {}", e)
-            }))
+            })),
         }
     }
 
@@ -326,7 +351,13 @@ impl Tool for AnyDeskDiagnoseX11AccessTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["remote".to_string(), "desktop".to_string(), "anydesk".to_string(), "x11".to_string(), "diagnostics".to_string()]
+        vec![
+            "remote".to_string(),
+            "desktop".to_string(),
+            "anydesk".to_string(),
+            "x11".to_string(),
+            "diagnostics".to_string(),
+        ]
     }
 }
 
@@ -373,7 +404,10 @@ fn get_anydesk_id() -> Result<String> {
     }
 
     // Fallback: check systemd service and extract from logs or process
-    match Command::new("systemctl").args(&["show", "anydesk", "--property=MainPID"]).output() {
+    match Command::new("systemctl")
+        .args(&["show", "anydesk", "--property=MainPID"])
+        .output()
+    {
         Ok(output) if output.status.success() => {
             let pid_str = String::from_utf8_lossy(&output.stdout);
             if let Some(pid_line) = pid_str.lines().next() {
@@ -389,7 +423,9 @@ fn get_anydesk_id() -> Result<String> {
         _ => {}
     }
 
-    Err(anyhow!("Could not determine AnyDesk ID. AnyDesk may not be properly configured or running."))
+    Err(anyhow!(
+        "Could not determine AnyDesk ID. AnyDesk may not be properly configured or running."
+    ))
 }
 
 /// Helper function to get AnyDesk service status
@@ -401,7 +437,10 @@ fn get_anydesk_status() -> Result<Value> {
     });
 
     // Check systemd service status
-    match Command::new("systemctl").args(&["is-active", "anydesk"]).output() {
+    match Command::new("systemctl")
+        .args(&["is-active", "anydesk"])
+        .output()
+    {
         Ok(output) => {
             let state_str = String::from_utf8_lossy(&output.stdout);
             let state = state_str.trim();
@@ -473,7 +512,9 @@ fn get_anydesk_connections() -> Result<Vec<Value>> {
             let anydesk_ports = ["7070", "6568", "80", "443"];
             for line in netstat_output.lines() {
                 for port in &anydesk_ports {
-                    if line.contains(&format!(":{} ", port)) || line.contains(&format!(":{}\n", port)) {
+                    if line.contains(&format!(":{} ", port))
+                        || line.contains(&format!(":{}\n", port))
+                    {
                         // Found a potential AnyDesk connection
                         // This is a simplified detection
                     }
@@ -521,7 +562,10 @@ fn check_x11_display_environment() -> Result<Value> {
     }
 
     // Check AnyDesk service environment
-    match Command::new("systemctl").args(&["show", "anydesk", "--property=Environment"]).output() {
+    match Command::new("systemctl")
+        .args(&["show", "anydesk", "--property=Environment"])
+        .output()
+    {
         Ok(output) if output.status.success() => {
             let env_str = String::from_utf8_lossy(&output.stdout);
             let env_vars: std::collections::HashMap<String, String> = env_str
@@ -529,7 +573,8 @@ fn check_x11_display_environment() -> Result<Value> {
                 .unwrap_or("")
                 .split_whitespace()
                 .filter_map(|kv| {
-                    kv.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))
+                    kv.split_once('=')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
                 })
                 .collect();
             result["anydesk_service_environment"] = json!(env_vars);
@@ -560,13 +605,17 @@ fn diagnose_x11_access_issues() -> Result<Value> {
     let mut fix_commands = Vec::new();
 
     // Check if AnyDesk service is running
-    match Command::new("systemctl").args(&["is-active", "anydesk"]).output() {
+    match Command::new("systemctl")
+        .args(&["is-active", "anydesk"])
+        .output()
+    {
         Ok(output) => {
             let state_str = String::from_utf8_lossy(&output.stdout);
             let state = state_str.trim();
             if state != "active" {
                 issues.push("AnyDesk service is not running".to_string());
-                recommendations.push("Start AnyDesk service with: sudo systemctl start anydesk".to_string());
+                recommendations
+                    .push("Start AnyDesk service with: sudo systemctl start anydesk".to_string());
                 fix_commands.push("sudo systemctl start anydesk".to_string());
             }
         }
@@ -576,7 +625,10 @@ fn diagnose_x11_access_issues() -> Result<Value> {
     }
 
     // Check DISPLAY environment for AnyDesk service
-    match Command::new("systemctl").args(&["show", "anydesk", "--property=Environment"]).output() {
+    match Command::new("systemctl")
+        .args(&["show", "anydesk", "--property=Environment"])
+        .output()
+    {
         Ok(output) if output.status.success() => {
             let env_str = String::from_utf8_lossy(&output.stdout);
             let has_display = env_str.contains("DISPLAY=");
@@ -590,7 +642,9 @@ fn diagnose_x11_access_issues() -> Result<Value> {
 
             if !has_xauthority {
                 issues.push("AnyDesk service missing XAUTHORITY environment variable".to_string());
-                recommendations.push("Add XAUTHORITY=/root/.Xauthority to AnyDesk service environment".to_string());
+                recommendations.push(
+                    "Add XAUTHORITY=/root/.Xauthority to AnyDesk service environment".to_string(),
+                );
                 fix_commands.push("sudo sed -i '/^Environment=/a Environment=XAUTHORITY=/root/.Xauthority' /etc/systemd/system/anydesk.service && sudo systemctl daemon-reload && sudo systemctl restart anydesk".to_string());
             }
         }
@@ -607,7 +661,9 @@ fn diagnose_x11_access_issues() -> Result<Value> {
             }
             _ => {
                 issues.push(format!("Cannot access X11 display {}", display));
-                recommendations.push("Ensure Xvfb or X server is running on the specified display".to_string());
+                recommendations.push(
+                    "Ensure Xvfb or X server is running on the specified display".to_string(),
+                );
             }
         }
     } else {
@@ -621,8 +677,14 @@ fn diagnose_x11_access_issues() -> Result<Value> {
             Ok(output) if output.status.success() => {
                 let auth_output = String::from_utf8_lossy(&output.stdout);
                 if auth_output.trim().is_empty() {
-                    issues.push(format!("No X11 authentication configured for display {}", display));
-                    recommendations.push("Generate X11 authentication cookie with: xauth generate :99 . trusted".to_string());
+                    issues.push(format!(
+                        "No X11 authentication configured for display {}",
+                        display
+                    ));
+                    recommendations.push(
+                        "Generate X11 authentication cookie with: xauth generate :99 . trusted"
+                            .to_string(),
+                    );
                     fix_commands.push("xauth generate :99 . trusted".to_string());
                 }
             }
@@ -635,7 +697,10 @@ fn diagnose_x11_access_issues() -> Result<Value> {
     // Check if Xauthority file exists for root
     if !Path::new("/root/.Xauthority").exists() {
         issues.push("Xauthority file missing for root user".to_string());
-        recommendations.push("Copy user Xauthority to root: sudo cp /home/user/.Xauthority /root/.Xauthority".to_string());
+        recommendations.push(
+            "Copy user Xauthority to root: sudo cp /home/user/.Xauthority /root/.Xauthority"
+                .to_string(),
+        );
         fix_commands.push("sudo cp /home/jeremy/.Xauthority /root/.Xauthority && sudo chown root:root /root/.Xauthority && sudo chmod 600 /root/.Xauthority".to_string());
     }
 

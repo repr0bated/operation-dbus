@@ -15,40 +15,25 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn};
 
 use crate::proto::{
-    state_sync_server::StateSync,
-    plugin_service_server::PluginService,
-    event_chain_service_server::EventChainService,
-    SubscribeRequest, StateChange as ProtoStateChange,
-    MutateRequest, MutateResponse, BatchMutateRequest, BatchMutateResponse,
-    GetStateRequest, GetStateResponse,
-    ListPluginsRequest, ListPluginsResponse, PluginInfo,
-    GetSchemaRequest, GetSchemaResponse,
-    CallMethodRequest, CallMethodResponse,
-    GetPropertyRequest, GetPropertyResponse,
-    SetPropertyRequest, SetPropertyResponse,
-    SubscribeSignalsRequest, Signal,
-    GetEventsRequest, GetEventsResponse, ChainEvent as ProtoChainEvent,
-    SubscribeEventsRequest,
-    VerifyChainRequest, VerifyChainResponse,
-    GetProofRequest, GetProofResponse, MerkleProofSibling,
+    event_chain_service_server::EventChainService, plugin_service_server::PluginService,
+    state_sync_server::StateSync, BatchMutateRequest, BatchMutateResponse, CallMethodRequest,
+    CallMethodResponse, CapabilityMissing as ProtoCapabilityMissing, ChainEvent as ProtoChainEvent,
+    ChangeType as ProtoChangeType, ConstraintFail as ProtoConstraintFail, CreateSnapshotRequest,
+    CreateSnapshotResponse, Decision as ProtoDecision, DenyReason as ProtoDenyReason,
+    ErrorCode as ProtoErrorCode, GetEventsRequest, GetEventsResponse, GetProofRequest,
+    GetProofResponse, GetPropertyRequest, GetPropertyResponse, GetSchemaRequest, GetSchemaResponse,
+    GetSnapshotRequest, GetSnapshotResponse, GetStateRequest, GetStateResponse, ListPluginsRequest,
+    ListPluginsResponse, MerkleProofSibling, MutateRequest, MutateResponse,
+    MutationError as ProtoMutationError, OperationType as ProtoOperationType, PluginInfo,
     ProveTagImmutabilityRequest, ProveTagImmutabilityResponse,
-    GetSnapshotRequest, GetSnapshotResponse,
-    CreateSnapshotRequest, CreateSnapshotResponse,
-    Decision as ProtoDecision,
-    MutationError as ProtoMutationError,
-    ErrorCode as ProtoErrorCode,
-    DenyReason as ProtoDenyReason,
-    TagLock as ProtoTagLock,
-    ConstraintFail as ProtoConstraintFail,
-    CapabilityMissing as ProtoCapabilityMissing,
-    ReadOnlyViolation as ProtoReadOnlyViolation,
-    ChangeType as ProtoChangeType,
-    OperationType as ProtoOperationType,
+    ReadOnlyViolation as ProtoReadOnlyViolation, SetPropertyRequest, SetPropertyResponse, Signal,
+    StateChange as ProtoStateChange, SubscribeEventsRequest, SubscribeRequest,
+    SubscribeSignalsRequest, TagLock as ProtoTagLock, VerifyChainRequest, VerifyChainResponse,
 };
 use crate::sync_engine::{ChangeType, SyncEngine};
 use op_state_store::{Decision, DenyReason, EventChain, MerkleProof, OperationType};
-use zbus::{Connection, Proxy};
 use zbus::zvariant::{Array as ZArray, OwnedValue as ZOwnedValue, Str as ZStr, Value as ZValue};
+use zbus::{Connection, Proxy};
 
 /// Plugin schema provider (source of truth)
 pub trait PluginSchemaProvider: Send + Sync {
@@ -106,9 +91,9 @@ pub async fn run_grpc_server(
     sync_engine: Arc<SyncEngine>,
     plugin_provider: Option<Arc<dyn PluginSchemaProvider>>,
 ) -> Result<(), tonic::transport::Error> {
-    use crate::proto::state_sync_server::StateSyncServer;
-    use crate::proto::plugin_service_server::PluginServiceServer;
     use crate::proto::event_chain_service_server::EventChainServiceServer;
+    use crate::proto::plugin_service_server::PluginServiceServer;
+    use crate::proto::state_sync_server::StateSyncServer;
 
     let server = if let Some(provider) = plugin_provider {
         OperationGrpcServer::with_plugin_provider(sync_engine, provider)
@@ -184,41 +169,48 @@ impl StateSync for OperationGrpcServer {
             _ => ChangeType::PropertySet,
         };
 
-        let result = self.sync_engine.process_grpc_mutation(
-            req.plugin_id.clone(),
-            req.object_path.clone(),
-            change_type,
-            if req.member_name.is_empty() { None } else { Some(req.member_name.clone()) },
-            value,
-            req.actor_id.clone(),
-            if req.capability_id.is_empty() { None } else { Some(req.capability_id.clone()) },
-        ).await;
+        let result = self
+            .sync_engine
+            .process_grpc_mutation(
+                req.plugin_id.clone(),
+                req.object_path.clone(),
+                change_type,
+                if req.member_name.is_empty() {
+                    None
+                } else {
+                    Some(req.member_name.clone())
+                },
+                value,
+                req.actor_id.clone(),
+                if req.capability_id.is_empty() {
+                    None
+                } else {
+                    Some(req.capability_id.clone())
+                },
+            )
+            .await;
 
         match result {
-            Ok(ok) => {
-                Ok(Response::new(MutateResponse {
-                    success: ok.success,
-                    event_id: ok.event_id,
-                    event_hash: ok.event_hash,
-                    result: ok.result.map(|v| simd_to_prost_value(&v)),
-                    error: None,
-                    effective_hash: String::new(),
-                }))
-            }
-            Err(e) => {
-                Ok(Response::new(MutateResponse {
-                    success: false,
-                    event_id: 0,
-                    event_hash: String::new(),
-                    result: None,
-                    error: Some(ProtoMutationError {
-                        code: ProtoErrorCode::Internal as i32,
-                        message: e.to_string(),
-                        deny_reason: None,
-                    }),
-                    effective_hash: String::new(),
-                }))
-            }
+            Ok(ok) => Ok(Response::new(MutateResponse {
+                success: ok.success,
+                event_id: ok.event_id,
+                event_hash: ok.event_hash,
+                result: ok.result.map(|v| simd_to_prost_value(&v)),
+                error: None,
+                effective_hash: String::new(),
+            })),
+            Err(e) => Ok(Response::new(MutateResponse {
+                success: false,
+                event_id: 0,
+                event_hash: String::new(),
+                result: None,
+                error: Some(ProtoMutationError {
+                    code: ProtoErrorCode::Internal as i32,
+                    message: e.to_string(),
+                    deny_reason: None,
+                }),
+                effective_hash: String::new(),
+            })),
         }
     }
 
@@ -288,7 +280,9 @@ impl PluginService for OperationGrpcServer {
         request: Request<GetSchemaRequest>,
     ) -> Result<Response<GetSchemaResponse>, Status> {
         let req = request.into_inner();
-        if let Some((schema_json, dialect, version)) = self.plugin_provider.get_schema(&req.plugin_id) {
+        if let Some((schema_json, dialect, version)) =
+            self.plugin_provider.get_schema(&req.plugin_id)
+        {
             Ok(Response::new(GetSchemaResponse {
                 schema_json,
                 dialect,
@@ -314,15 +308,22 @@ impl PluginService for OperationGrpcServer {
             .map(|v| prost_value_to_simd(&v))
             .collect();
 
-        let result = self.sync_engine.call_dbus_method(
-            &format!("org.opdbus.{}.v1", req.plugin_id),
-            &req.object_path,
-            &req.interface_name,
-            &req.method_name,
-            args,
-            &req.actor_id,
-            &if req.capability_id.is_empty() { None } else { Some(req.capability_id.clone()) },
-        ).await;
+        let result = self
+            .sync_engine
+            .call_dbus_method(
+                &format!("org.opdbus.{}.v1", req.plugin_id),
+                &req.object_path,
+                &req.interface_name,
+                &req.method_name,
+                args,
+                &req.actor_id,
+                &if req.capability_id.is_empty() {
+                    None
+                } else {
+                    Some(req.capability_id.clone())
+                },
+            )
+            .await;
 
         match result {
             Ok(val) => Ok(Response::new(CallMethodResponse {
@@ -351,7 +352,9 @@ impl PluginService for OperationGrpcServer {
         request: Request<GetPropertyRequest>,
     ) -> Result<Response<GetPropertyResponse>, Status> {
         let req = request.into_inner();
-        let connection = Connection::system().await.map_err(|e| Status::internal(e.to_string()))?;
+        let connection = Connection::system()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
         let proxy = zbus::fdo::PropertiesProxy::builder(&connection)
             .destination(format!("org.opdbus.{}.v1", req.plugin_id))
             .map_err(|e| Status::internal(e.to_string()))?
@@ -363,12 +366,13 @@ impl PluginService for OperationGrpcServer {
 
         let iface = zbus::names::InterfaceName::try_from(req.interface_name.as_str())
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        let val: ZOwnedValue = proxy.get(iface, req.property_name.as_str())
+        let val: ZOwnedValue = proxy
+            .get(iface, req.property_name.as_str())
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let json = simd_json::serde::to_owned_value(&val)
-            .map_err(|e| Status::internal(e.to_string()))?;
+        let json =
+            simd_json::serde::to_owned_value(&val).map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(GetPropertyResponse {
             value: Some(simd_to_prost_value(&json)),
@@ -381,7 +385,9 @@ impl PluginService for OperationGrpcServer {
         request: Request<SetPropertyRequest>,
     ) -> Result<Response<SetPropertyResponse>, Status> {
         let req = request.into_inner();
-        let connection = Connection::system().await.map_err(|e| Status::internal(e.to_string()))?;
+        let connection = Connection::system()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
         let proxy = zbus::fdo::PropertiesProxy::builder(&connection)
             .destination(format!("org.opdbus.{}.v1", req.plugin_id))
             .map_err(|e| Status::internal(e.to_string()))?
@@ -394,10 +400,11 @@ impl PluginService for OperationGrpcServer {
         let iface = zbus::names::InterfaceName::try_from(req.interface_name.as_str())
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         let value = prost_value_to_simd(&req.value.unwrap_or_else(|| ProstValue::from(0)));
-        let zval = simd_json_to_zvariant(&value)
-            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        let zval =
+            simd_json_to_zvariant(&value).map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-        proxy.set(iface, req.property_name.as_str(), &zval)
+        proxy
+            .set(iface, req.property_name.as_str(), &zval)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -424,7 +431,8 @@ impl PluginService for OperationGrpcServer {
 
 #[tonic::async_trait]
 impl EventChainService for OperationGrpcServer {
-    type SubscribeEventsStream = Pin<Box<dyn Stream<Item = Result<ProtoChainEvent, Status>> + Send>>;
+    type SubscribeEventsStream =
+        Pin<Box<dyn Stream<Item = Result<ProtoChainEvent, Status>> + Send>>;
 
     async fn get_events(
         &self,
@@ -446,7 +454,11 @@ impl EventChainService for OperationGrpcServer {
                 x if x == ProtoDecision::Deny as i32 => e.decision == Decision::Deny,
                 _ => true,
             })
-            .take(if req.limit == 0 { usize::MAX } else { req.limit as usize })
+            .take(if req.limit == 0 {
+                usize::MAX
+            } else {
+                req.limit as usize
+            })
             .map(proto_chain_event)
             .collect();
 
@@ -504,10 +516,15 @@ impl EventChainService for OperationGrpcServer {
         let req = request.into_inner();
         let chain = self.sync_engine.event_chain();
         let chain = chain.read().await;
-        let proof: Option<MerkleProof> = op_state_store::EventBatch::generate_proof(chain.events(), req.event_id);
+        let proof: Option<MerkleProof> =
+            op_state_store::EventBatch::generate_proof(chain.events(), req.event_id);
 
         if let Some(proof) = proof {
-            let siblings = proof.siblings.into_iter().map(|(hash, is_right)| MerkleProofSibling { hash, is_right }).collect();
+            let siblings = proof
+                .siblings
+                .into_iter()
+                .map(|(hash, is_right)| MerkleProofSibling { hash, is_right })
+                .collect();
             Ok(Response::new(GetProofResponse {
                 event_hash: proof.event_hash,
                 siblings,
@@ -557,7 +574,11 @@ impl EventChainService for OperationGrpcServer {
         request: Request<CreateSnapshotRequest>,
     ) -> Result<Response<CreateSnapshotResponse>, Status> {
         let req = request.into_inner();
-        let state = self.sync_engine.get_state(&req.plugin_id).await.unwrap_or_else(|| simd_json::json!({}));
+        let state = self
+            .sync_engine
+            .get_state(&req.plugin_id)
+            .await
+            .unwrap_or_else(|| simd_json::json!({}));
         let chain = self.sync_engine.event_chain();
         let mut chain = chain.write().await;
         let snapshot = chain.create_snapshot(req.plugin_id, "1.0.0".to_string(), state);
@@ -629,35 +650,48 @@ fn proto_deny_reason(reason: &DenyReason) -> ProtoDenyReason {
             reason: Some(crate::proto::deny_reason::Reason::TagLock(ProtoTagLock {
                 tag: tag.clone(),
                 wrapper_id: wrapper_id.clone(),
-            }))
+            })),
         },
-        DenyReason::ConstraintFail { constraint, message } => ProtoDenyReason {
-            reason: Some(crate::proto::deny_reason::Reason::ConstraintFail(ProtoConstraintFail {
-                constraint: constraint.clone(),
-                message: message.clone(),
-            }))
+        DenyReason::ConstraintFail {
+            constraint,
+            message,
+        } => ProtoDenyReason {
+            reason: Some(crate::proto::deny_reason::Reason::ConstraintFail(
+                ProtoConstraintFail {
+                    constraint: constraint.clone(),
+                    message: message.clone(),
+                },
+            )),
         },
         DenyReason::CapabilityMissing { capability } => ProtoDenyReason {
-            reason: Some(crate::proto::deny_reason::Reason::CapabilityMissing(ProtoCapabilityMissing {
-                capability: capability.clone(),
-            }))
+            reason: Some(crate::proto::deny_reason::Reason::CapabilityMissing(
+                ProtoCapabilityMissing {
+                    capability: capability.clone(),
+                },
+            )),
         },
         DenyReason::ReadOnlyViolation { field } => ProtoDenyReason {
-            reason: Some(crate::proto::deny_reason::Reason::ReadOnlyViolation(ProtoReadOnlyViolation {
-                field: field.clone(),
-            }))
+            reason: Some(crate::proto::deny_reason::Reason::ReadOnlyViolation(
+                ProtoReadOnlyViolation {
+                    field: field.clone(),
+                },
+            )),
         },
         DenyReason::SchemaValidation { errors } => ProtoDenyReason {
-            reason: Some(crate::proto::deny_reason::Reason::ConstraintFail(ProtoConstraintFail {
-                constraint: "schema_validation".to_string(),
-                message: errors.join("; "),
-            }))
+            reason: Some(crate::proto::deny_reason::Reason::ConstraintFail(
+                ProtoConstraintFail {
+                    constraint: "schema_validation".to_string(),
+                    message: errors.join("; "),
+                },
+            )),
         },
         DenyReason::Custom { reason } => ProtoDenyReason {
-            reason: Some(crate::proto::deny_reason::Reason::ConstraintFail(ProtoConstraintFail {
-                constraint: "custom".to_string(),
-                message: reason.clone(),
-            }))
+            reason: Some(crate::proto::deny_reason::Reason::ConstraintFail(
+                ProtoConstraintFail {
+                    constraint: "custom".to_string(),
+                    message: reason.clone(),
+                },
+            )),
         },
     }
 }
@@ -687,36 +721,58 @@ fn proto_timestamp(ts: DateTime<Utc>) -> ProstTimestamp {
 fn simd_to_prost_struct(value: &simd_json::OwnedValue) -> ProstStruct {
     match value.as_object() {
         Some(map) => {
-            let fields = map.iter().map(|(k, v)| (k.to_string(), simd_to_prost_value(v))).collect();
+            let fields = map
+                .iter()
+                .map(|(k, v)| (k.to_string(), simd_to_prost_value(v)))
+                .collect();
             ProstStruct { fields }
         }
-        None => ProstStruct { fields: BTreeMap::new() },
+        None => ProstStruct {
+            fields: BTreeMap::new(),
+        },
     }
 }
 
 fn simd_to_prost_value(value: &simd_json::OwnedValue) -> ProstValue {
     use prost_types::value::Kind;
     if value.as_null().is_some() {
-        return ProstValue { kind: Some(Kind::NullValue(0)) };
+        return ProstValue {
+            kind: Some(Kind::NullValue(0)),
+        };
     }
     if let Some(b) = value.as_bool() {
-        return ProstValue { kind: Some(Kind::BoolValue(b)) };
+        return ProstValue {
+            kind: Some(Kind::BoolValue(b)),
+        };
     }
     if let Some(n) = value.as_f64() {
-        return ProstValue { kind: Some(Kind::NumberValue(n)) };
+        return ProstValue {
+            kind: Some(Kind::NumberValue(n)),
+        };
     }
     if let Some(s) = value.as_str() {
-        return ProstValue { kind: Some(Kind::StringValue(s.to_string())) };
+        return ProstValue {
+            kind: Some(Kind::StringValue(s.to_string())),
+        };
     }
     if let Some(arr) = value.as_array() {
         let vals = arr.iter().map(simd_to_prost_value).collect();
-        return ProstValue { kind: Some(Kind::ListValue(prost_types::ListValue { values: vals })) };
+        return ProstValue {
+            kind: Some(Kind::ListValue(prost_types::ListValue { values: vals })),
+        };
     }
     if let Some(obj) = value.as_object() {
-        let fields = obj.iter().map(|(k, v)| (k.to_string(), simd_to_prost_value(v))).collect();
-        return ProstValue { kind: Some(Kind::StructValue(ProstStruct { fields })) };
+        let fields = obj
+            .iter()
+            .map(|(k, v)| (k.to_string(), simd_to_prost_value(v)))
+            .collect();
+        return ProstValue {
+            kind: Some(Kind::StructValue(ProstStruct { fields })),
+        };
     }
-    ProstValue { kind: Some(Kind::NullValue(0)) }
+    ProstValue {
+        kind: Some(Kind::NullValue(0)),
+    }
 }
 
 fn prost_value_to_simd(value: &ProstValue) -> simd_json::OwnedValue {
@@ -766,10 +822,15 @@ fn simd_json_to_zvariant(value: &simd_json::OwnedValue) -> Result<ZOwnedValue, a
         return Ok(ZOwnedValue::from(f));
     }
 
-    Err(anyhow::anyhow!("Unsupported argument type; use tagged {{sig,value}} or primitives"))
+    Err(anyhow::anyhow!(
+        "Unsupported argument type; use tagged {{sig,value}} or primitives"
+    ))
 }
 
-fn zvariant_from_sig(sig: &str, value: &simd_json::OwnedValue) -> Result<ZOwnedValue, anyhow::Error> {
+fn zvariant_from_sig(
+    sig: &str,
+    value: &simd_json::OwnedValue,
+) -> Result<ZOwnedValue, anyhow::Error> {
     match sig {
         "s" => value
             .as_str()
@@ -805,7 +866,11 @@ fn zvariant_from_sig(sig: &str, value: &simd_json::OwnedValue) -> Result<ZOwnedV
                 .ok_or_else(|| anyhow::anyhow!("Expected array for sig 'ay'"))?;
             let bytes: Result<Vec<u8>, anyhow::Error> = arr
                 .iter()
-                .map(|v| v.as_u64().map(|n| n as u8).ok_or_else(|| anyhow::anyhow!("Expected u8 in ay array")))
+                .map(|v| {
+                    v.as_u64()
+                        .map(|n| n as u8)
+                        .ok_or_else(|| anyhow::anyhow!("Expected u8 in ay array"))
+                })
                 .collect();
             ZOwnedValue::try_from(ZValue::Array(ZArray::from(bytes?)))
                 .map_err(|e| anyhow::anyhow!("Array conversion error: {}", e))

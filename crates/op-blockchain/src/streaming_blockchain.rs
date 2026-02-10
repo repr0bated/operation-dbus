@@ -436,7 +436,9 @@ impl StreamingBlockchain {
         tokio::fs::create_dir_all(&snapshot_dir).await?;
 
         let state_prefix = self.state_snapshot_prefix();
-        let state_counter = self.next_state_snapshot_counter(&snapshot_dir, &state_prefix).await?;
+        let state_counter = self
+            .next_state_snapshot_counter(&snapshot_dir, &state_prefix)
+            .await?;
         let state_snapshot_name = format!("{}-{:06}", state_prefix, state_counter);
 
         // Snapshot timing (audit trail - indexed by block hash)
@@ -795,11 +797,7 @@ impl StreamingBlockchain {
         std::env::var("OPDBUS_STATE_SNAPSHOT_PREFIX").unwrap_or_else(|_| "SNP-state".to_string())
     }
 
-    async fn next_state_snapshot_counter(
-        &self,
-        snapshot_dir: &Path,
-        prefix: &str,
-    ) -> Result<u64> {
+    async fn next_state_snapshot_counter(&self, snapshot_dir: &Path, prefix: &str) -> Result<u64> {
         let mut entries = tokio::fs::read_dir(snapshot_dir).await?;
         let name_prefix = format!("{}-", prefix);
         let mut max_counter = 0u64;

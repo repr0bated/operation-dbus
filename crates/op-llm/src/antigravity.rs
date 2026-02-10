@@ -28,8 +28,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,8 +38,8 @@ use uuid::Uuid;
 
 use crate::headless_oauth::HeadlessOAuthProvider;
 use crate::provider::{
-    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, 
-    ProviderType, TokenUsage, ToolCallInfo, ToolChoice, ToolDefinition,
+    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderType, TokenUsage,
+    ToolCallInfo, ToolChoice, ToolDefinition,
 };
 
 /// Gemini API base URL
@@ -47,8 +47,16 @@ const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta"
 
 /// Available models through Antigravity/Gemini
 const ANTIGRAVITY_MODELS: &[(&str, &str, &str)] = &[
-    ("gemini-2.0-flash", "Gemini 2.0 Flash", "Fast, efficient, and cost-effective"),
-    ("gemini-1.5-pro", "Gemini 1.5 Pro", "High quality, long context window"),
+    (
+        "gemini-2.0-flash",
+        "Gemini 2.0 Flash",
+        "Fast, efficient, and cost-effective",
+    ),
+    (
+        "gemini-1.5-pro",
+        "Gemini 1.5 Pro",
+        "High quality, long context window",
+    ),
     ("gemini-1.5-flash", "Gemini 1.5 Flash", "Legacy flash model"),
 ];
 
@@ -88,9 +96,9 @@ impl AntigravityProvider {
         // 1. Try Bridge URL
         if let Ok(bridge_url) = std::env::var("ANTIGRAVITY_BRIDGE_URL") {
             info!("✅ Antigravity: Using Bridge at {}", bridge_url);
-            let default_model = std::env::var("LLM_MODEL")
-                .unwrap_or_else(|_| "ide-model".to_string());
-                
+            let default_model =
+                std::env::var("LLM_MODEL").unwrap_or_else(|_| "ide-model".to_string());
+
             return Ok(Self {
                 client,
                 auth: AuthMethod::Bridge(bridge_url),
@@ -100,10 +108,13 @@ impl AntigravityProvider {
 
         // 2. Try OAuth first
         let oauth_provider = HeadlessOAuthProvider::from_env().ok();
-        
+
         let auth = if let Some(ref oauth) = oauth_provider {
             if oauth.is_authenticated() {
-                info!("✅ Antigravity: Using OAuth token from {}", oauth.token_file().display());
+                info!(
+                    "✅ Antigravity: Using OAuth token from {}",
+                    oauth.token_file().display()
+                );
                 AuthMethod::OAuth(Arc::new(oauth_provider.unwrap()))
             } else {
                 // Try API key
@@ -130,8 +141,8 @@ impl AntigravityProvider {
             );
         };
 
-        let default_model = std::env::var("LLM_MODEL")
-            .unwrap_or_else(|_| "gemini-2.0-flash".to_string());
+        let default_model =
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
 
         Ok(Self {
             client,
@@ -169,7 +180,8 @@ impl AntigravityProvider {
         match &self.auth {
             AuthMethod::OAuth(oauth) => {
                 let token = oauth.get_token().await?;
-                Ok(self.client
+                Ok(self
+                    .client
                     .post(url)
                     .header("Authorization", format!("Bearer {}", token))
                     .header("Content-Type", "application/json"))
@@ -181,15 +193,15 @@ impl AntigravityProvider {
                 } else {
                     format!("{}?key={}", url, key)
                 };
-                Ok(self.client
+                Ok(self
+                    .client
                     .post(&url_with_key)
                     .header("Content-Type", "application/json"))
             }
-            AuthMethod::Bridge(_) => {
-                Ok(self.client
-                    .post(url)
-                    .header("Content-Type", "application/json"))
-            }
+            AuthMethod::Bridge(_) => Ok(self
+                .client
+                .post(url)
+                .header("Content-Type", "application/json")),
         }
     }
 
@@ -222,12 +234,15 @@ impl AntigravityProvider {
 
     /// Convert messages to OpenAI (Bridge) format
     fn convert_messages_openai(&self, messages: &[ChatMessage]) -> Vec<Value> {
-        messages.iter().map(|m| {
-            json!({
-                "role": m.role,
-                "content": m.content
+        messages
+            .iter()
+            .map(|m| {
+                json!({
+                    "role": m.role,
+                    "content": m.content
+                })
             })
-        }).collect()
+            .collect()
     }
 
     /// Convert tools to Gemini format
@@ -356,8 +371,11 @@ impl LlmProvider for AntigravityProvider {
                 return Err(anyhow::anyhow!("Bridge error: {}", response.status()));
             }
 
-            let result: Value = response.json().await.context("Failed to parse bridge response")?;
-            
+            let result: Value = response
+                .json()
+                .await
+                .context("Failed to parse bridge response")?;
+
             let content = result
                 .get("choices")
                 .and_then(|c| c.as_array())
@@ -409,7 +427,7 @@ impl LlmProvider for AntigravityProvider {
         // Add tools if present
         if !request.tools.is_empty() {
             body["tools"] = self.convert_tools(&request.tools);
-            
+
             if let Some(tool_config) = self.convert_tool_choice(&request.tool_choice) {
                 body["toolConfig"] = json!({"functionCallingConfig": tool_config});
             }
@@ -442,7 +460,7 @@ impl LlmProvider for AntigravityProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            
+
             if status.as_u16() == 401 {
                 return Err(anyhow::anyhow!(
                     "Authentication failed (401).\n\n\
@@ -452,12 +470,11 @@ impl LlmProvider for AntigravityProvider {
                     3. Restart op-web: sudo systemctl restart op-web"
                 ));
             }
-            
+
             return Err(anyhow::anyhow!("API error {}: {}", status, body));
         }
 
-        let result: Value = response.json().await
-            .context("Failed to parse response")?;
+        let result: Value = response.json().await.context("Failed to parse response")?;
 
         // Parse response
         let candidates = result

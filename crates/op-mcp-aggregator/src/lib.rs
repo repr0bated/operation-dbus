@@ -68,30 +68,29 @@
 //! let all_tools = aggregator.get_mcp_tools(ToolMode::Full).await?;
 //! ```
 
-pub mod client;
-pub mod config;
-pub mod profile;
 pub mod aggregator;
 pub mod cache;
+pub mod client;
 pub mod compact;
-pub mod groups;  // Used by op-web for IP-based security
+pub mod config;
+pub mod groups;
+pub mod profile; // Used by op-web for IP-based security
 
 // Re-exports
-pub use aggregator::{Aggregator, ToolMode, AggregatorStats, HealthStatus};
-pub use config::{AggregatorConfig, UpstreamServer, ProfileConfig};
-pub use profile::ProfileManager;
-pub use client::McpClient;
+pub use aggregator::{Aggregator, AggregatorStats, HealthStatus, ToolMode};
 pub use cache::ToolCache;
-pub use compact::{CompactModeConfig, create_compact_tools, compact_mode_summary};
+pub use client::McpClient;
+pub use compact::{compact_mode_summary, create_compact_tools, CompactModeConfig};
+pub use config::{AggregatorConfig, ProfileConfig, UpstreamServer};
 pub use groups::{builtin_groups, builtin_presets};
-pub use op_core::security::{AccessZone, SecurityLevel, NetworkConfig};
+pub use op_core::security::{AccessZone, NetworkConfig, SecurityLevel};
+pub use profile::ProfileManager;
 
 /// Prelude for convenient imports
 pub mod prelude {
     pub use super::{
-        Aggregator, AggregatorConfig, UpstreamServer, ProfileConfig,
-        ProfileManager, McpClient, ToolCache, ToolMode,
-        CompactModeConfig, create_compact_tools,
-        AccessZone, SecurityLevel, NetworkConfig,
+        create_compact_tools, AccessZone, Aggregator, AggregatorConfig, CompactModeConfig,
+        McpClient, NetworkConfig, ProfileConfig, ProfileManager, SecurityLevel, ToolCache,
+        ToolMode, UpstreamServer,
     };
 }

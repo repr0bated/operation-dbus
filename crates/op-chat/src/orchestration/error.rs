@@ -17,13 +17,13 @@ pub enum ErrorCode {
     ConnectionTimeout = 101,
     ConnectionClosed = 102,
     ConnectionRefused = 103,
-    
+
     // Session errors (2xx)
     SessionNotFound = 200,
     SessionExpired = 201,
     SessionInvalid = 202,
     SessionLimitExceeded = 203,
-    
+
     // Agent errors (3xx)
     AgentNotFound = 300,
     AgentUnavailable = 301,
@@ -32,7 +32,7 @@ pub enum ErrorCode {
     AgentStartFailed = 304,
     AgentStopFailed = 305,
     AgentUnresponsive = 306,
-    
+
     // Execution errors (4xx)
     ExecutionFailed = 400,
     ExecutionTimeout = 401,
@@ -42,7 +42,7 @@ pub enum ErrorCode {
     ResourceNotFound = 405,
     PermissionDenied = 406,
     RateLimited = 407,
-    
+
     // Workstack errors (5xx)
     WorkstackNotFound = 500,
     PhaseNotFound = 501,
@@ -50,7 +50,7 @@ pub enum ErrorCode {
     RollbackFailed = 503,
     DependencyFailed = 504,
     CircularDependency = 505,
-    
+
     // Internal errors (9xx)
     InternalError = 900,
     Serialization = 901,
@@ -99,21 +99,21 @@ impl ErrorCode {
             ErrorCode::Unknown => "UNKNOWN",
         }
     }
-    
+
     /// Check if this error is retryable
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
             ErrorCode::ConnectionTimeout
-            | ErrorCode::ConnectionFailed
-            | ErrorCode::AgentTimeout
-            | ErrorCode::AgentBusy
-            | ErrorCode::AgentUnresponsive
-            | ErrorCode::ExecutionTimeout
-            | ErrorCode::RateLimited
+                | ErrorCode::ConnectionFailed
+                | ErrorCode::AgentTimeout
+                | ErrorCode::AgentBusy
+                | ErrorCode::AgentUnresponsive
+                | ErrorCode::ExecutionTimeout
+                | ErrorCode::RateLimited
         )
     }
-    
+
     /// Suggested retry delay for this error
     pub fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {
@@ -172,14 +172,16 @@ impl OrchestrationError {
         let retry_info = if code.is_retryable() {
             Some(RetryInfo {
                 retryable: true,
-                delay: code.suggested_retry_delay().unwrap_or(Duration::from_secs(1)),
+                delay: code
+                    .suggested_retry_delay()
+                    .unwrap_or(Duration::from_secs(1)),
                 max_attempts: 3,
                 current_attempt: None,
             })
         } else {
             None
         };
-        
+
         Self {
             code,
             message,
@@ -189,67 +191,70 @@ impl OrchestrationError {
             retry_info,
         }
     }
-    
+
     /// Add details to the error
     pub fn with_details(mut self, details: impl Into<String>) -> Self {
         self.details = Some(details.into());
         self
     }
-    
+
     /// Add source error
     pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
         self.source = Some(Box::new(source));
         self
     }
-    
+
     /// Add stack trace
     #[cfg(feature = "backtrace")]
     pub fn with_backtrace(mut self) -> Self {
         self.stack_trace = Some(std::backtrace::Backtrace::capture().to_string());
         self
     }
-    
+
     /// Check if this error is retryable
     pub fn is_retryable(&self) -> bool {
-        self.retry_info.as_ref().map(|r| r.retryable).unwrap_or(false)
+        self.retry_info
+            .as_ref()
+            .map(|r| r.retryable)
+            .unwrap_or(false)
     }
-    
+
     /// Get suggested retry delay
     pub fn retry_delay(&self) -> Option<Duration> {
         self.retry_info.as_ref().map(|r| r.delay)
     }
-    
+
     // Convenience constructors
-    
+
     pub fn connection_failed(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::ConnectionFailed, message)
     }
-    
+
     pub fn connection_timeout(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::ConnectionTimeout, message)
     }
-    
+
     pub fn session_not_found(session_id: &str) -> Self {
         Self::new(
             ErrorCode::SessionNotFound,
             format!("Session not found: {}", session_id),
         )
     }
-    
+
     pub fn agent_not_found(agent_id: &str) -> Self {
         Self::new(
             ErrorCode::AgentNotFound,
             format!("Agent not found: {}", agent_id),
         )
     }
-    
+
     pub fn agent_unavailable(agent_id: &str, reason: &str) -> Self {
         Self::new(
             ErrorCode::AgentUnavailable,
             format!("Agent {} unavailable: {}", agent_id, reason),
         )
     }
-    
+
     pub fn agent_timeout(agent_id: &str, operation: &str, timeout: Duration) -> Self {
         Self::new(
             ErrorCode::AgentTimeout,
@@ -259,50 +264,50 @@ impl OrchestrationError {
             ),
         )
     }
-    
+
     pub fn execution_failed(agent_id: &str, operation: &str, reason: &str) -> Self {
         Self::new(
             ErrorCode::ExecutionFailed,
             format!("{}:{} failed: {}", agent_id, operation, reason),
         )
     }
-    
+
     pub fn execution_timeout(agent_id: &str, operation: &str) -> Self {
         Self::new(
             ErrorCode::ExecutionTimeout,
             format!("Execution timeout: {}:{}", agent_id, operation),
         )
     }
-    
+
     pub fn invalid_arguments(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::InvalidArguments, message)
     }
-    
+
     pub fn workstack_not_found(workstack_id: &str) -> Self {
         Self::new(
             ErrorCode::WorkstackNotFound,
             format!("Workstack not found: {}", workstack_id),
         )
     }
-    
+
     pub fn phase_failed(phase_id: &str, reason: &str) -> Self {
         Self::new(
             ErrorCode::PhaseFailed,
             format!("Phase {} failed: {}", phase_id, reason),
         )
     }
-    
+
     pub fn rollback_failed(reason: &str) -> Self {
         Self::new(
             ErrorCode::RollbackFailed,
             format!("Rollback failed: {}", reason),
         )
     }
-    
+
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::InternalError, message)
     }
-    
+
     pub fn serialization(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::Serialization, message)
     }
@@ -320,7 +325,9 @@ impl fmt::Display for OrchestrationError {
 
 impl std::error::Error for OrchestrationError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|e| e.as_ref() as &(dyn std::error::Error + 'static))
+        self.source
+            .as_ref()
+            .map(|e| e.as_ref() as &(dyn std::error::Error + 'static))
     }
 }
 
@@ -335,16 +342,18 @@ impl From<simd_json::Error> for OrchestrationError {
 impl From<std::io::Error> for OrchestrationError {
     fn from(err: std::io::Error) -> Self {
         use std::io::ErrorKind;
-        
+
         let code = match err.kind() {
             ErrorKind::ConnectionRefused => ErrorCode::ConnectionRefused,
-            ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted => ErrorCode::ConnectionClosed,
+            ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted => {
+                ErrorCode::ConnectionClosed
+            }
             ErrorKind::TimedOut => ErrorCode::ConnectionTimeout,
             ErrorKind::NotFound => ErrorCode::ResourceNotFound,
             ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
             _ => ErrorCode::InternalError,
         };
-        
+
         Self::new(code, err.to_string())
     }
 }
@@ -357,7 +366,10 @@ impl From<tokio::time::error::Elapsed> for OrchestrationError {
 
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for OrchestrationError {
     fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
-        Self::new(ErrorCode::ConnectionClosed, format!("Channel send failed: {}", err))
+        Self::new(
+            ErrorCode::ConnectionClosed,
+            format!("Channel send failed: {}", err),
+        )
     }
 }
 
@@ -372,37 +384,55 @@ impl From<anyhow::Error> for OrchestrationError {
 impl From<OrchestrationError> for tonic::Status {
     fn from(err: OrchestrationError) -> Self {
         use tonic::Code;
-        
+
         let code = match err.code {
             ErrorCode::ConnectionFailed | ErrorCode::ConnectionRefused => Code::Unavailable,
-            ErrorCode::ConnectionTimeout | ErrorCode::AgentTimeout | ErrorCode::ExecutionTimeout => Code::DeadlineExceeded,
-            ErrorCode::SessionNotFound | ErrorCode::AgentNotFound | ErrorCode::ResourceNotFound | ErrorCode::WorkstackNotFound | ErrorCode::PhaseNotFound => Code::NotFound,
+            ErrorCode::ConnectionTimeout
+            | ErrorCode::AgentTimeout
+            | ErrorCode::ExecutionTimeout => Code::DeadlineExceeded,
+            ErrorCode::SessionNotFound
+            | ErrorCode::AgentNotFound
+            | ErrorCode::ResourceNotFound
+            | ErrorCode::WorkstackNotFound
+            | ErrorCode::PhaseNotFound => Code::NotFound,
             ErrorCode::SessionExpired | ErrorCode::SessionInvalid => Code::Unauthenticated,
             ErrorCode::PermissionDenied => Code::PermissionDenied,
             ErrorCode::InvalidArguments => Code::InvalidArgument,
             ErrorCode::OperationNotSupported => Code::Unimplemented,
-            ErrorCode::RateLimited | ErrorCode::AgentBusy | ErrorCode::SessionLimitExceeded => Code::ResourceExhausted,
+            ErrorCode::RateLimited | ErrorCode::AgentBusy | ErrorCode::SessionLimitExceeded => {
+                Code::ResourceExhausted
+            }
             ErrorCode::ExecutionCancelled => Code::Cancelled,
             ErrorCode::CircularDependency | ErrorCode::DependencyFailed => Code::FailedPrecondition,
             _ => Code::Internal,
         };
-        
+
         let mut status = tonic::Status::new(code, err.message.clone());
-        
+
         // Add error details as metadata
         if let Some(details) = err.details {
-            status.metadata_mut().insert("x-error-details", details.parse().unwrap_or_default());
+            status
+                .metadata_mut()
+                .insert("x-error-details", details.parse().unwrap_or_default());
         }
-        
-        status.metadata_mut().insert("x-error-code", err.code.as_str().parse().unwrap_or_default());
-        
+
+        status.metadata_mut().insert(
+            "x-error-code",
+            err.code.as_str().parse().unwrap_or_default(),
+        );
+
         if err.is_retryable() {
-            status.metadata_mut().insert("x-retryable", "true".parse().unwrap());
+            status
+                .metadata_mut()
+                .insert("x-retryable", "true".parse().unwrap());
             if let Some(delay) = err.retry_delay() {
-                status.metadata_mut().insert("x-retry-after-ms", delay.as_millis().to_string().parse().unwrap_or_default());
+                status.metadata_mut().insert(
+                    "x-retry-after-ms",
+                    delay.as_millis().to_string().parse().unwrap_or_default(),
+                );
             }
         }
-        
+
         status
     }
 }
@@ -422,7 +452,7 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ResultExt<T> for Result<T,
     fn context(self, code: ErrorCode, message: impl Into<String>) -> OrchestrationResult<T> {
         self.map_err(|e| OrchestrationError::new(code, message).with_source(e))
     }
-    
+
     fn with_context<F>(self, code: ErrorCode, f: F) -> OrchestrationResult<T>
     where
         F: FnOnce() -> String,
@@ -434,14 +464,14 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ResultExt<T> for Result<T,
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_error_codes() {
         assert!(ErrorCode::ConnectionTimeout.is_retryable());
         assert!(!ErrorCode::InvalidArguments.is_retryable());
         assert!(ErrorCode::AgentBusy.suggested_retry_delay().is_some());
     }
-    
+
     #[test]
     fn test_error_display() {
         let err = OrchestrationError::agent_timeout("rust_pro", "build", Duration::from_secs(30));
@@ -449,13 +479,13 @@ mod tests {
         assert!(msg.contains("AGENT_TIMEOUT"));
         assert!(msg.contains("rust_pro"));
     }
-    
+
     #[test]
     fn test_error_retryable() {
         let timeout_err = OrchestrationError::connection_timeout("test");
         assert!(timeout_err.is_retryable());
         assert!(timeout_err.retry_delay().is_some());
-        
+
         let invalid_err = OrchestrationError::invalid_arguments("test");
         assert!(!invalid_err.is_retryable());
     }

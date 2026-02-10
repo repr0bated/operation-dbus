@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 use futures::TryStreamExt;
-use netlink_packet_route::link::LinkAttribute;
 use netlink_packet_route::address::AddressAttribute;
+use netlink_packet_route::link::LinkAttribute;
 use netlink_packet_route::route::RouteAttribute;
 use rtnetlink::{new_connection, IpVersion};
 use serde::{Deserialize, Serialize};
@@ -72,7 +72,9 @@ pub async fn list_interfaces() -> Result<Vec<NetworkInterface>> {
         // Determine state from flags
         let flags_val = &link.header.flags;
         let flags: Vec<String> = flags_val.iter().map(|f| format!("{:?}", f)).collect();
-        let is_up = flags_val.iter().any(|f| matches!(f, netlink_packet_route::link::LinkFlag::Up));
+        let is_up = flags_val
+            .iter()
+            .any(|f| matches!(f, netlink_packet_route::link::LinkFlag::Up));
         let state = if is_up {
             "up".to_string()
         } else {
@@ -108,7 +110,6 @@ async fn get_interface_addresses(
     handle: &rtnetlink::Handle,
     ifindex: u32,
 ) -> Result<Vec<InterfaceAddress>> {
-    
     let mut addresses = Vec::new();
     let mut addr_stream = handle
         .address()
@@ -126,7 +127,7 @@ async fn get_interface_addresses(
         for attr in &addr_msg.attributes {
             if let AddressAttribute::Address(addr) = attr {
                 let addr_str = addr.to_string();
-                
+
                 addresses.push(InterfaceAddress {
                     address: addr_str,
                     prefix_len: addr_msg.header.prefix_len,
@@ -139,11 +140,10 @@ async fn get_interface_addresses(
     Ok(addresses)
 }
 
-
 /// Get default route information
 pub async fn get_default_route() -> Result<Option<simd_json::OwnedValue>> {
     use netlink_packet_route::route::RouteAttribute;
-    
+
     let (connection, handle, _) = new_connection()?;
     tokio::spawn(connection);
 

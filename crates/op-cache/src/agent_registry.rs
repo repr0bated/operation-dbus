@@ -4,12 +4,12 @@
 //! The resolver uses these to build agent sequences.
 
 use anyhow::{Context, Result};
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
-use futures::future::BoxFuture;
 
 /// Core capabilities an agent can provide
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -20,36 +20,36 @@ pub enum AgentCapability {
     SecurityAudit,
     PerformanceAnalysis,
     DependencyAnalysis,
-    
+
     // Generation capabilities
     CodeGeneration,
     TestGeneration,
     DocumentationGeneration,
     RefactoringSuggestion,
-    
+
     // Transformation capabilities
     CodeTransformation,
     FormatConversion,
     LanguageTranslation,
-    
+
     // Data capabilities
     DataExtraction,
     DataValidation,
     DataEnrichment,
     Embedding,
-    
+
     // Reasoning capabilities
     Planning,
     Summarization,
     QuestionAnswering,
     Classification,
-    
+
     // Integration capabilities
     ApiCall,
     DatabaseQuery,
     FileOperation,
     ShellExecution,
-    
+
     // Custom capability (for extensibility)
     Custom(u32),
 }
@@ -64,7 +64,9 @@ impl AgentCapability {
             "dependency_analysis" | "dependencies" => Some(Self::DependencyAnalysis),
             "code_generation" | "generate_code" => Some(Self::CodeGeneration),
             "test_generation" | "generate_tests" | "tests" => Some(Self::TestGeneration),
-            "documentation_generation" | "docs" | "documentation" => Some(Self::DocumentationGeneration),
+            "documentation_generation" | "docs" | "documentation" => {
+                Some(Self::DocumentationGeneration)
+            }
             "refactoring" | "refactor" => Some(Self::RefactoringSuggestion),
             "code_transformation" | "transform" => Some(Self::CodeTransformation),
             "format_conversion" | "convert" => Some(Self::FormatConversion),
@@ -143,34 +145,34 @@ impl Default for AgentPriority {
 pub struct AgentDefinition {
     /// Unique agent identifier
     pub id: String,
-    
+
     /// Human-readable name
     pub name: String,
-    
+
     /// Description of what the agent does
     pub description: String,
-    
+
     /// Capabilities this agent provides (array)
     pub capabilities: Vec<AgentCapability>,
-    
+
     /// Capabilities this agent requires as input
     pub requires: Vec<AgentCapability>,
-    
+
     /// Execution priority
     pub priority: AgentPriority,
-    
+
     /// Whether agent can run in parallel with others
     pub parallelizable: bool,
-    
+
     /// Estimated latency in milliseconds
     pub estimated_latency_ms: u64,
-    
+
     /// Maximum input size in bytes (0 = unlimited)
     pub max_input_size: usize,
-    
+
     /// Agent version
     pub version: String,
-    
+
     /// Whether agent is enabled
     pub enabled: bool,
 }
@@ -284,7 +286,11 @@ impl AgentRegistry {
     }
 
     /// Register an agent with its executor
-    pub async fn register(&self, definition: AgentDefinition, executor: AgentExecutor) -> Result<()> {
+    pub async fn register(
+        &self,
+        definition: AgentDefinition,
+        executor: AgentExecutor,
+    ) -> Result<()> {
         let agent_id = definition.id.clone();
         let capabilities = definition.capabilities.clone();
 
@@ -471,7 +477,10 @@ mod tests {
             .with_capability(AgentCapability::CodeAnalysis)
             .with_capability(AgentCapability::TestGeneration);
 
-        registry.register(agent, make_test_executor()).await.unwrap();
+        registry
+            .register(agent, make_test_executor())
+            .await
+            .unwrap();
 
         let retrieved = registry.get("test_agent").await;
         assert!(retrieved.is_some());
@@ -489,13 +498,23 @@ mod tests {
             .with_capability(AgentCapability::TestGeneration)
             .with_capability(AgentCapability::CodeAnalysis);
 
-        registry.register(agent1, make_test_executor()).await.unwrap();
-        registry.register(agent2, make_test_executor()).await.unwrap();
+        registry
+            .register(agent1, make_test_executor())
+            .await
+            .unwrap();
+        registry
+            .register(agent2, make_test_executor())
+            .await
+            .unwrap();
 
-        let analyzers = registry.find_by_capability(AgentCapability::CodeAnalysis).await;
+        let analyzers = registry
+            .find_by_capability(AgentCapability::CodeAnalysis)
+            .await;
         assert_eq!(analyzers.len(), 2);
 
-        let testers = registry.find_by_capability(AgentCapability::TestGeneration).await;
+        let testers = registry
+            .find_by_capability(AgentCapability::TestGeneration)
+            .await;
         assert_eq!(testers.len(), 1);
     }
 
@@ -529,9 +548,6 @@ mod tests {
             AgentCapability::from_str("tests"),
             Some(AgentCapability::TestGeneration)
         );
-        assert_eq!(
-            AgentCapability::from_str("unknown_capability"),
-            None
-        );
+        assert_eq!(AgentCapability::from_str("unknown_capability"), None);
     }
 }

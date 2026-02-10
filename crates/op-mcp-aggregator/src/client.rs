@@ -5,8 +5,8 @@
 use crate::config::{ServerAuth, TransportType, UpstreamServer};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -87,9 +87,8 @@ pub struct McpClient {
 impl McpClient {
     /// Create a new MCP client for the given server
     pub fn new(config: UpstreamServer) -> Result<Self> {
-        let mut client_builder = reqwest::Client::builder()
-            .timeout(config.timeout());
-        
+        let mut client_builder = reqwest::Client::builder().timeout(config.timeout());
+
         // Add auth if configured
         if let Some(auth) = &config.auth {
             let resolved = auth.resolve();
@@ -98,7 +97,8 @@ impl McpClient {
                     let mut headers = reqwest::header::HeaderMap::new();
                     headers.insert(
                         reqwest::header::AUTHORIZATION,
-                        format!("Bearer {}", token).parse()
+                        format!("Bearer {}", token)
+                            .parse()
                             .map_err(|_| anyhow!("Invalid bearer token"))?,
                     );
                     client_builder = client_builder.default_headers(headers);
@@ -119,17 +119,19 @@ impl McpClient {
                         .encode(format!("{}:{}", username, password));
                     headers.insert(
                         reqwest::header::AUTHORIZATION,
-                        format!("Basic {}", credentials).parse()
+                        format!("Basic {}", credentials)
+                            .parse()
                             .map_err(|_| anyhow!("Invalid basic auth"))?,
                     );
                     client_builder = client_builder.default_headers(headers);
                 }
             }
         }
-        
-        let http_client = client_builder.build()
+
+        let http_client = client_builder
+            .build()
             .context("Failed to build HTTP client")?;
-        
+
         Ok(Self {
             config,
             http_client,
@@ -137,25 +139,25 @@ impl McpClient {
             initialized: RwLock::new(false),
         })
     }
-    
+
     /// Get the server ID
     pub fn server_id(&self) -> &str {
         &self.config.id
     }
-    
+
     /// Get the server config
     pub fn config(&self) -> &UpstreamServer {
         &self.config
     }
-    
+
     /// Initialize the connection to the upstream server
     pub async fn initialize(&self) -> Result<()> {
         if *self.initialized.read().await {
             return Ok(());
         }
-        
+
         info!("Initializing MCP client for server: {}", self.config.name);
-        
+
         match self.config.transport {
             TransportType::Sse => self.initialize_sse().await?,
             TransportType::Stdio => self.initialize_stdio().await?,
@@ -163,38 +165,44 @@ impl McpClient {
                 return Err(anyhow!("WebSocket transport not yet implemented"));
             }
         }
-        
+
         *self.initialized.write().await = true;
         Ok(())
     }
-    
+
     async fn initialize_sse(&self) -> Result<()> {
-        let request = McpRequest::new("initialize", Some(json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {
-                "name": "op-mcp-aggregator",
-                "version": env!("CARGO_PKG_VERSION")
-            }
-        })));
-        
+        let request = McpRequest::new(
+            "initialize",
+            Some(json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "op-mcp-aggregator",
+                    "version": env!("CARGO_PKG_VERSION")
+                }
+            })),
+        );
+
         let response = self.send_request(&request).await?;
-        
+
         if let Some(error) = response.error {
             return Err(anyhow!("Initialize failed: {}", error.message));
         }
-        
-        debug!("Initialized connection to {}: {:?}", self.config.name, response.result);
+
+        debug!(
+            "Initialized connection to {}: {:?}",
+            self.config.name, response.result
+        );
         Ok(())
     }
-    
+
     async fn initialize_stdio(&self) -> Result<()> {
         // For stdio, we'd spawn a child process
         // This is a simplified implementation
         warn!("Stdio transport initialization not fully implemented");
         Ok(())
     }
-    
+
     /// Send a request to the upstream server
     async fn send_request(&self, request: &McpRequest) -> Result<McpResponse> {
         match self.config.transport {
@@ -203,55 +211,58 @@ impl McpClient {
             TransportType::Websocket => Err(anyhow!("WebSocket not implemented")),
         }
     }
-    
+
     async fn send_sse_request(&self, request: &McpRequest) -> Result<McpResponse> {
         let url = format!("{}/message", self.config.url.trim_end_matches('/'));
-        
+
         debug!("Sending MCP request to {}: {}", url, request.method);
-        
-        let response = self.http_client
+
+        let response = self
+            .http_client
             .post(&url)
             .json(request)
             .send()
             .await
             .with_context(|| format!("Failed to send request to {}", self.config.name))?;
-        
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(anyhow!("HTTP error {}: {}", status, body));
         }
-        
-        let mcp_response: McpResponse = response.json().await
+
+        let mcp_response: McpResponse = response
+            .json()
+            .await
             .with_context(|| "Failed to parse MCP response")?;
-        
+
         Ok(mcp_response)
     }
-    
+
     async fn send_stdio_request(&self, _request: &McpRequest) -> Result<McpResponse> {
         // Stdio implementation would write to child process stdin
         // and read from stdout
         Err(anyhow!("Stdio transport not fully implemented"))
     }
-    
+
     /// List tools from this server
     pub async fn list_tools(&self) -> Result<Vec<ToolDefinition>> {
         self.initialize().await?;
-        
+
         let request = McpRequest::new("tools/list", None);
         let response = self.send_request(&request).await?;
-        
+
         if let Some(error) = response.error {
             return Err(anyhow!("tools/list failed: {}", error.message));
         }
-        
+
         let result = response.result.unwrap_or(json!({}));
         let tools: Vec<ToolDefinition> = result
             .as_object()
             .and_then(|obj| obj.get("tools"))
             .and_then(|t| simd_json::serde::from_owned_value(t.clone()).ok())
             .unwrap_or_default();
-        
+
         // Filter tools based on server config
         let filtered: Vec<ToolDefinition> = tools
             .into_iter()
@@ -262,23 +273,23 @@ impl McpClient {
                 t
             })
             .collect();
-        
+
         // Cache the tools
         *self.cached_tools.write().await = filtered.clone();
-        
+
         info!("Loaded {} tools from {}", filtered.len(), self.config.name);
         Ok(filtered)
     }
-    
+
     /// Get cached tools (without refreshing)
     pub async fn get_cached_tools(&self) -> Vec<ToolDefinition> {
         self.cached_tools.read().await.clone()
     }
-    
+
     /// Call a tool on this server
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         self.initialize().await?;
-        
+
         // Remove prefix if we added one
         let actual_name = if let Some(prefix) = &self.config.tool_prefix {
             let prefix_with_underscore = format!("{}_", prefix);
@@ -288,30 +299,36 @@ impl McpClient {
         } else {
             name.to_string()
         };
-        
-        debug!("Calling tool {} (actual: {}) on {}", name, actual_name, self.config.name);
-        
-        let request = McpRequest::new("tools/call", Some(json!({
-            "name": actual_name,
-            "arguments": arguments
-        })));
-        
+
+        debug!(
+            "Calling tool {} (actual: {}) on {}",
+            name, actual_name, self.config.name
+        );
+
+        let request = McpRequest::new(
+            "tools/call",
+            Some(json!({
+                "name": actual_name,
+                "arguments": arguments
+            })),
+        );
+
         let response = self.send_request(&request).await?;
-        
+
         if let Some(error) = response.error {
             return Err(anyhow!("Tool call failed: {}", error.message));
         }
-        
+
         Ok(response.result.unwrap_or(json!(null)))
     }
-    
+
     /// Check if this server has a tool (by prefixed name)
     pub async fn has_tool(&self, name: &str) -> bool {
         let tools = self.cached_tools.read().await;
         let result = tools.iter().any(|t| t.name == name);
         result
     }
-    
+
     /// Health check
     pub async fn health_check(&self) -> bool {
         match self.config.transport {
@@ -340,25 +357,27 @@ impl ClientManager {
             clients: RwLock::new(vec![]),
         }
     }
-    
+
     /// Add a client
     pub async fn add_client(&self, client: Arc<McpClient>) {
         self.clients.write().await.push(client);
     }
-    
+
     /// Get all clients
     pub async fn clients(&self) -> Vec<Arc<McpClient>> {
         self.clients.read().await.clone()
     }
-    
+
     /// Get client by server ID
     pub async fn get_client(&self, server_id: &str) -> Option<Arc<McpClient>> {
-        self.clients.read().await
+        self.clients
+            .read()
+            .await
             .iter()
             .find(|c| c.server_id() == server_id)
             .cloned()
     }
-    
+
     /// Find which client owns a tool
     pub async fn find_tool_owner(&self, tool_name: &str) -> Option<Arc<McpClient>> {
         for client in self.clients.read().await.iter() {
@@ -368,7 +387,7 @@ impl ClientManager {
         }
         None
     }
-    
+
     /// Refresh all clients
     pub async fn refresh_all(&self) -> Result<()> {
         let clients = self.clients.read().await.clone();
@@ -390,7 +409,7 @@ impl Default for ClientManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_mcp_request_creation() {
         let req = McpRequest::new("tools/list", None);
@@ -398,13 +417,13 @@ mod tests {
         assert_eq!(req.method, "tools/list");
         assert!(req.params.is_none());
     }
-    
+
     #[test]
     fn test_tool_prefix_stripping() {
         // Test that tool names are properly prefixed/unprefixed
-        let config = UpstreamServer::sse("gh", "GitHub", "http://localhost:3000")
-            .with_prefix("github");
-        
+        let config =
+            UpstreamServer::sse("gh", "GitHub", "http://localhost:3000").with_prefix("github");
+
         assert_eq!(config.prefixed_name("search"), "github_search");
     }
 }

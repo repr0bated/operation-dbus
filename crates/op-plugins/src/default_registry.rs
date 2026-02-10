@@ -3,35 +3,36 @@
 //! This module defines which plugins are loaded by default when the system starts.
 //! Plugins can be enabled/disabled via configuration.
 
-use op_state::StatePlugin;
 use crate::registry::PluginRegistry;
 use anyhow::Result;
-use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
-use std::sync::Arc;
+use op_state::StatePlugin;
 use op_state_store::StateStore;
+use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
+use std::sync::Arc;
 
 use crate::state_plugins::{
-    McpStatePlugin,
-    NetStatePlugin,
-    SystemdStatePlugin,
     // OpenFlowPlugin,
     // PrivacyRouterPlugin,
     // NetmakerPlugin,
     AdcPlugin,
+    AgentConfigPlugin,
+    ConfigPlugin,
+    DinitStatePlugin,
     EndpointPlugin,
     GcloudAdcPlugin,
+    HardwarePlugin,
     KeypairPlugin,
-    ProxyServerPlugin,
-    SessDeclPlugin,
-    AgentConfigPlugin,
+    McpStatePlugin,
+    NetStatePlugin,
     OvsBridgePlugin,
     ProxmoxPlugin,
-    HardwarePlugin,
+    ProxyServerPlugin,
+    SessDeclPlugin,
     SoftwarePlugin,
     UsersPlugin,
-    WireGuardPlugin,
     WebUiPlugin,
+    WireGuardPlugin,
 };
 
 /// Plugin registry configuration
@@ -40,16 +41,35 @@ pub struct PluginRegistryConfig {
     /// Auto-load plugins on startup
     #[serde(default = "default_auto_load")]
     pub auto_load: Vec<String>,
-    
+
     /// Plugin-specific configurations
     #[serde(default)]
     pub plugin_configs: std::collections::HashMap<String, simd_json::OwnedValue>,
 }
 
 fn default_auto_load() -> Vec<String> {
+    let wg_only = std::env::var("OP_DBUS_WG_ONLY")
+        .ok()
+        .map(|v| {
+            let l = v.to_lowercase();
+            !(l == "0" || l == "false" || l == "no")
+        })
+        .unwrap_or(false);
+
+    if wg_only {
+        return vec![
+            "config".to_string(),
+            "service".to_string(),
+            "dinit".to_string(),
+            "net".to_string(),
+            "wireguard".to_string(),
+        ];
+    }
+
     vec![
         "mcp".to_string(),
-        "systemd".to_string(),
+        "config".to_string(),
+        "dinit".to_string(),
         "net".to_string(),
         // "openflow".to_string(),
     ]
@@ -111,15 +131,18 @@ impl DefaultPluginRegistry {
     async fn load_plugin(&self, name: &str) -> Result<Arc<dyn op_state::StatePlugin>> {
         let plugin: Arc<dyn op_state::StatePlugin> = match name {
             "mcp" => {
-                let config_path = self.get_plugin_config_path("mcp", "/etc/op-dbus/mcp-config.json");
+                let config_path =
+                    self.get_plugin_config_path("mcp", "/etc/op-dbus/mcp-config.json");
                 Arc::new(McpStatePlugin::new(self.state_store.clone(), config_path))
             }
-            "systemd" => {
-                Arc::new(SystemdStatePlugin::new())
+            "config" => {
+                let config_path =
+                    self.get_plugin_config_path("config", "/etc/op-dbus/config-store.json");
+                Arc::new(ConfigPlugin::new(config_path))
             }
-            "net" => {
-                Arc::new(NetStatePlugin::new())
-            }
+            "dinit" => Arc::new(DinitStatePlugin::new()),
+            "systemd" => Arc::new(DinitStatePlugin::new()), // compatibility alias
+            "net" => Arc::new(NetStatePlugin::new()),
             /*
             "openflow" => {
                 Arc::new(OpenFlowPlugin::new())
@@ -171,8 +194,7 @@ impl DefaultPluginRegistry {
     /// Get list of available plugins
     pub fn available_plugins() -> Vec<&'static str> {
         vec![
-            "mcp",
-            "systemd",
+            "mcp", "config", "dinit",
             "net",
             // "openflow",
             // "privacy_router",
@@ -200,9 +222,9 @@ mod tests {
 
         // Check default auto-load plugins
         assert!(registry.is_auto_load("mcp"));
-        assert!(registry.is_auto_load("systemd"));
+        assert!(registry.is_auto_load("config"));
+        assert!(registry.is_auto_load("dinit"));
         assert!(registry.is_auto_load("net"));
-        assert!(registry.is_auto_load("openflow"));
 
         // Load plugins
         let plugins = registry.load_default_plugins().await.unwrap();
@@ -212,15 +234,16 @@ mod tests {
     #[tokio::test]
     async fn test_custom_config() {
         let store = Arc::new(SqliteStore::new(":memory:").await.unwrap());
-        
+
         let config = PluginRegistryConfig {
-            auto_load: vec!["systemd".to_string()],
+            auto_load: vec!["dinit".to_string()],
             plugin_configs: std::collections::HashMap::new(),
         };
 
         let registry = DefaultPluginRegistry::with_config(store, config);
-        
-        assert!(registry.is_auto_load("systemd"));
+
+        assert!(registry.is_auto_load("dinit"));
         assert!(!registry.is_auto_load("mcp"));
+        assert!(!registry.is_auto_load("config"));
     }
 }

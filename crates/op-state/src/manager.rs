@@ -7,8 +7,8 @@ use anyhow::{anyhow, Result};
 use op_blockchain::PluginFootprint;
 use op_state_store::{SchemaRegistry, SqliteStore};
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -47,6 +47,10 @@ pub struct StateManager {
     store: Option<Arc<SqliteStore>>,
     /// Schema registry for validation
     schema_registry: Arc<SchemaRegistry>,
+    /// Enforce schema validation failures as hard errors during materialization.
+    strict_schema_validation: bool,
+    /// Require every registered plugin to have a schema entry.
+    require_plugin_schema: bool,
 }
 
 impl Default for StateManager {
@@ -56,6 +60,190 @@ impl Default for StateManager {
 }
 
 impl StateManager {
+    fn strict_schema_validation_from_env() -> bool {
+        std::env::var("OP_DBUS_STRICT_SCHEMA_VALIDATION")
+            .ok()
+            .map(|v| {
+                let l = v.to_lowercase();
+                !(l == "0" || l == "false" || l == "no")
+            })
+            .unwrap_or(!cfg!(test))
+    }
+
+    fn require_plugin_schema_from_env() -> bool {
+        std::env::var("OP_DBUS_REQUIRE_PLUGIN_SCHEMA")
+            .ok()
+            .map(|v| {
+                let l = v.to_lowercase();
+                !(l == "0" || l == "false" || l == "no")
+            })
+            .unwrap_or(!cfg!(test))
+    }
+
+    fn canonical_plugin_name(name: &str) -> String {
+        match name {
+            "web-ui" => "web_ui".to_string(),
+            "sessdecl" => "sess_decl".to_string(),
+            _ => name.to_string(),
+        }
+    }
+
+    fn deep_merge_value(dst: &mut Value, src: &Value) {
+        if let (Some(dst_obj), Some(src_obj)) = (dst.as_object_mut(), src.as_object()) {
+            for (key, src_value) in src_obj.iter() {
+                if let Some(dst_value) = dst_obj.get_mut(key) {
+                    Self::deep_merge_value(dst_value, src_value);
+                } else {
+                    dst_obj.insert(key.clone(), src_value.clone());
+                }
+            }
+        } else {
+            *dst = src.clone();
+        }
+    }
+
+    fn default_contract_envelope(&self, plugin_name: &str) -> Value {
+        let now = chrono::Utc::now().to_rfc3339();
+        simd_json::json!({
+            "schema_version": "1.0.0",
+            "plugin": plugin_name,
+            "object_type": format!("{}_object", plugin_name),
+            "object_id": format!("{}:default", plugin_name),
+            "stub": {
+                "system_id": "local",
+                "source": "state-manager",
+                "source_ref": "desired-state",
+                "discovered_at": now
+            },
+            "immutable": {
+                "created_at": now,
+                "created_by_plugin": plugin_name,
+                "identity_keys": ["object_id"],
+                "provider": "op-dbus"
+            },
+            "tunable": {},
+            "observed": {
+                "last_observed_at": now,
+                "status": "unknown",
+                "drift_detected": false,
+                "metrics": {}
+            },
+            "meta": {
+                "dependencies": [],
+                "include_in_recovery": true,
+                "recovery_priority": 50,
+                "sensitivity": "internal",
+                "tags": [],
+                "enabled": true
+            },
+            "semantic_index": {
+                "include_paths": ["/tunable"],
+                "exclude_paths": ["/stub/discovered_at"],
+                "chunking": {
+                    "strategy": "json-path-group",
+                    "max_tokens": 512
+                },
+                "redaction": {
+                    "enabled": true
+                }
+            },
+            "privacy_index": {
+                "redaction": {
+                    "rules": [],
+                    "default_action": "mask",
+                    "secret_paths": [],
+                    "pii_paths": [],
+                    "hash_salt_ref": "vault://op-dbus/privacy/hash-salt",
+                    "reversible": false
+                }
+            }
+        })
+    }
+
+    fn materialize_plugin_state(&self, plugin_name: &str, state: &Value) -> Value {
+        let canonical = Self::canonical_plugin_name(plugin_name);
+        let schema_template = self
+            .schema_registry
+            .get(&canonical)
+            .map(|schema| schema.generate_template());
+
+        let is_contract = state
+            .as_object()
+            .map(|obj| {
+                obj.contains_key("schema_version")
+                    || obj.contains_key("stub")
+                    || obj.contains_key("immutable")
+                    || obj.contains_key("tunable")
+            })
+            .unwrap_or(false);
+
+        if is_contract {
+            let mut materialized = self.default_contract_envelope(plugin_name);
+            materialized["plugin"] = simd_json::json!(canonical.clone());
+
+            if let Some(template) = schema_template {
+                materialized["tunable"] = template;
+            }
+
+            Self::deep_merge_value(&mut materialized, state);
+            materialized
+        } else if let Some(mut template) = schema_template {
+            Self::deep_merge_value(&mut template, state);
+            template
+        } else {
+            state.clone()
+        }
+    }
+
+    fn validate_materialized_plugin_state(
+        &self,
+        plugin_name: &str,
+        state: &Value,
+    ) -> Result<()> {
+        let target = if state.get("tunable").is_some() {
+            state.get("tunable").unwrap_or(state)
+        } else {
+            state
+        };
+
+        if let Some(validation) = self.schema_registry.validate(plugin_name, target) {
+            if !validation.valid {
+                let error_summary = validation.errors.join("; ");
+                if self.strict_schema_validation {
+                    return Err(anyhow!(
+                        "Materialized state for plugin '{}' failed schema validation: {}",
+                        plugin_name,
+                        error_summary
+                    ));
+                } else {
+                    log::warn!(
+                        "Materialized state for plugin '{}' did not fully match schema: {}",
+                        plugin_name,
+                        error_summary
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn materialize_desired_state(&self, desired: DesiredState) -> Result<DesiredState> {
+        let mut plugins = HashMap::new();
+
+        for (plugin_name, plugin_state) in desired.plugins.into_iter() {
+            let canonical = Self::canonical_plugin_name(&plugin_name);
+            let materialized = self.materialize_plugin_state(&canonical, &plugin_state);
+            self.validate_materialized_plugin_state(&canonical, &materialized)?;
+            plugins.insert(canonical, materialized);
+        }
+
+        Ok(DesiredState {
+            version: desired.version,
+            plugins,
+        })
+    }
+
     /// Create a new state manager (ledger replaced with streaming blockchain)
     pub fn new() -> Self {
         Self {
@@ -64,6 +252,8 @@ impl StateManager {
             blockchain_sender: None,
             store: None,
             schema_registry: Arc::new(SchemaRegistry::new()),
+            strict_schema_validation: Self::strict_schema_validation_from_env(),
+            require_plugin_schema: Self::require_plugin_schema_from_env(),
         }
     }
 
@@ -78,6 +268,8 @@ impl StateManager {
             blockchain_sender: None,
             store: Some(Arc::new(store)),
             schema_registry: Arc::new(SchemaRegistry::new()),
+            strict_schema_validation: Self::strict_schema_validation_from_env(),
+            require_plugin_schema: Self::require_plugin_schema_from_env(),
         })
     }
 
@@ -98,7 +290,11 @@ impl StateManager {
     }
 
     /// Validate state against plugin schema
-    pub fn validate_plugin_state(&self, plugin_name: &str, state: &Value) -> Option<op_state_store::SchemaValidationResult> {
+    pub fn validate_plugin_state(
+        &self,
+        plugin_name: &str,
+        state: &Value,
+    ) -> Option<op_state_store::SchemaValidationResult> {
         self.schema_registry.validate(plugin_name, state)
     }
 
@@ -162,7 +358,7 @@ impl StateManager {
                 let footprint = PluginFootprint::new(plugin_name, operation, data);
                 footprint.content_hash.clone()
             });
-            
+
             if let Err(e) = store
                 .log_audit(plugin_name, operation, data, footprint_hash.as_deref())
                 .await
@@ -174,7 +370,17 @@ impl StateManager {
 
     /// Register a state plugin
     pub async fn register_plugin(&self, plugin: Arc<dyn StatePlugin>) {
-        let name = plugin.name().to_string();
+        let name = Self::canonical_plugin_name(plugin.name());
+        if self.schema_registry.get(&name).is_none() {
+            if self.require_plugin_schema {
+                panic!("Plugin '{}' has no schema entry in SchemaRegistry", name);
+            } else {
+                log::warn!(
+                    "Plugin '{}' registered without SchemaRegistry entry; materialization defaults may be incomplete",
+                    name
+                );
+            }
+        }
         let mut plugins = self.plugins.write().await;
         plugins.insert(name.clone(), plugin);
         log::info!("Registered state plugin: {}", name);
@@ -182,8 +388,9 @@ impl StateManager {
 
     /// Retrieve a registered plugin by name
     pub async fn get_plugin(&self, plugin_name: &str) -> Option<Arc<dyn StatePlugin>> {
+        let plugin_name = Self::canonical_plugin_name(plugin_name);
         let plugins = self.plugins.read().await;
-        plugins.get(plugin_name).cloned()
+        plugins.get(&plugin_name).cloned()
     }
 
     /// List all registered plugin names
@@ -324,6 +531,7 @@ impl StateManager {
 
     /// Apply desired state atomically across all plugins
     pub async fn apply_state(&self, desired: DesiredState) -> Result<ApplyReport> {
+        let desired = self.materialize_desired_state(desired)?;
         let mut checkpoints = Vec::new();
         let mut results = Vec::new();
 
@@ -513,6 +721,7 @@ impl StateManager {
         desired: DesiredState,
         plugin_name: &str,
     ) -> Result<ApplyReport> {
+        let desired = self.materialize_desired_state(desired)?;
         let mut checkpoints = Vec::new();
         let mut results = Vec::new();
 
@@ -602,6 +811,11 @@ impl StateManager {
                 //                 });
                 //                 self.record_footprint(plugin_name, "apply_single", data);
 
+                // Persist materialized desired plugin state
+                if let Some(desired_state) = desired.plugins.get(plugin_name) {
+                    self.persist_plugin_state(plugin_name, desired_state).await;
+                }
+
                 results.push(result);
             }
             Err(e) => {
@@ -625,5 +839,98 @@ impl StateManager {
             results,
             checkpoints,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_materialize_contract_envelope_propagates_defaults() {
+        let manager = StateManager::new();
+        let input = simd_json::json!({
+            "plugin": "net",
+            "object_id": "net:eth0",
+            "tunable": {
+                "interfaces": []
+            }
+        });
+
+        let materialized = manager.materialize_plugin_state("net", &input);
+
+        assert!(materialized.get("stub").is_some());
+        assert!(materialized.get("immutable").is_some());
+        assert!(materialized.get("observed").is_some());
+        assert!(materialized.get("meta").is_some());
+        assert!(materialized.get("semantic_index").is_some());
+        assert!(materialized.get("privacy_index").is_some());
+        assert_eq!(
+            materialized.get("plugin").and_then(|v| v.as_str()),
+            Some("net")
+        );
+        assert_eq!(
+            materialized.get("object_id").and_then(|v| v.as_str()),
+            Some("net:eth0")
+        );
+    }
+
+    #[test]
+    fn test_materialize_non_contract_uses_schema_template() {
+        let manager = StateManager::new();
+        let input = simd_json::json!({});
+
+        let materialized = manager.materialize_plugin_state("net", &input);
+
+        // net schema template guarantees interfaces exists at root.
+        assert!(materialized.get("interfaces").is_some());
+    }
+
+    #[test]
+    fn test_strict_schema_validation_rejects_invalid_materialized_state() {
+        let mut manager = StateManager::new();
+        manager.strict_schema_validation = true;
+
+        let desired = DesiredState {
+            version: 1,
+            plugins: HashMap::from([("net".to_string(), simd_json::json!({"interfaces": "bad"}))]),
+        };
+
+        let result = manager.materialize_desired_state(desired);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_materialize_normalizes_web_ui_alias() {
+        let manager = StateManager::new();
+        let desired = DesiredState {
+            version: 1,
+            plugins: HashMap::from([(
+                "web-ui".to_string(),
+                simd_json::json!({
+                    "enabled": true,
+                    "compression": true,
+                    "cache_ttl": 10,
+                    "theme": "default"
+                }),
+            )]),
+        };
+
+        let materialized = manager.materialize_desired_state(desired).expect("materialize");
+        assert!(materialized.plugins.contains_key("web_ui"));
+        assert!(!materialized.plugins.contains_key("web-ui"));
+    }
+
+    #[test]
+    fn test_materialize_normalizes_sessdecl_alias() {
+        let manager = StateManager::new();
+        let desired = DesiredState {
+            version: 1,
+            plugins: HashMap::from([("sessdecl".to_string(), simd_json::json!({"sessions": []}))]),
+        };
+
+        let materialized = manager.materialize_desired_state(desired).expect("materialize");
+        assert!(materialized.plugins.contains_key("sess_decl"));
+        assert!(!materialized.plugins.contains_key("sessdecl"));
     }
 }

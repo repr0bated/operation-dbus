@@ -36,6 +36,7 @@ use op_core::BusType;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
+use op_agents::agent_catalog::builtin_agent_descriptors;
 use op_agents::agents::{
     aiml::{
         AIEngineerAgent, DataEngineerAgent, DataScientistAgent, MLEngineerAgent,
@@ -50,23 +51,23 @@ use op_agents::agents::{
     content::{ApiDocumenterAgent, DocsArchitectAgent, MermaidExpertAgent, TutorialEngineerAgent},
     database::{DatabaseArchitectAgent, DatabaseOptimizerAgent, SqlProAgent},
     infrastructure::{
-        CloudArchitectAgent, DeploymentAgent, KubernetesAgent, NetworkEngineerAgent,
-        TerraformAgent,
+        CloudArchitectAgent, DeploymentAgent, KubernetesAgent, NetworkEngineerAgent, TerraformAgent,
     },
     language::{
-        BashProAgent, CProAgent, CppProAgent, CSharpProAgent, ElixirProAgent, GolangProAgent,
+        BashProAgent, CProAgent, CSharpProAgent, CppProAgent, ElixirProAgent, GolangProAgent,
         JavaProAgent, JavaScriptProAgent, JuliaProAgent, PhpProAgent, PythonProAgent, RubyProAgent,
         RustProAgent, ScalaProAgent, TypeScriptProAgent,
     },
     mobile::{FlutterExpertAgent, IOSDeveloperAgent, MobileDeveloperAgent},
     operations::{DevOpsTroubleshooterAgent, IncidentResponderAgent, TestAutomatorAgent},
-    orchestration::{ContextManagerAgent, DxOptimizerAgent, TddOrchestratorAgent, MemoryAgent, SequentialThinkingAgent},
-    security::{
-        BackendSecurityCoderAgent, FrontendSecurityCoderAgent, MobileSecurityCoderAgent,
+    orchestration::{
+        ContextManagerAgent, DxOptimizerAgent, MemoryAgent, SequentialThinkingAgent,
+        TddOrchestratorAgent,
     },
+    security::{BackendSecurityCoderAgent, FrontendSecurityCoderAgent, MobileSecurityCoderAgent},
     seo::{
-        ContentMarketerAgent, SearchSpecialistAgent, SEOContentWriterAgent,
-        SEOKeywordStrategistAgent, SEOMetaOptimizerAgent,
+        ContentMarketerAgent, SEOContentWriterAgent, SEOKeywordStrategistAgent,
+        SEOMetaOptimizerAgent, SearchSpecialistAgent,
     },
     specialty::{
         ARMCortexExpertAgent, BlockchainDeveloperAgent, ErrorDetectiveAgent,
@@ -76,7 +77,6 @@ use op_agents::agents::{
     webframeworks::{DjangoProAgent, FastAPIProAgent, TemporalPythonProAgent},
     AgentTrait,
 };
-use op_agents::agent_catalog::builtin_agent_descriptors;
 use op_agents::dbus_service::{generate_agent_id, start_agent};
 
 fn print_usage() {
@@ -202,10 +202,7 @@ async fn main() -> anyhow::Result<()> {
             "--system" => use_system = true,
             "--list" => {
                 for descriptor in builtin_agent_descriptors() {
-                    println!(
-                        "{} - {}",
-                        descriptor.agent_type, descriptor.description
-                    );
+                    println!("{} - {}", descriptor.agent_type, descriptor.description);
                 }
                 return Ok(());
             }

@@ -10,14 +10,13 @@ use std::time::Duration;
 use prost_types::{value::Kind as ProstKind, Struct as ProstStruct, Value as ProstValue};
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
-use tracing::{info};
+use tracing::info;
 
 use crate::proto::{
-    plugin_service_client::PluginServiceClient,
-    state_sync_client::StateSyncClient,
     event_chain_service_client::EventChainServiceClient,
-    CallMethodRequest, GetStateRequest, MutateRequest, SubscribeRequest, SubscribeEventsRequest,
-    OperationType as ProtoOperationType,
+    plugin_service_client::PluginServiceClient, state_sync_client::StateSyncClient,
+    CallMethodRequest, GetStateRequest, MutateRequest, OperationType as ProtoOperationType,
+    SubscribeEventsRequest, SubscribeRequest,
 };
 
 /// Configuration for a remote gRPC endpoint
@@ -223,7 +222,10 @@ impl RemoteOperationClient {
         actor_id: &str,
         capability_id: &str,
     ) -> Result<simd_json::OwnedValue, GrpcClientError> {
-        let mut client = self.pool.plugin_service_client(&self.default_address).await?;
+        let mut client = self
+            .pool
+            .plugin_service_client(&self.default_address)
+            .await?;
 
         let arguments = arguments
             .iter()
@@ -272,7 +274,10 @@ impl RemoteOperationClient {
         plugin_filters: Vec<String>,
         path_filters: Vec<String>,
         tag_filters: Vec<String>,
-    ) -> Result<impl tokio_stream::Stream<Item = Result<StateUpdateMessage, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<
+        impl tokio_stream::Stream<Item = Result<StateUpdateMessage, GrpcClientError>>,
+        GrpcClientError,
+    > {
         let mut client = self.pool.state_sync_client(&self.default_address).await?;
 
         let request = tonic::Request::new(SubscribeRequest {
@@ -313,7 +318,10 @@ impl RemoteOperationClient {
         from_event_id: Option<u64>,
         plugin_filters: Vec<String>,
         tag_filters: Vec<String>,
-    ) -> Result<impl tokio_stream::Stream<Item = Result<ChainEventMessage, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<
+        impl tokio_stream::Stream<Item = Result<ChainEventMessage, GrpcClientError>>,
+        GrpcClientError,
+    > {
         let mut client = self.pool.event_chain_client(&self.default_address).await?;
 
         let request = tonic::Request::new(SubscribeEventsRequest {
@@ -394,7 +402,9 @@ impl std::fmt::Display for GrpcClientError {
             Self::RequestFailed(msg) => write!(f, "Request failed: {}", msg),
             Self::StreamError(msg) => write!(f, "Stream error: {}", msg),
             Self::ParseError(msg) => write!(f, "Parse error: {}", msg),
-            Self::RemoteError { code, message } => write!(f, "Remote error [{}]: {}", code, message),
+            Self::RemoteError { code, message } => {
+                write!(f, "Remote error [{}]: {}", code, message)
+            }
         }
     }
 }
@@ -422,36 +432,43 @@ fn prost_value_to_serde(value: &ProstValue) -> serde_json::Value {
         None => serde_json::Value::Null,
         Some(ProstKind::NullValue(_)) => serde_json::Value::Null,
         Some(ProstKind::BoolValue(b)) => serde_json::Value::Bool(*b),
-        Some(ProstKind::NumberValue(n)) => {
-            serde_json::Number::from_f64(*n).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)
-        }
+        Some(ProstKind::NumberValue(n)) => serde_json::Number::from_f64(*n)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
         Some(ProstKind::StringValue(s)) => serde_json::Value::String(s.clone()),
-        Some(ProstKind::StructValue(s)) => {
-            serde_json::Value::Object(
-                s.fields
-                    .iter()
-                    .map(|(k, v)| (k.clone(), prost_value_to_serde(v)))
-                    .collect(),
-            )
-        }
-        Some(ProstKind::ListValue(l)) => serde_json::Value::Array(
-            l.values.iter().map(prost_value_to_serde).collect(),
+        Some(ProstKind::StructValue(s)) => serde_json::Value::Object(
+            s.fields
+                .iter()
+                .map(|(k, v)| (k.clone(), prost_value_to_serde(v)))
+                .collect(),
         ),
+        Some(ProstKind::ListValue(l)) => {
+            serde_json::Value::Array(l.values.iter().map(prost_value_to_serde).collect())
+        }
     }
 }
 
 fn simd_to_prost_value(value: &simd_json::OwnedValue) -> ProstValue {
     let json = simd_json::to_string(value).unwrap_or_else(|_| "null".to_string());
-    let serde_value: serde_json::Value = serde_json::from_str(&json).unwrap_or(serde_json::Value::Null);
+    let serde_value: serde_json::Value =
+        serde_json::from_str(&json).unwrap_or(serde_json::Value::Null);
     serde_to_prost_value(&serde_value)
 }
 
 fn serde_to_prost_value(value: &serde_json::Value) -> ProstValue {
     match value {
-        serde_json::Value::Null => ProstValue { kind: Some(ProstKind::NullValue(0)) },
-        serde_json::Value::Bool(b) => ProstValue { kind: Some(ProstKind::BoolValue(*b)) },
-        serde_json::Value::Number(n) => ProstValue { kind: Some(ProstKind::NumberValue(n.as_f64().unwrap_or(0.0))) },
-        serde_json::Value::String(s) => ProstValue { kind: Some(ProstKind::StringValue(s.clone())) },
+        serde_json::Value::Null => ProstValue {
+            kind: Some(ProstKind::NullValue(0)),
+        },
+        serde_json::Value::Bool(b) => ProstValue {
+            kind: Some(ProstKind::BoolValue(*b)),
+        },
+        serde_json::Value::Number(n) => ProstValue {
+            kind: Some(ProstKind::NumberValue(n.as_f64().unwrap_or(0.0))),
+        },
+        serde_json::Value::String(s) => ProstValue {
+            kind: Some(ProstKind::StringValue(s.clone())),
+        },
         serde_json::Value::Array(arr) => ProstValue {
             kind: Some(ProstKind::ListValue(prost_types::ListValue {
                 values: arr.iter().map(serde_to_prost_value).collect(),
@@ -459,7 +476,10 @@ fn serde_to_prost_value(value: &serde_json::Value) -> ProstValue {
         },
         serde_json::Value::Object(map) => ProstValue {
             kind: Some(ProstKind::StructValue(ProstStruct {
-                fields: map.iter().map(|(k, v)| (k.clone(), serde_to_prost_value(v))).collect(),
+                fields: map
+                    .iter()
+                    .map(|(k, v)| (k.clone(), serde_to_prost_value(v)))
+                    .collect(),
             })),
         },
     }

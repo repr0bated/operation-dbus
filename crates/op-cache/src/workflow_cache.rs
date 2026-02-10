@@ -33,10 +33,10 @@ pub struct WorkflowCacheConfig {
 impl Default for WorkflowCacheConfig {
     fn default() -> Self {
         Self {
-            default_ttl_secs: 3600,           // 1 hour
+            default_ttl_secs: 3600,             // 1 hour
             max_size_bytes: 1024 * 1024 * 1024, // 1GB
             compress: true,
-            hot_threshold_secs: 600,          // 10 minutes
+            hot_threshold_secs: 600, // 10 minutes
         }
     }
 }
@@ -83,8 +83,8 @@ impl WorkflowCache {
         tokio::fs::create_dir_all(&data_dir).await?;
 
         let db_path = workflows_dir.join("cache.db");
-        let db =
-            rusqlite::Connection::open(&db_path).context("Failed to open workflow cache database")?;
+        let db = rusqlite::Connection::open(&db_path)
+            .context("Failed to open workflow cache database")?;
 
         // Create tables
         db.execute_batch(
@@ -279,12 +279,7 @@ impl WorkflowCache {
     }
 
     /// Invalidate a specific cache entry
-    pub fn invalidate(
-        &self,
-        workflow_id: &str,
-        step_index: usize,
-        input_hash: &str,
-    ) -> Result<()> {
+    pub fn invalidate(&self, workflow_id: &str, step_index: usize, input_hash: &str) -> Result<()> {
         let cache_key = self.make_cache_key(workflow_id, step_index, input_hash);
 
         let db = self.db.lock().unwrap();
@@ -322,9 +317,8 @@ impl WorkflowCache {
         let db = self.db.lock().unwrap();
 
         // Get all file paths
-        let mut stmt = db.prepare(
-            "SELECT output_file FROM workflow_step_cache WHERE workflow_id = ?1",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT output_file FROM workflow_step_cache WHERE workflow_id = ?1")?;
 
         let files: Vec<String> = stmt
             .query_map([workflow_id], |row| row.get(0))?
@@ -502,11 +496,10 @@ impl WorkflowCache {
     pub fn stats(&self) -> Result<CacheStats> {
         let db = self.db.lock().unwrap();
 
-        let total_entries: u64 = db.query_row(
-            "SELECT COUNT(*) FROM workflow_step_cache",
-            [],
-            |row| row.get(0),
-        )?;
+        let total_entries: u64 =
+            db.query_row("SELECT COUNT(*) FROM workflow_step_cache", [], |row| {
+                row.get(0)
+            })?;
 
         let total_size: u64 = db.query_row(
             "SELECT COALESCE(SUM(size_bytes), 0) FROM workflow_step_cache",
@@ -650,14 +643,12 @@ impl WorkflowCache {
 
     /// Compress data using zstd
     fn compress(&self, data: &[u8]) -> Result<Vec<u8>> {
-        zstd::encode_all(std::io::Cursor::new(data), 3)
-            .context("Failed to compress data")
+        zstd::encode_all(std::io::Cursor::new(data), 3).context("Failed to compress data")
     }
 
     /// Decompress data using zstd
     fn decompress(&self, data: &[u8]) -> Result<Vec<u8>> {
-        zstd::decode_all(std::io::Cursor::new(data))
-            .context("Failed to decompress data")
+        zstd::decode_all(std::io::Cursor::new(data)).context("Failed to decompress data")
     }
 }
 
@@ -743,12 +734,8 @@ mod tests {
             .await
             .unwrap();
 
-        cache
-            .put("wf-001", 0, "input-1", b"data1", None)
-            .unwrap();
-        cache
-            .put("wf-001", 1, "input-2", b"data2", None)
-            .unwrap();
+        cache.put("wf-001", 0, "input-1", b"data1", None).unwrap();
+        cache.put("wf-001", 1, "input-2", b"data2", None).unwrap();
 
         let count = cache.invalidate_workflow("wf-001").unwrap();
         assert_eq!(count, 2);
@@ -766,7 +753,9 @@ mod tests {
             .unwrap();
 
         // Insert with very short TTL
-        cache.put("wf-001", 0, "input-1", b"data", Some(-1)).unwrap();
+        cache
+            .put("wf-001", 0, "input-1", b"data", Some(-1))
+            .unwrap();
 
         // Should be expired immediately
         let result = cache.get("wf-001", 0, "input-1").unwrap();

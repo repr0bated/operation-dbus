@@ -37,7 +37,7 @@ use crate::provider::{
 pub mod endpoints {
     /// Base API URL
     pub const BASE_URL: &str = "https://api.perplexity.ai";
-    
+
     /// Chat completions endpoint (OpenAI-compatible)
     /// Full URL: {BASE_URL}/chat/completions
     pub const CHAT_COMPLETIONS: &str = "/chat/completions";
@@ -51,10 +51,26 @@ pub mod endpoints {
 const PERPLEXITY_MODELS: &[(&str, &str, &str)] = &[
     ("sonar", "Sonar", "Default online model with search"),
     ("sonar-pro", "Sonar Pro", "Advanced online model"),
-    ("sonar-reasoning", "Sonar Reasoning", "Enhanced reasoning with search"),
-    ("llama-3.1-sonar-small-128k-online", "Sonar Small Online", "Fast online model"),
-    ("llama-3.1-sonar-large-128k-online", "Sonar Large Online", "Capable online model"),
-    ("llama-3.1-sonar-huge-128k-online", "Sonar Huge Online", "Most capable online"),
+    (
+        "sonar-reasoning",
+        "Sonar Reasoning",
+        "Enhanced reasoning with search",
+    ),
+    (
+        "llama-3.1-sonar-small-128k-online",
+        "Sonar Small Online",
+        "Fast online model",
+    ),
+    (
+        "llama-3.1-sonar-large-128k-online",
+        "Sonar Large Online",
+        "Capable online model",
+    ),
+    (
+        "llama-3.1-sonar-huge-128k-online",
+        "Sonar Huge Online",
+        "Most capable online",
+    ),
 ];
 
 #[derive(Debug, Serialize)]
@@ -149,7 +165,7 @@ impl LlmProvider for PerplexityClient {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         info!("Perplexity models (static list)");
         info!("  Endpoint: {}", self.api_url);
-        
+
         Ok(PERPLEXITY_MODELS
             .iter()
             .map(|(id, name, desc)| ModelInfo {
@@ -170,8 +186,10 @@ impl LlmProvider for PerplexityClient {
         let models = self.list_models().await?;
         Ok(models
             .into_iter()
-            .filter(|m| m.id.to_lowercase().contains(&query_lower) || 
-                       m.name.to_lowercase().contains(&query_lower))
+            .filter(|m| {
+                m.id.to_lowercase().contains(&query_lower)
+                    || m.name.to_lowercase().contains(&query_lower)
+            })
             .take(limit)
             .collect())
     }
@@ -188,8 +206,11 @@ impl LlmProvider for PerplexityClient {
     async fn chat(&self, model: &str, messages: Vec<ChatMessage>) -> Result<ChatResponse> {
         // Build URL: {api_url}/chat/completions
         let url = format!("{}/chat/completions", self.api_url);
-        
-        info!("Perplexity chat: model={}, endpoint={}", model, self.api_url);
+
+        info!(
+            "Perplexity chat: model={}, endpoint={}",
+            model, self.api_url
+        );
 
         let perplexity_messages: Vec<PerplexityMessage> = messages
             .iter()

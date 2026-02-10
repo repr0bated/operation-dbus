@@ -5,11 +5,11 @@ use tonic::transport::Server;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use op_services::dbus::interface::run_dbus_server;
 use op_services::grpc::proto::service_manager_server::ServiceManagerServer;
 use op_services::grpc::server::GrpcServer;
 use op_services::manager::ServiceManager;
 use op_services::store::Store;
-use op_services::dbus::interface::run_dbus_server;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

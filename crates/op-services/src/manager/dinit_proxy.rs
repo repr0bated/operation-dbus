@@ -1,7 +1,7 @@
 //! dinit D-Bus proxy
 
-use zbus::{Connection, proxy};
 use tracing::info;
+use zbus::{proxy, Connection};
 
 #[proxy(
     interface = "org.dinit.Manager",
@@ -23,11 +23,11 @@ impl DinitProxy {
     pub async fn new() -> anyhow::Result<Self> {
         let conn = Connection::system().await?;
         let proxy = DinitManagerProxy::new(&conn).await?;
-        
+
         // Test connection
         proxy.list_services().await?;
         info!("Connected to dinit-dbus");
-        
+
         Ok(Self { proxy })
     }
 

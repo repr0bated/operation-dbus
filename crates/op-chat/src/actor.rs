@@ -8,7 +8,7 @@
 //! - Provides unified JSON responses
 
 use anyhow::Result;
-use op_execution_tracker::{ExecutionTracker, ExecutionMetrics, ExecutionTelemetry};
+use op_execution_tracker::{ExecutionMetrics, ExecutionTelemetry, ExecutionTracker};
 // use op_introspection::IntrospectionService;
 use op_tools::ToolRegistry;
 use serde::{Deserialize, Serialize};
@@ -186,11 +186,18 @@ impl ChatActorHandle {
     // === Convenience methods ===
 
     pub async fn health(&self) -> RpcResponse {
-        self.call(RpcRequest::Health).await.unwrap_or_else(|e| RpcResponse::error(e.to_string()))
+        self.call(RpcRequest::Health)
+            .await
+            .unwrap_or_else(|e| RpcResponse::error(e.to_string()))
     }
 
     pub async fn list_tools(&self) -> RpcResponse {
-        self.call(RpcRequest::ListTools { offset: None, limit: None }).await.unwrap_or_else(|e| RpcResponse::error(e.to_string()))
+        self.call(RpcRequest::ListTools {
+            offset: None,
+            limit: None,
+        })
+        .await
+        .unwrap_or_else(|e| RpcResponse::error(e.to_string()))
     }
 
     pub async fn execute_tool(&self, request: op_core::ToolRequest) -> RpcResponse {
@@ -198,7 +205,9 @@ impl ChatActorHandle {
             name: request.tool_name.clone(),
             arguments: request.arguments,
             session_id: None,
-        }).await.unwrap_or_else(|e| RpcResponse::error(e.to_string()))
+        })
+        .await
+        .unwrap_or_else(|e| RpcResponse::error(e.to_string()))
     }
 
     pub async fn chat(&self, session_id: Option<String>, message: &str) -> RpcResponse {
@@ -207,7 +216,9 @@ impl ChatActorHandle {
             message: message.to_string(),
             session_id,
             model: None,
-        }).await.unwrap_or_else(|e| RpcResponse::error(e.to_string()))
+        })
+        .await
+        .unwrap_or_else(|e| RpcResponse::error(e.to_string()))
     }
 
     pub async fn list_services(&self, _bus_type: op_core::BusType) -> RpcResponse {
@@ -215,16 +226,23 @@ impl ChatActorHandle {
         RpcResponse::error("List services not supported via RPC yet")
     }
 
-    pub async fn introspect(&self, bus_type: op_core::BusType, service: &str, _path: &str) -> RpcResponse {
+    pub async fn introspect(
+        &self,
+        bus_type: op_core::BusType,
+        service: &str,
+        _path: &str,
+    ) -> RpcResponse {
         let bus_str = match bus_type {
             op_core::BusType::Session => "session",
             op_core::BusType::System => "system",
         };
-        
+
         self.call(RpcRequest::Introspect {
             service: service.to_string(),
             bus_type: Some(bus_str.to_string()),
-        }).await.unwrap_or_else(|e| RpcResponse::error(e.to_string()))
+        })
+        .await
+        .unwrap_or_else(|e| RpcResponse::error(e.to_string()))
     }
 }
 
@@ -251,11 +269,8 @@ impl ChatActor {
         let telemetry = Arc::new(ExecutionTelemetry::new("op-chat"));
 
         let tracker = Arc::new(ExecutionTracker::new(config.max_history));
-        
-        let tool_executor = Arc::new(TrackedToolExecutor::new(
-            tool_registry.clone(),
-            tracker,
-        ));
+
+        let tool_executor = Arc::new(TrackedToolExecutor::new(tool_registry.clone(), tracker));
         // let introspection = Arc::new(IntrospectionService::new());
         let session_manager = Arc::new(SessionManager::new());
 
@@ -285,11 +300,8 @@ impl ChatActor {
         let telemetry = Arc::new(ExecutionTelemetry::new("op-chat"));
 
         let tracker = Arc::new(ExecutionTracker::new(config.max_history));
-        
-        let tool_executor = Arc::new(TrackedToolExecutor::new(
-            tool_registry.clone(),
-            tracker,
-        ));
+
+        let tool_executor = Arc::new(TrackedToolExecutor::new(tool_registry.clone(), tracker));
         // let introspection = Arc::new(IntrospectionService::new());
         let session_manager = Arc::new(SessionManager::new());
 
@@ -359,9 +371,7 @@ impl ChatActor {
                 model,
             } => self.handle_chat(&message, &session_id, model).await,
 
-            RpcRequest::GetHistory { limit } => {
-                self.handle_get_history(limit.unwrap_or(50)).await
-            }
+            RpcRequest::GetHistory { limit } => self.handle_get_history(limit.unwrap_or(50)).await,
 
             RpcRequest::GetStats => self.handle_get_stats().await,
 
@@ -385,11 +395,7 @@ impl ChatActor {
         }
     }
 
-    async fn handle_list_tools(
-        &self,
-        offset: Option<usize>,
-        limit: Option<usize>,
-    ) -> RpcResponse {
+    async fn handle_list_tools(&self, offset: Option<usize>, limit: Option<usize>) -> RpcResponse {
         let tools = self.tool_registry.list().await;
 
         let offset = offset.unwrap_or(0);
@@ -482,11 +488,7 @@ impl ChatActor {
         }))
     }
 
-    async fn handle_introspect(
-        &self,
-        _service: &str,
-        _bus_type: Option<String>,
-    ) -> RpcResponse {
+    async fn handle_introspect(&self, _service: &str, _bus_type: Option<String>) -> RpcResponse {
         RpcResponse::error("Introspection service disabled")
     }
 

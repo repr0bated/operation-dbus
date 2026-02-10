@@ -5,8 +5,8 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use simd_json::{json, OwnedValue as Value};
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tracing::info;
 
 /// Service name - validated on construction
@@ -23,7 +23,10 @@ impl ServiceName {
         if name.len() > 64 {
             return Err(ValidationError::NameTooLong(name.len()));
         }
-        if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '@') {
+        if !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '@')
+        {
             return Err(ValidationError::InvalidChars(name));
         }
         if name.starts_with('-') || name.starts_with('.') {
@@ -32,18 +35,26 @@ impl ServiceName {
         Ok(Self(name))
     }
 
-    pub fn as_str(&self) -> &str { &self.0 }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl TryFrom<String> for ServiceName {
     type Error = ValidationError;
-    fn try_from(s: String) -> Result<Self, Self::Error> { Self::new(s) }
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Self::new(s)
+    }
 }
 impl From<ServiceName> for String {
-    fn from(n: ServiceName) -> String { n.0 }
+    fn from(n: ServiceName) -> String {
+        n.0
+    }
 }
 impl std::fmt::Display for ServiceName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.0) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 /// Validation errors
@@ -69,7 +80,9 @@ pub enum ValidationError {
 pub enum ServiceType {
     #[default]
     Simple,
-    Forking { pid_file: Option<PathBuf> },
+    Forking {
+        pid_file: Option<PathBuf>,
+    },
     Oneshot,
     Notify,
 }
@@ -136,7 +149,9 @@ impl ResourceLimits {
         }
         if let Some(cpu) = self.cpu_quota {
             if cpu <= 0.0 || cpu > 100.0 {
-                return Err(ValidationError::InvalidResource("cpu_quota not in 0-100".into()));
+                return Err(ValidationError::InvalidResource(
+                    "cpu_quota not in 0-100".into(),
+                ));
             }
         }
         Ok(())
@@ -163,11 +178,17 @@ pub struct RestartPolicy {
     pub max_retries: Option<u32>,
 }
 
-fn default_delay() -> u64 { 1 }
+fn default_delay() -> u64 {
+    1
+}
 
 impl Default for RestartPolicy {
     fn default() -> Self {
-        Self { condition: RestartCondition::Never, delay_secs: 1, max_retries: None }
+        Self {
+            condition: RestartCondition::Never,
+            delay_secs: 1,
+            max_retries: None,
+        }
     }
 }
 
@@ -198,38 +219,44 @@ impl ServiceDef {
     /// Generate dinit service file content from validated schema
     pub fn to_dinit(&self) -> String {
         let mut out = String::new();
-        
+
         // Type
-        out.push_str(&format!("type = {}\n", match self.service_type {
-            ServiceType::Simple => "process",
-            ServiceType::Forking { .. } => "bgprocess",
-            ServiceType::Oneshot => "scripted",
-            ServiceType::Notify => "process",
-        }));
-        
+        out.push_str(&format!(
+            "type = {}\n",
+            match self.service_type {
+                ServiceType::Simple => "process",
+                ServiceType::Forking { .. } => "bgprocess",
+                ServiceType::Oneshot => "scripted",
+                ServiceType::Notify => "process",
+            }
+        ));
+
         // Command
-        out.push_str(&format!("command = {}\n", self.exec_start.to_command_line()));
-        
+        out.push_str(&format!(
+            "command = {}\n",
+            self.exec_start.to_command_line()
+        ));
+
         // Stop command
         if let Some(ref stop) = self.exec_stop {
             out.push_str(&format!("stop-command = {}\n", stop.to_command_line()));
         }
-        
+
         // Working directory
         if let Some(ref dir) = self.working_dir {
             out.push_str(&format!("working-dir = {}\n", dir.display()));
         }
-        
+
         // User/group
         if let Some(ref user) = self.user {
             out.push_str(&format!("run-as = {}\n", user));
         }
-        
+
         // Dependencies
         for dep in &self.depends_on {
             out.push_str(&format!("depends-on = {}\n", dep));
         }
-        
+
         // Restart policy
         match self.restart.condition {
             RestartCondition::Always => out.push_str("restart = yes\n"),
@@ -239,15 +266,15 @@ impl ServiceDef {
         if self.restart.delay_secs > 0 {
             out.push_str(&format!("restart-delay = {}\n", self.restart.delay_secs));
         }
-        
+
         // Environment
         for (k, v) in &self.environment {
             out.push_str(&format!("env = {}={}\n", k, v));
         }
-        
+
         out
     }
-    
+
     /// Write dinit service file to /etc/dinit.d/
     pub fn install(&self) -> std::io::Result<()> {
         let path = format!("/etc/dinit.d/{}", self.name);
@@ -301,7 +328,9 @@ pub struct SystemdPlugin {
 }
 
 impl SystemdPlugin {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub async fn get_state(&self) -> Result<Vec<ServiceState>> {
         let names: Vec<&str> = if self.services.is_empty() {
@@ -339,16 +368,27 @@ impl SystemdPlugin {
         Ok(())
     }
 
-    pub async fn start(&self, name: &str) -> Result<()> { self.ctl(name, "start").await }
-    pub async fn stop(&self, name: &str) -> Result<()> { self.ctl(name, "stop").await }
-    pub async fn restart(&self, name: &str) -> Result<()> { self.ctl(name, "restart").await }
-    pub async fn enable(&self, name: &str) -> Result<()> { self.ctl(name, "enable").await }
-    pub async fn disable(&self, name: &str) -> Result<()> { self.ctl(name, "disable").await }
+    pub async fn start(&self, name: &str) -> Result<()> {
+        self.ctl(name, "start").await
+    }
+    pub async fn stop(&self, name: &str) -> Result<()> {
+        self.ctl(name, "stop").await
+    }
+    pub async fn restart(&self, name: &str) -> Result<()> {
+        self.ctl(name, "restart").await
+    }
+    pub async fn enable(&self, name: &str) -> Result<()> {
+        self.ctl(name, "enable").await
+    }
+    pub async fn disable(&self, name: &str) -> Result<()> {
+        self.ctl(name, "disable").await
+    }
 
     pub async fn get_service_status(&self, name: &str) -> Result<ServiceState> {
         let out = tokio::process::Command::new("systemctl")
             .args(["show", name, "--property=ActiveState,SubState,LoadState"])
-            .output().await?;
+            .output()
+            .await?;
 
         if !out.status.success() {
             anyhow::bail!("systemctl show failed for {}", name);
@@ -392,11 +432,16 @@ impl SystemdPlugin {
         info!("systemctl {} {}", action, name);
         let out = tokio::process::Command::new("systemctl")
             .args([action, name])
-            .output().await?;
+            .output()
+            .await?;
 
         if !out.status.success() {
-            anyhow::bail!("systemctl {} {} failed: {}", action, name, 
-                String::from_utf8_lossy(&out.stderr));
+            anyhow::bail!(
+                "systemctl {} {} failed: {}",
+                action,
+                name,
+                String::from_utf8_lossy(&out.stderr)
+            );
         }
         Ok(())
     }

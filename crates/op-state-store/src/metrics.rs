@@ -126,29 +126,45 @@ pub fn register_metrics() {
         // Job metrics
         REGISTRY.register(Box::new(JOBS_CREATED_TOTAL.clone())).ok();
         REGISTRY.register(Box::new(JOBS_BY_STATUS.clone())).ok();
-        REGISTRY.register(Box::new(JOB_STATUS_TRANSITIONS.clone())).ok();
-        REGISTRY.register(Box::new(JOB_DURATION_SECONDS.clone())).ok();
+        REGISTRY
+            .register(Box::new(JOB_STATUS_TRANSITIONS.clone()))
+            .ok();
+        REGISTRY
+            .register(Box::new(JOB_DURATION_SECONDS.clone()))
+            .ok();
 
         // Store operation metrics
         REGISTRY.register(Box::new(STORE_OP_DURATION.clone())).ok();
         REGISTRY.register(Box::new(STORE_OP_ERRORS.clone())).ok();
 
         // Plugin metrics
-        REGISTRY.register(Box::new(PLUGIN_QUERIES_TOTAL.clone())).ok();
-        REGISTRY.register(Box::new(PLUGIN_APPLIES_TOTAL.clone())).ok();
-        REGISTRY.register(Box::new(CHECKPOINTS_CREATED.clone())).ok();
+        REGISTRY
+            .register(Box::new(PLUGIN_QUERIES_TOTAL.clone()))
+            .ok();
+        REGISTRY
+            .register(Box::new(PLUGIN_APPLIES_TOTAL.clone()))
+            .ok();
+        REGISTRY
+            .register(Box::new(CHECKPOINTS_CREATED.clone()))
+            .ok();
 
         // Audit metrics
-        REGISTRY.register(Box::new(AUDIT_ENTRIES_TOTAL.clone())).ok();
+        REGISTRY
+            .register(Box::new(AUDIT_ENTRIES_TOTAL.clone()))
+            .ok();
 
         // Redis metrics
         REGISTRY.register(Box::new(REDIS_CONNECTED.clone())).ok();
-        REGISTRY.register(Box::new(REDIS_STREAM_LENGTH.clone())).ok();
+        REGISTRY
+            .register(Box::new(REDIS_STREAM_LENGTH.clone()))
+            .ok();
         REGISTRY.register(Box::new(REDIS_OPS_TOTAL.clone())).ok();
 
         // SQLite metrics
         REGISTRY.register(Box::new(SQLITE_POOL_SIZE.clone())).ok();
-        REGISTRY.register(Box::new(SQLITE_DB_SIZE_BYTES.clone())).ok();
+        REGISTRY
+            .register(Box::new(SQLITE_DB_SIZE_BYTES.clone()))
+            .ok();
 
         info!("State store metrics registered");
     });
@@ -182,9 +198,7 @@ impl Drop for OperationTimer {
 
 /// Record a job status transition
 pub fn record_job_transition(from: &str, to: &str) {
-    JOB_STATUS_TRANSITIONS
-        .with_label_values(&[from, to])
-        .inc();
+    JOB_STATUS_TRANSITIONS.with_label_values(&[from, to]).inc();
 }
 
 /// Record a job completion
@@ -196,9 +210,7 @@ pub fn record_job_completion(tool_name: &str, duration_secs: f64) {
 
 /// Record a plugin query
 pub fn record_plugin_query(plugin_name: &str) {
-    PLUGIN_QUERIES_TOTAL
-        .with_label_values(&[plugin_name])
-        .inc();
+    PLUGIN_QUERIES_TOTAL.with_label_values(&[plugin_name]).inc();
 }
 
 /// Record a plugin apply
@@ -210,9 +222,7 @@ pub fn record_plugin_apply(plugin_name: &str, success: bool) {
 
 /// Record a checkpoint creation
 pub fn record_checkpoint(plugin_name: &str) {
-    CHECKPOINTS_CREATED
-        .with_label_values(&[plugin_name])
-        .inc();
+    CHECKPOINTS_CREATED.with_label_values(&[plugin_name]).inc();
 }
 
 /// Record an audit entry
@@ -229,10 +239,18 @@ pub fn record_store_error(operation: &str, store_type: &str, error_type: &str) {
 
 /// Update job counts by status
 pub fn update_job_counts(pending: u64, running: u64, completed: u64, failed: u64) {
-    JOBS_BY_STATUS.with_label_values(&["pending"]).set(pending as f64);
-    JOBS_BY_STATUS.with_label_values(&["running"]).set(running as f64);
-    JOBS_BY_STATUS.with_label_values(&["completed"]).set(completed as f64);
-    JOBS_BY_STATUS.with_label_values(&["failed"]).set(failed as f64);
+    JOBS_BY_STATUS
+        .with_label_values(&["pending"])
+        .set(pending as f64);
+    JOBS_BY_STATUS
+        .with_label_values(&["running"])
+        .set(running as f64);
+    JOBS_BY_STATUS
+        .with_label_values(&["completed"])
+        .set(completed as f64);
+    JOBS_BY_STATUS
+        .with_label_values(&["failed"])
+        .set(failed as f64);
 }
 
 /// Update Redis status
@@ -242,8 +260,12 @@ pub fn update_redis_status(connected: bool) {
 
 /// Update Redis stream lengths
 pub fn update_redis_stream_lengths(job_len: u64, plugin_len: u64) {
-    REDIS_STREAM_LENGTH.with_label_values(&["jobs"]).set(job_len as f64);
-    REDIS_STREAM_LENGTH.with_label_values(&["plugins"]).set(plugin_len as f64);
+    REDIS_STREAM_LENGTH
+        .with_label_values(&["jobs"])
+        .set(job_len as f64);
+    REDIS_STREAM_LENGTH
+        .with_label_values(&["plugins"])
+        .set(plugin_len as f64);
 }
 
 /// Update SQLite database size

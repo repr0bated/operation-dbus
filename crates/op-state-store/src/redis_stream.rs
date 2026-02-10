@@ -65,12 +65,18 @@ impl RedisStream {
             uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
         );
 
-        let stream = Self { conn, consumer_name };
+        let stream = Self {
+            conn,
+            consumer_name,
+        };
 
         // Initialize consumer groups
         stream.initialize_streams().await?;
 
-        info!("Redis stream connected as consumer: {}", stream.consumer_name);
+        info!(
+            "Redis stream connected as consumer: {}",
+            stream.consumer_name
+        );
         Ok(stream)
     }
 
@@ -129,10 +135,7 @@ impl RedisStream {
             .await
             .map_err(StateStoreError::Redis)?;
 
-        debug!(
-            "Published job event: {} - {:?}",
-            job.id, job.status
-        );
+        debug!("Published job event: {} - {:?}", job.id, job.status);
         Ok(())
     }
 
@@ -166,10 +169,7 @@ impl RedisStream {
             .await
             .map_err(StateStoreError::Redis)?;
 
-        debug!(
-            "Published plugin event: {} - {}",
-            plugin_name, operation
-        );
+        debug!("Published plugin event: {} - {}", plugin_name, operation);
         Ok(())
     }
 
@@ -252,7 +252,12 @@ impl RedisStream {
     }
 
     /// Publish a simple key-value update (for caching)
-    pub async fn set_cached_state(&self, key: &str, value: &simd_json::OwnedValue, ttl_secs: u64) -> Result<()> {
+    pub async fn set_cached_state(
+        &self,
+        key: &str,
+        value: &simd_json::OwnedValue,
+        ttl_secs: u64,
+    ) -> Result<()> {
         let mut conn = self.conn.clone();
         let value_json = simd_json::to_string(value)?;
 
@@ -268,16 +273,13 @@ impl RedisStream {
     pub async fn get_cached_state(&self, key: &str) -> Result<Option<simd_json::OwnedValue>> {
         let mut conn = self.conn.clone();
 
-        let value: Option<String> = conn
-            .get(key)
-            .await
-            .map_err(StateStoreError::Redis)?;
+        let value: Option<String> = conn.get(key).await.map_err(StateStoreError::Redis)?;
 
         match value {
             Some(json) => {
                 let mut json_mut = json;
                 Ok(Some(unsafe { simd_json::from_str(&mut json_mut)? }))
-            },
+            }
             None => Ok(None),
         }
     }
@@ -285,9 +287,8 @@ impl RedisStream {
     /// Check if Redis is connected
     pub async fn ping(&self) -> Result<bool> {
         let mut conn = self.conn.clone();
-        let result: std::result::Result<String, _> = redis::cmd("PING")
-            .query_async(&mut conn)
-            .await;
+        let result: std::result::Result<String, _> =
+            redis::cmd("PING").query_async(&mut conn).await;
         Ok(result.map(|s| s == "PONG").unwrap_or(false))
     }
 }
@@ -303,7 +304,7 @@ pub struct StreamInfo {
 /// Parse job events from Redis response - simplified to avoid version-specific enum variants
 fn parse_job_events(results: Vec<redis::Value>) -> Result<Vec<JobEvent>> {
     use redis::FromRedisValue;
-    
+
     let mut events = Vec::new();
 
     // Convert using redis's built-in parsing where possible
@@ -328,7 +329,7 @@ fn parse_job_events(results: Vec<redis::Value>) -> Result<Vec<JobEvent>> {
 /// Parse plugin events from Redis response
 fn parse_plugin_events(results: Vec<redis::Value>) -> Result<Vec<PluginEvent>> {
     use redis::FromRedisValue;
-    
+
     let mut events = Vec::new();
 
     for result in &results {
@@ -336,7 +337,8 @@ fn parse_plugin_events(results: Vec<redis::Value>) -> Result<Vec<PluginEvent>> {
             for (_entry_id, fields) in entries {
                 for (key, mut value) in fields {
                     if key == "event" {
-                        if let Ok(event) = unsafe { simd_json::from_str::<PluginEvent>(&mut value) } {
+                        if let Ok(event) = unsafe { simd_json::from_str::<PluginEvent>(&mut value) }
+                        {
                             events.push(event);
                         }
                     }

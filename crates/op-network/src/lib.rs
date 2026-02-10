@@ -23,7 +23,9 @@ pub use ovs_error::OvsError;
 pub use ovs_netlink::{Datapath, KernelFlow, OvsNetlinkClient, Vport, VportConfig, VportType};
 pub use ovsdb::OvsdbClient;
 pub use plugin::{NetworkInterface, NetworkPlugin, OpenFlowConfig, OvsBridge, OvsdbConfig};
-pub use proxmox::{ProxmoxClient, ProxmoxToken, LxcContainer, CreateContainerRequest, ContainerStatus};
+pub use proxmox::{
+    ContainerStatus, CreateContainerRequest, LxcContainer, ProxmoxClient, ProxmoxToken,
+};
 
 /// Prelude for convenient imports
 pub mod prelude {
@@ -32,5 +34,5 @@ pub mod prelude {
     pub use super::ovs_netlink::{Datapath, OvsNetlinkClient, Vport};
     pub use super::ovsdb::OvsdbClient;
     pub use super::plugin::{NetworkInterface, NetworkPlugin, OvsBridge};
-    pub use super::proxmox::{ProxmoxClient, LxcContainer, CreateContainerRequest};
+    pub use super::proxmox::{CreateContainerRequest, LxcContainer, ProxmoxClient};
 }

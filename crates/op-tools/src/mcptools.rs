@@ -20,9 +20,9 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
 use simd_json::ValueBuilder;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
@@ -120,7 +120,9 @@ pub async fn register_mcp_tools(registry: &ToolRegistry) -> Result<usize> {
                 namespace: format!("mcp.{}", sanitize_name(&server.name)),
             };
 
-            registry.register(Arc::from(tool_name.as_str()), tool, definition).await?;
+            registry
+                .register(Arc::from(tool_name.as_str()), tool, definition)
+                .await?;
             registered += 1;
         }
     }
@@ -168,18 +170,16 @@ impl Tool for McpTool {
 
     async fn execute(&self, input: Value) -> Result<Value> {
         let params = simd_json::to_string(&input).context("Failed to serialize MCP params")?;
-        let output = run_mcp_call(
-            &self.mcp_bin,
-            &self.server,
-            &self.remote_tool_name,
-            &params,
-        )
-        .await?;
+        let output =
+            run_mcp_call(&self.mcp_bin, &self.server, &self.remote_tool_name, &params).await?;
 
-        if output.get("isError").and_then(|v| v.as_bool()).unwrap_or(false) {
-            let message = extract_text_content(&output).unwrap_or_else(|| {
-                "MCP tool returned an error without text content".to_string()
-            });
+        if output
+            .get("isError")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            let message = extract_text_content(&output)
+                .unwrap_or_else(|| "MCP tool returned an error without text content".to_string());
             anyhow::bail!(message);
         }
 
@@ -203,7 +203,8 @@ fn load_mcp_config() -> Result<McpToolsConfig> {
         }
 
         let mut raw_mut = raw;
-        if let Ok(list) = unsafe { simd_json::from_str::<Vec<McpToolsServerConfig>>(&mut raw_mut) } {
+        if let Ok(list) = unsafe { simd_json::from_str::<Vec<McpToolsServerConfig>>(&mut raw_mut) }
+        {
             return Ok(McpToolsConfig {
                 allow_unprefixed_names,
                 servers: list,
@@ -375,18 +376,14 @@ fn resolve_config_path() -> Option<String> {
 }
 
 fn split_args(raw: &str) -> Vec<String> {
-    raw.split_whitespace().map(|value| value.to_string()).collect()
+    raw.split_whitespace()
+        .map(|value| value.to_string())
+        .collect()
 }
 
 fn sanitize_name(raw: &str) -> String {
     raw.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect()
 }
 

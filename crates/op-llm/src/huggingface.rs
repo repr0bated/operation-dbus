@@ -6,15 +6,21 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::provider::{
-    ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderType,
-    TokenUsage, ToolCallInfo,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    LlmProvider,
+    ModelInfo,
+    ProviderType,
+    TokenUsage,
+    ToolCallInfo,
     // ToolChoice,
 };
 
@@ -45,7 +51,7 @@ impl HuggingFaceClient {
         self.base_url = url.to_string();
         self
     }
-    
+
     pub fn from_env() -> Result<Self> {
         let api_key = std::env::var("HF_TOKEN")
             .or_else(|_| std::env::var("HUGGINGFACE_TOKEN"))
@@ -107,7 +113,7 @@ impl LlmProvider for HuggingFaceClient {
     async fn chat(&self, model: &str, messages: Vec<ChatMessage>) -> Result<ChatResponse> {
         // Simple chat without tools - NOT RECOMMENDED
         warn!("Using chat() without tools - consider using chat_with_request()");
-        
+
         let request = ChatRequest::new(messages);
         self.chat_with_request(model, request).await
     }
@@ -119,7 +125,11 @@ impl LlmProvider for HuggingFaceClient {
     /// 2. Sets tool_choice (including "required")
     /// 3. Parses tool_calls from response
     async fn chat_with_request(&self, model: &str, request: ChatRequest) -> Result<ChatResponse> {
-        let model = if model.is_empty() { DEFAULT_MODEL } else { model };
+        let model = if model.is_empty() {
+            DEFAULT_MODEL
+        } else {
+            model
+        };
         let url = format!("{}/models/{}/v1/chat/completions", self.base_url, model);
 
         // Convert messages to API format
@@ -131,12 +141,12 @@ impl LlmProvider for HuggingFaceClient {
                     "role": m.role,
                     "content": m.content
                 });
-                
+
                 // Add tool_call_id for tool responses
                 if let Some(ref id) = m.tool_call_id {
                     msg["tool_call_id"] = json!(id);
                 }
-                
+
                 // Add tool_calls for assistant messages
                 if let Some(ref calls) = m.tool_calls {
                     msg["tool_calls"] = json!(calls.iter().map(|tc| {
@@ -150,17 +160,13 @@ impl LlmProvider for HuggingFaceClient {
                         })
                     }).collect::<Vec<_>>());
                 }
-                
+
                 msg
             })
             .collect();
 
         // Convert tools to API format
-        let tools: Vec<Value> = request
-            .tools
-            .iter()
-            .map(|t| t.to_openai_format())
-            .collect();
+        let tools: Vec<Value> = request.tools.iter().map(|t| t.to_openai_format()).collect();
 
         // Build request body
         let mut body = json!({
@@ -172,10 +178,10 @@ impl LlmProvider for HuggingFaceClient {
         // Add tools if present
         if !tools.is_empty() {
             body["tools"] = json!(tools);
-            
+
             // CRITICAL: Set tool_choice
             body["tool_choice"] = request.tool_choice.to_api_format();
-            
+
             info!(
                 "Sending request with {} tools, tool_choice={:?}",
                 tools.len(),
@@ -194,7 +200,10 @@ impl LlmProvider for HuggingFaceClient {
             body["top_p"] = json!(top_p);
         }
 
-        debug!("HuggingFace request: {}", simd_json::to_string_pretty(&body).unwrap_or_default());
+        debug!(
+            "HuggingFace request: {}",
+            simd_json::to_string_pretty(&body).unwrap_or_default()
+        );
 
         // Send request
         let response = self
@@ -210,7 +219,11 @@ impl LlmProvider for HuggingFaceClient {
         let status = response.status();
         let response_text = response.text().await?;
 
-        debug!("HuggingFace response ({}): {}", status, &response_text[..response_text.len().min(500)]);
+        debug!(
+            "HuggingFace response ({}): {}",
+            status,
+            &response_text[..response_text.len().min(500)]
+        );
 
         if !status.is_success() {
             return Err(anyhow::anyhow!(
@@ -222,8 +235,14 @@ impl LlmProvider for HuggingFaceClient {
 
         // Parse response
         let mut response_text_mut = response_text;
-        let response_json: Value = unsafe { simd_json::from_str(&mut response_text_mut) }
-            .map_err(|e| anyhow::anyhow!("Failed to parse HuggingFace response: {}. Body: {}", e, response_text_mut))?;
+        let response_json: Value =
+            unsafe { simd_json::from_str(&mut response_text_mut) }.map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to parse HuggingFace response: {}. Body: {}",
+                    e,
+                    response_text_mut
+                )
+            })?;
 
         let choice = response_json
             .get("choices")
@@ -260,8 +279,9 @@ impl LlmProvider for HuggingFaceClient {
                         let name = function.get("name")?.as_str()?.to_string();
                         let args_str = function.get("arguments")?.as_str()?;
                         let mut args_mut = args_str.to_string();
-                        let arguments: Value = unsafe { simd_json::from_str(&mut args_mut) }.ok()?;
-                        
+                        let arguments: Value =
+                            unsafe { simd_json::from_str(&mut args_mut) }.ok()?;
+
                         Some(ToolCallInfo {
                             id,
                             name,
@@ -285,7 +305,10 @@ impl LlmProvider for HuggingFaceClient {
 
         let usage = response_json.get("usage").map(|u| TokenUsage {
             prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            completion_tokens: u
+                .get("completion_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32,
             total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         });
 

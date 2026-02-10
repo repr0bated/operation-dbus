@@ -4,12 +4,12 @@
 //! Merged features from op-cognitive-mcp for vector embeddings and advanced search.
 
 use async_trait::async_trait;
+use simd_json::prelude::*;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use simd_json::prelude::*;
 
 use crate::agents::base::{AgentTask, AgentTrait, TaskResult};
 use crate::security::SecurityProfile;
@@ -19,10 +19,10 @@ use crate::security::SecurityProfile;
 pub struct MemoryEntry {
     pub key: String,
     pub value: String,
-    pub vector: Option<Vec<f32>>,  // Embedding vector for semantic search
+    pub vector: Option<Vec<f32>>, // Embedding vector for semantic search
     pub memory_type: MemoryType,
     pub tags: Vec<String>,
-    pub created_at: u64,  // Unix timestamp
+    pub created_at: u64, // Unix timestamp
     pub updated_at: u64,
     pub expires_at: Option<u64>,
     pub access_count: u64,
@@ -31,9 +31,9 @@ pub struct MemoryEntry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MemoryType {
-    Ephemeral,   // Session-based, may expire
-    Persistent,  // Permanent storage
-    Shared,      // Cross-session shared
+    Ephemeral,  // Session-based, may expire
+    Persistent, // Permanent storage
+    Shared,     // Cross-session shared
 }
 
 impl Default for MemoryType {
@@ -112,16 +112,22 @@ impl MemoryAgent {
     fn parse_memory_entries(content: &str) -> HashMap<String, MemoryEntry> {
         let mut cache = HashMap::new();
         let mut content_mut = content.to_string();
-        let value: simd_json::OwnedValue = unsafe { simd_json::from_str(&mut content_mut).unwrap_or_default() };
-        
+        let value: simd_json::OwnedValue =
+            unsafe { simd_json::from_str(&mut content_mut).unwrap_or_default() };
+
         if let Some(obj) = value.as_object() {
             for (key, entry_val) in obj.iter() {
                 if let Some(entry_obj) = entry_val.as_object() {
                     let entry = MemoryEntry {
                         key: key.clone(),
-                        value: entry_obj.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        value: entry_obj
+                            .get("value")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         vector: None,
-                        memory_type: entry_obj.get("memory_type")
+                        memory_type: entry_obj
+                            .get("memory_type")
                             .and_then(|v| v.as_str())
                             .map(|s| match s {
                                 "ephemeral" => MemoryType::Ephemeral,
@@ -129,15 +135,32 @@ impl MemoryAgent {
                                 _ => MemoryType::Persistent,
                             })
                             .unwrap_or(MemoryType::Persistent),
-                        tags: entry_obj.get("tags")
+                        tags: entry_obj
+                            .get("tags")
                             .and_then(|v| v.as_array())
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
                             .unwrap_or_default(),
-                        created_at: entry_obj.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0),
-                        updated_at: entry_obj.get("updated_at").and_then(|v| v.as_u64()).unwrap_or(0),
+                        created_at: entry_obj
+                            .get("created_at")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        updated_at: entry_obj
+                            .get("updated_at")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
                         expires_at: entry_obj.get("expires_at").and_then(|v| v.as_u64()),
-                        access_count: entry_obj.get("access_count").and_then(|v| v.as_u64()).unwrap_or(0),
-                        last_accessed: entry_obj.get("last_accessed").and_then(|v| v.as_u64()).unwrap_or(0),
+                        access_count: entry_obj
+                            .get("access_count")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        last_accessed: entry_obj
+                            .get("last_accessed")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
                     };
                     cache.insert(key.clone(), entry);
                 }
@@ -155,15 +178,18 @@ impl MemoryAgent {
                 MemoryType::Persistent => "persistent",
                 MemoryType::Shared => "shared",
             };
-            let tags_json = entry.tags.iter()
+            let tags_json = entry
+                .tags
+                .iter()
                 .map(|t| format!("\"{}\"", t))
                 .collect::<Vec<_>>()
                 .join(",");
-            
-            let expires_json = entry.expires_at
+
+            let expires_json = entry
+                .expires_at
                 .map(|e| format!(",\"expires_at\":{}", e))
                 .unwrap_or_default();
-            
+
             let entry_json = format!(
                 "\"{}\":{{\"value\":\"{}\",\"memory_type\":\"{}\",\"tags\":[{}],\"created_at\":{},\"updated_at\":{},\"access_count\":{},\"last_accessed\":{}{}}}",
                 key, entry.value, memory_type_str, tags_json, entry.created_at, entry.updated_at, 
@@ -171,7 +197,7 @@ impl MemoryAgent {
             );
             entries.push(entry_json);
         }
-        
+
         Ok(format!("{{{}}}", entries.join(",")))
     }
 
@@ -179,16 +205,10 @@ impl MemoryAgent {
     fn migrate_old_format(content: &str) -> HashMap<String, MemoryEntry> {
         let mut cache = HashMap::new();
         let mut content_mut = content.to_string();
-        let old_cache: HashMap<String, String> = unsafe {
-            simd_json::from_str(&mut content_mut).unwrap_or_default()
-        };
+        let old_cache: HashMap<String, String> =
+            unsafe { simd_json::from_str(&mut content_mut).unwrap_or_default() };
         for (key, value) in old_cache {
-            let entry = MemoryEntry::new(
-                key.clone(),
-                value,
-                MemoryType::Persistent,
-                vec![],
-            );
+            let entry = MemoryEntry::new(key.clone(), value, MemoryType::Persistent, vec![]);
             cache.insert(key, entry);
         }
         cache
@@ -253,8 +273,10 @@ impl MemoryAgent {
                 let count = entry.access_count;
                 drop(cache);
                 let _ = self.persist();
-                return Ok(format!("Recalled (exact): {} = {} (accessed: {} times)",
-                    key, value, count));
+                return Ok(format!(
+                    "Recalled (exact): {} = {} (accessed: {} times)",
+                    key, value, count
+                ));
             }
         }
 
@@ -320,7 +342,10 @@ impl MemoryAgent {
             .collect::<Vec<_>>()
             .join("\n");
 
-        Ok(format!("Semantic search results for '{}':\n{}", query, results))
+        Ok(format!(
+            "Semantic search results for '{}':\n{}",
+            query, results
+        ))
     }
 
     /// Query by tags
@@ -330,9 +355,7 @@ impl MemoryAgent {
 
         let matches: Vec<(String, String)> = cache
             .iter()
-            .filter(|(_, entry)| {
-                tags.iter().all(|tag| entry.tags.contains(tag))
-            })
+            .filter(|(_, entry)| tags.iter().all(|tag| entry.tags.contains(tag)))
             .map(|(k, entry)| (k.clone(), entry.value.clone()))
             .collect();
 
@@ -377,12 +400,20 @@ impl MemoryAgent {
                 } else {
                     format!(" [tags: {}]", entry.tags.join(", "))
                 };
-                let vector_status = if entry.vector.is_some() { " [vector]" } else { "" };
+                let vector_status = if entry.vector.is_some() {
+                    " [vector]"
+                } else {
+                    ""
+                };
                 format!("{} = {}{}{}", k, entry.value, tags, vector_status)
             })
             .collect();
 
-        Ok(format!("Stored memories ({}):\n{}", entries.len(), entries.join("\n")))
+        Ok(format!(
+            "Stored memories ({}):\n{}",
+            entries.len(),
+            entries.join("\n")
+        ))
     }
 
     /// Get memory statistics
@@ -391,9 +422,18 @@ impl MemoryAgent {
 
         let total = cache.len();
         let with_vectors = cache.values().filter(|e| e.vector.is_some()).count();
-        let ephemeral = cache.values().filter(|e| e.memory_type == MemoryType::Ephemeral).count();
-        let persistent = cache.values().filter(|e| e.memory_type == MemoryType::Persistent).count();
-        let shared = cache.values().filter(|e| e.memory_type == MemoryType::Shared).count();
+        let ephemeral = cache
+            .values()
+            .filter(|e| e.memory_type == MemoryType::Ephemeral)
+            .count();
+        let persistent = cache
+            .values()
+            .filter(|e| e.memory_type == MemoryType::Persistent)
+            .count();
+        let shared = cache
+            .values()
+            .filter(|e| e.memory_type == MemoryType::Shared)
+            .count();
         let expired = cache.values().filter(|e| e.is_expired()).count();
 
         Ok(format!(
@@ -459,27 +499,50 @@ impl AgentTrait for MemoryAgent {
         let result = match task.operation.as_str() {
             "remember" => self.remember(task.path.as_deref(), task.args.as_deref()),
             "remember_advanced" => {
-                let memory_type = task.config.get("memory_type")
-                    .and_then(|v| v.as_str())
-                    .map(|s| match s {
-                        "ephemeral" => MemoryType::Ephemeral,
-                        "shared" => MemoryType::Shared,
-                        _ => MemoryType::Persistent,
-                    });
-                let tags = task.config.get("tags")
+                let memory_type =
+                    task.config
+                        .get("memory_type")
+                        .and_then(|v| v.as_str())
+                        .map(|s| match s {
+                            "ephemeral" => MemoryType::Ephemeral,
+                            "shared" => MemoryType::Shared,
+                            _ => MemoryType::Persistent,
+                        });
+                let tags = task
+                    .config
+                    .get("tags")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-                self.remember_advanced(task.path.as_deref(), task.args.as_deref(), memory_type, tags)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    });
+                self.remember_advanced(
+                    task.path.as_deref(),
+                    task.args.as_deref(),
+                    memory_type,
+                    tags,
+                )
             }
             "recall" => self.recall(task.path.as_deref().or(task.args.as_deref())),
             "semantic_search" => {
-                let limit = task.config.get("limit").and_then(|v| v.as_u64()).map(|n| n as usize);
+                let limit = task
+                    .config
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as usize);
                 self.semantic_search(task.path.as_deref().or(task.args.as_deref()), limit)
             }
             "query_by_tags" => {
-                let tags = task.config.get("tags")
+                let tags = task
+                    .config
+                    .get("tags")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    });
                 self.query_by_tags(tags)
             }
             "forget" => self.forget(task.path.as_deref().or(task.args.as_deref())),

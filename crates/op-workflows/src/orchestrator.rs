@@ -6,17 +6,17 @@
 //! - Intermediate result caching
 //! - Pattern tracking for optimization suggestions
 
-use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
 use op_core::error::Result;
-use op_tools::registry::ToolRegistry;
+use op_execution_tracker::{ExecutionRecord, ExecutionTracker};
 use op_plugins::registry::PluginRegistry;
-use op_execution_tracker::{ExecutionTracker, ExecutionRecord};
+use op_tools::registry::ToolRegistry;
 
 // ============================================================================
 // ORCHESTRATOR CONFIG
@@ -190,7 +190,7 @@ impl IntermediateCache {
 
     pub async fn put(&self, key: String, output: simd_json::OwnedValue) {
         let mut cache = self.cache.write().await;
-        
+
         // Evict oldest if over limit
         if cache.len() >= self.max_entries {
             if let Some(oldest_key) = cache
@@ -202,10 +202,13 @@ impl IntermediateCache {
             }
         }
 
-        cache.insert(key, CachedResult {
-            output,
-            created_at: std::time::Instant::now(),
-        });
+        cache.insert(
+            key,
+            CachedResult {
+                output,
+                created_at: std::time::Instant::now(),
+            },
+        );
     }
 
     pub async fn stats(&self) -> CacheStats {
@@ -269,11 +272,15 @@ impl Orchestrator {
         let start_time = Instant::now();
 
         // Get the tool
-        let tool = self.tool_registry.get(tool_name).await
+        let tool = self
+            .tool_registry
+            .get(tool_name)
+            .await
             .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", tool_name))?;
 
         // Start tracking
-        let exec_record = self.execution_tracker
+        let exec_record = self
+            .execution_tracker
             .start_execution(tool_name, Some(input.clone()), session_id)
             .await;
 
@@ -284,7 +291,10 @@ impl Orchestrator {
         match &result {
             Ok(output) => {
                 self.execution_tracker
-                    .complete_execution(&exec_record.id, Some(simd_json::to_string(output).unwrap_or_default()))
+                    .complete_execution(
+                        &exec_record.id,
+                        Some(simd_json::to_string(output).unwrap_or_default()),
+                    )
                     .await;
             }
             Err(e) => {
@@ -345,7 +355,9 @@ impl Orchestrator {
 
         // Single tool - direct execution
         if tool_names.len() < self.config.workstack_threshold {
-            return self.execute_tool(tool_names[0], initial_input, session_id).await;
+            return self
+                .execute_tool(tool_names[0], initial_input, session_id)
+                .await;
         }
 
         // Multi-tool workstack execution
@@ -354,11 +366,19 @@ impl Orchestrator {
         let mut cache_hits = 0usize;
         let mut cache_misses = 0usize;
 
-        let workstack_id = format!("ws-{}", &Self::hash_sequence_with_input(tool_names, &current_input)[..12]);
+        let workstack_id = format!(
+            "ws-{}",
+            &Self::hash_sequence_with_input(tool_names, &current_input)[..12]
+        );
 
         for (step_index, tool_name) in tool_names.iter().enumerate() {
             let step_start = Instant::now();
-            let cache_key = format!("{}:{}:{}", workstack_id, step_index, Self::hash_input(&current_input));
+            let cache_key = format!(
+                "{}:{}:{}",
+                workstack_id,
+                step_index,
+                Self::hash_input(&current_input)
+            );
 
             // Try cache first
             let (output, cached) = if self.config.enable_caching {
@@ -367,18 +387,24 @@ impl Orchestrator {
                     (cached_output, true)
                 } else {
                     cache_misses += 1;
-                    let tool = self.tool_registry.get(tool_name).await
+                    let tool = self
+                        .tool_registry
+                        .get(tool_name)
+                        .await
                         .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", tool_name))?;
                     let result = tool.execute(current_input.clone()).await?;
-                    
+
                     // Cache the result
                     self.cache.put(cache_key, result.clone()).await;
-                    
+
                     (result, false)
                 }
             } else {
                 cache_misses += 1;
-                let tool = self.tool_registry.get(tool_name).await
+                let tool = self
+                    .tool_registry
+                    .get(tool_name)
+                    .await
                     .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", tool_name))?;
                 let result = tool.execute(current_input.clone()).await?;
                 (result, false)
@@ -403,7 +429,11 @@ impl Orchestrator {
         // Track pattern
         if self.config.track_patterns {
             let tool_vec: Vec<String> = tool_names.iter().map(|s| s.to_string()).collect();
-            if let Some(suggested_name) = self.pattern_tracker.record(&tool_vec, total_latency_ms).await {
+            if let Some(suggested_name) = self
+                .pattern_tracker
+                .record(&tool_vec, total_latency_ms)
+                .await
+            {
                 tracing::info!(
                     "🔥 Pattern detected: '{}' ready for promotion",
                     suggested_name

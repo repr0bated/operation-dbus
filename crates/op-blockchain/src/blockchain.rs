@@ -419,11 +419,7 @@ impl StreamingBlockchain {
         std::env::var("OPDBUS_STATE_SNAPSHOT_PREFIX").unwrap_or_else(|_| "SNP-state".to_string())
     }
 
-    async fn next_snapshot_counter(
-        &self,
-        snapshot_dir: &Path,
-        prefix: &str,
-    ) -> Result<u64> {
+    async fn next_snapshot_counter(&self, snapshot_dir: &Path, prefix: &str) -> Result<u64> {
         let mut entries = tokio::fs::read_dir(snapshot_dir).await?;
         let name_prefix = format!("{}-", prefix);
         let mut max_counter = 0u64;

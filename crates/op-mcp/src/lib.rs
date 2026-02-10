@@ -13,12 +13,12 @@
 //! - WebSocket (full duplex)
 //! - gRPC (high-performance RPC)
 
-pub mod protocol;
-pub mod server;
 pub mod agents_server;
 pub mod compact;
-pub mod transport;
+pub mod protocol;
 pub mod resources;
+pub mod server;
+pub mod transport;
 
 pub mod tool_registry;
 
@@ -26,20 +26,15 @@ pub mod tool_registry;
 pub mod grpc;
 
 // Re-exports
-pub use protocol::{McpRequest, McpResponse, McpError, JsonRpcError};
-pub use server::{McpServer, McpServerConfig, ToolInfo, ToolExecutor, DefaultToolExecutor};
 pub use agents_server::AgentsServer;
-pub use compact::{CompactServer, SessionContext, run_compact_stdio_server};
+pub use compact::{run_compact_stdio_server, CompactServer, SessionContext};
+pub use op_core::{SecurityLevel, ToolDefinition, ToolResult};
+pub use protocol::{JsonRpcError, McpError, McpRequest, McpResponse};
 pub use resources::ResourceRegistry;
+pub use server::{DefaultToolExecutor, McpServer, McpServerConfig, ToolExecutor, ToolInfo};
 pub use tool_registry::{Tool, ToolRegistry};
-pub use op_core::{ToolResult, SecurityLevel, ToolDefinition};
 pub use transport::{
-    Transport,
-    StdioTransport,
-    HttpTransport,
-    SseTransport,
-    HttpSseTransport,
-    WebSocketTransport,
+    HttpSseTransport, HttpTransport, SseTransport, StdioTransport, Transport, WebSocketTransport,
 };
 
 #[cfg(feature = "grpc")]
@@ -75,7 +70,7 @@ impl std::fmt::Display for ServerMode {
 
 impl std::str::FromStr for ServerMode {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "compact" => Ok(ServerMode::Compact),

@@ -4,9 +4,8 @@
 
 use anyhow::{Context, Result};
 use lettre::{
-    message::header::ContentType,
-    transport::smtp::authentication::Credentials,
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+    message::header::ContentType, transport::smtp::authentication::Credentials, AsyncSmtpTransport,
+    AsyncTransport, Message, Tokio1Executor,
 };
 use tracing::{info, warn};
 
@@ -26,16 +25,13 @@ impl EmailConfig {
     /// Load from environment variables
     pub fn from_env() -> Result<Self> {
         Ok(Self {
-            smtp_host: std::env::var("SMTP_HOST")
-                .unwrap_or_else(|_| "localhost".to_string()),
+            smtp_host: std::env::var("SMTP_HOST").unwrap_or_else(|_| "localhost".to_string()),
             smtp_port: std::env::var("SMTP_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(587),
-            smtp_user: std::env::var("SMTP_USER")
-                .unwrap_or_default(),
-            smtp_pass: std::env::var("SMTP_PASS")
-                .unwrap_or_default(),
+            smtp_user: std::env::var("SMTP_USER").unwrap_or_default(),
+            smtp_pass: std::env::var("SMTP_PASS").unwrap_or_default(),
             from_email: std::env::var("SMTP_FROM_EMAIL")
                 .unwrap_or_else(|_| "noreply@example.com".to_string()),
             from_name: std::env::var("SMTP_FROM_NAME")
@@ -64,8 +60,10 @@ impl EmailSender {
     /// Send a magic link email
     pub async fn send_magic_link(&self, to_email: &str, token: &str) -> Result<()> {
         if !self.config.is_configured() {
-            warn!("Email not configured - magic link: {}/privacy/verify?token={}",
-                  self.config.base_url, token);
+            warn!(
+                "Email not configured - magic link: {}/privacy/verify?token={}",
+                self.config.base_url, token
+            );
             return Ok(());
         }
 
@@ -111,10 +109,7 @@ impl EmailSender {
                 magic_url, magic_url
             ))?;
 
-        let creds = Credentials::new(
-            self.config.smtp_user.clone(),
-            self.config.smtp_pass.clone(),
-        );
+        let creds = Credentials::new(self.config.smtp_user.clone(), self.config.smtp_pass.clone());
 
         let mailer: AsyncSmtpTransport<Tokio1Executor> =
             AsyncSmtpTransport::<Tokio1Executor>::relay(&self.config.smtp_host)?

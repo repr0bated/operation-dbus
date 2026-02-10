@@ -5,26 +5,15 @@
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use image::Luma;
+use op_identity::{generate_wireguard_keypair, WireGuardKeyPair};
 use qrcode::QrCode;
-use rand::rngs::OsRng;
-use x25519_dalek::{PublicKey, StaticSecret};
 
 /// WireGuard keypair
-#[derive(Debug, Clone)]
-pub struct WgKeyPair {
-    pub private_key: String,
-    pub public_key: String,
-}
+pub type WgKeyPair = WireGuardKeyPair;
 
 /// Generate a new WireGuard keypair
 pub fn generate_keypair() -> WgKeyPair {
-    let secret = StaticSecret::random_from_rng(OsRng);
-    let public = PublicKey::from(&secret);
-
-    WgKeyPair {
-        private_key: BASE64.encode(secret.as_bytes()),
-        public_key: BASE64.encode(public.as_bytes()),
-    }
+    generate_wireguard_keypair()
 }
 
 /// WireGuard server configuration for generating client configs
@@ -87,7 +76,10 @@ pub fn generate_qr_code(config: &str) -> Result<String> {
     image.write_to(&mut cursor, image::ImageFormat::Png)?;
 
     // Return as data URL
-    Ok(format!("data:image/png;base64,{}", BASE64.encode(&png_bytes)))
+    Ok(format!(
+        "data:image/png;base64,{}",
+        BASE64.encode(&png_bytes)
+    ))
 }
 
 #[cfg(test)]

@@ -15,8 +15,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -71,7 +71,8 @@ impl ResponseAccumulator {
 }
 
 // Global response accumulator (initialized eagerly)
-static RESPONSE_ACCUMULATOR: std::sync::OnceLock<Arc<RwLock<ResponseAccumulator>>> = std::sync::OnceLock::new();
+static RESPONSE_ACCUMULATOR: std::sync::OnceLock<Arc<RwLock<ResponseAccumulator>>> =
+    std::sync::OnceLock::new();
 
 /// Initialize the global response accumulator (call once at startup)
 pub fn init_response_accumulator() {
@@ -80,7 +81,10 @@ pub fn init_response_accumulator() {
 
 /// Get the global response accumulator
 pub fn get_response_accumulator() -> Arc<RwLock<ResponseAccumulator>> {
-    RESPONSE_ACCUMULATOR.get().expect("Response accumulator not initialized").clone()
+    RESPONSE_ACCUMULATOR
+        .get()
+        .expect("Response accumulator not initialized")
+        .clone()
 }
 
 // ============================================================================
@@ -214,7 +218,11 @@ impl Tool for RespondToUserTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["response".to_string(), "user".to_string(), "required".to_string()]
+        vec![
+            "response".to_string(),
+            "user".to_string(),
+            "required".to_string(),
+        ]
     }
 }
 
@@ -343,7 +351,11 @@ impl Tool for CannotPerformTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["response".to_string(), "decline".to_string(), "safety".to_string()]
+        vec![
+            "response".to_string(),
+            "decline".to_string(),
+            "safety".to_string(),
+        ]
     }
 }
 
@@ -418,10 +430,8 @@ impl Tool for RequestClarificationTool {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let options: Option<Vec<String>> = input
-            .get("options")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
+        let options: Option<Vec<String>> =
+            input.get("options").and_then(|v| v.as_array()).map(|arr| {
                 arr.iter()
                     .filter_map(|v| v.as_str())
                     .map(|s| s.to_string())
@@ -477,7 +487,11 @@ impl Tool for RequestClarificationTool {
     }
 
     fn tags(&self) -> Vec<String> {
-        vec!["response".to_string(), "clarification".to_string(), "input".to_string()]
+        vec![
+            "response".to_string(),
+            "clarification".to_string(),
+            "input".to_string(),
+        ]
     }
 }
 
@@ -502,14 +516,26 @@ mod tests {
     async fn test_respond_to_user() {
         init_response_accumulator();
         let tool = RespondToUserTool::new();
-        let result = tool.execute(json!({
-            "message": "Bridge created successfully",
-            "message_type": "success",
-            "related_actions": ["ovs_create_bridge"]
-        })).await.unwrap();
+        let result = tool
+            .execute(json!({
+                "message": "Bridge created successfully",
+                "message_type": "success",
+                "related_actions": ["ovs_create_bridge"]
+            }))
+            .await
+            .unwrap();
 
-        assert_eq!(result.get("message").unwrap(), "Bridge created successfully");
-        assert!(result.get("_internal").unwrap().get("is_response_tool").unwrap().as_bool().unwrap());
+        assert_eq!(
+            result.get("message").unwrap(),
+            "Bridge created successfully"
+        );
+        assert!(result
+            .get("_internal")
+            .unwrap()
+            .get("is_response_tool")
+            .unwrap()
+            .as_bool()
+            .unwrap());
 
         // Check accumulator
         let acc_arc = get_response_accumulator();
@@ -524,11 +550,14 @@ mod tests {
     #[tokio::test]
     async fn test_cannot_perform() {
         let tool = CannotPerformTool::new();
-        let result = tool.execute(json!({
-            "reason": "Would delete all network interfaces",
-            "category": "dangerous",
-            "alternatives": ["Delete specific interface", "Disable interface"]
-        })).await.unwrap();
+        let result = tool
+            .execute(json!({
+                "reason": "Would delete all network interfaces",
+                "category": "dangerous",
+                "alternatives": ["Delete specific interface", "Disable interface"]
+            }))
+            .await
+            .unwrap();
 
         assert!(result.get("declined").unwrap().as_bool().unwrap());
     }

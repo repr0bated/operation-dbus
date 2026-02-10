@@ -1,12 +1,12 @@
 //! Direct process management fallback
 
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
 use std::collections::HashMap;
 use std::process::Stdio;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::RwLock;
-use nix::sys::signal::{kill, Signal};
-use nix::unistd::Pid;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use crate::schema::{ServiceDef, ServiceName};
 
@@ -49,7 +49,7 @@ impl ProcessManager {
 
     pub async fn stop(&self, name: &ServiceName) -> anyhow::Result<()> {
         let mut procs = self.processes.write().await;
-        
+
         if let Some(pid) = procs.remove(name) {
             info!("Stopping {} (PID {})", name, pid);
             if let Err(e) = kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {

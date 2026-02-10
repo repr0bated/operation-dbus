@@ -6,9 +6,9 @@
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use op_inspector::{GCloudParser, GCloudSchema, GCloudCommand};
-use simd_json::{json, OwnedValue as Value};
+use op_inspector::{GCloudCommand, GCloudParser, GCloudSchema};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -31,16 +31,28 @@ pub async fn register_gcloud_tools(registry: &ToolRegistry) -> Result<()> {
     let cache = Arc::new(RwLock::new(GCloudCache::new()));
 
     registry
-        .register_tool(Arc::new(GCloudIntrospectTool::new(parser.clone(), cache.clone())))
+        .register_tool(Arc::new(GCloudIntrospectTool::new(
+            parser.clone(),
+            cache.clone(),
+        )))
         .await?;
     registry
-        .register_tool(Arc::new(GCloudListGroupsTool::new(parser.clone(), cache.clone())))
+        .register_tool(Arc::new(GCloudListGroupsTool::new(
+            parser.clone(),
+            cache.clone(),
+        )))
         .await?;
     registry
-        .register_tool(Arc::new(GCloudGetCommandTool::new(parser.clone(), cache.clone())))
+        .register_tool(Arc::new(GCloudGetCommandTool::new(
+            parser.clone(),
+            cache.clone(),
+        )))
         .await?;
     registry
-        .register_tool(Arc::new(GCloudSearchTool::new(parser.clone(), cache.clone())))
+        .register_tool(Arc::new(GCloudSearchTool::new(
+            parser.clone(),
+            cache.clone(),
+        )))
         .await?;
 
     tracing::info!("Registered 4 gcloud introspection tools");
@@ -178,10 +190,7 @@ impl Tool for GCloudIntrospectTool {
     }
 
     async fn execute(&self, input: Value) -> Result<Value> {
-        let max_depth = input
-            .get("max_depth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(3) as usize;
+        let max_depth = input.get("max_depth").and_then(|v| v.as_u64()).unwrap_or(3) as usize;
         let refresh = input
             .get("refresh")
             .and_then(|v| v.as_bool())

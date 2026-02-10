@@ -1,1 +1,109 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* OP-DBUS Design System - Slate/Indigo Theme (from op-web-ui) */
+
+@layer base {
+  :root {
+    /* Modern Dark Theme - Slate/Indigo Palette */
+    --background: 222 47% 11%;           /* #0f172a - Slate 900 */
+    --foreground: 210 40% 98%;           /* #f8fafc - Slate 50 */
+
+    --card: 217 33% 17%;                 /* #1e293b - Slate 800 */
+    --card-foreground: 210 40% 98%;      /* #f8fafc - Slate 50 */
+
+    --popover: 217 33% 17%;              /* #1e293b - Slate 800 */
+    --popover-foreground: 210 40% 98%;   /* #f8fafc - Slate 50 */
+
+    --primary: 239 84% 67%;              /* #6366f1 - Indigo 500 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 25% 27%;            /* #334155 - Slate 700 */
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 215 25% 27%;                /* #334155 - Slate 700 */
+    --muted-foreground: 215 16% 47%;     /* #64748b - Slate 500 */
+
+    --accent: 239 84% 67%;               /* #6366f1 - Indigo 500 */
+    --accent-foreground: 0 0% 100%;
+    --accent-hover: 239 83% 66%;         /* #4f46e5 - Indigo 600 */
+    --accent-light: 239 91% 76%;         /* #818cf8 - Indigo 400 */
+
+    --destructive: 0 84% 60%;            /* #ef4444 - Red 500 */
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 84% 39%;              /* #10b981 - Emerald 500 */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;               /* #f59e0b - Amber 500 */
+    --warning-foreground: 0 0% 100%;
+
+    --border: 215 25% 27%;               /* #334155 - Slate 700 */
+    --input: 215 25% 27%;                /* #334155 - Slate 700 */
+    --ring: 239 84% 67%;                 /* #6366f1 - Indigo 500 */
+
+    --radius: 0.5rem;
+
+    /* Sidebar - Gradient feel */
+    --sidebar-background: 217 33% 17%;   /* #1e293b - Slate 800 */
+    --sidebar-foreground: 215 20% 65%;   /* #94a3b8 - Slate 400 */
+    --sidebar-primary: 239 84% 67%;      /* #6366f1 - Indigo 500 */
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 215 25% 27%;       /* #334155 - Slate 700 */
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 215 25% 27%;       /* #334155 - Slate 700 */
+    --sidebar-ring: 239 84% 67%;
+
+    /* Hover states */
+    --hover: 215 20% 34%;                /* #475569 - Slate 600 */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--secondary));
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+/* Custom utility classes */
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #fff, #94a3b8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-glass {
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}

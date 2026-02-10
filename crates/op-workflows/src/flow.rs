@@ -4,12 +4,12 @@
 //! Data flows from output ports to input ports.
 
 use anyhow::{anyhow, Result};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
 use simd_json::prelude::*;
+use simd_json::OwnedValue as Value;
+use std::collections::HashMap;
 
-use crate::node::{NodeResult, NodeState, NodePort, NodeConnection};
+use crate::node::{NodeConnection, NodePort, NodeResult, NodeState};
 
 /// Workflow definition (serializable)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,13 +167,15 @@ impl Workflow {
 
     /// Mark a node as completed with outputs
     pub fn complete_node(&mut self, node_id: &str, outputs: HashMap<String, Value>) {
-        self.node_states.insert(node_id.to_string(), NodeState::Completed);
+        self.node_states
+            .insert(node_id.to_string(), NodeState::Completed);
         self.node_outputs.insert(node_id.to_string(), outputs);
     }
 
     /// Mark a node as failed
     pub fn fail_node(&mut self, node_id: &str, _error: &str) {
-        self.node_states.insert(node_id.to_string(), NodeState::Failed);
+        self.node_states
+            .insert(node_id.to_string(), NodeState::Failed);
     }
 
     /// Check if workflow is complete
@@ -188,23 +190,24 @@ impl Workflow {
 
     /// Check if workflow has failed
     pub fn has_failed(&self) -> bool {
-        self.definition.nodes.iter().any(|n| {
-            self.node_states.get(&n.id) == Some(&NodeState::Failed)
-        })
+        self.definition
+            .nodes
+            .iter()
+            .any(|n| self.node_states.get(&n.id) == Some(&NodeState::Failed))
     }
 
     /// Get workflow outputs (from designated output nodes)
     pub fn get_outputs(&self) -> HashMap<String, Value> {
         // Collect outputs from nodes that connect to workflow outputs
         let mut result = HashMap::new();
-        
+
         // For now, collect all outputs from all completed nodes
         for (node_id, outputs) in &self.node_outputs {
             for (port_id, value) in outputs {
                 result.insert(format!("{}.{}", node_id, port_id), value.clone());
             }
         }
-        
+
         result
     }
 }

@@ -4,27 +4,43 @@
 //! events for its own session, preventing cross-session information leakage.
 
 use axum::{
-    extract::{Extension, WebSocketUpgrade, ws::{Message, WebSocket}},
+    extract::{
+        ws::{Message, WebSocket},
+        Extension, WebSocketUpgrade,
+    },
     response::Response,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{info, error, debug};
+use tracing::{debug, error, info};
 
-use op_llm::provider::ChatMessage;
-use crate::state::AppState;
 use crate::orchestrator::OrchestratorEvent;
+use crate::state::AppState;
+use op_llm::provider::ChatMessage;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsMessage {
-    Chat { message: String, session_id: Option<String> },
-    Response { success: bool, message: String, tools_executed: Vec<String> },
-    Event { data: OrchestratorEvent },
-    System { message: String },
-    Error { message: String },
+    Chat {
+        message: String,
+        session_id: Option<String>,
+    },
+    Response {
+        success: bool,
+        message: String,
+        tools_executed: Vec<String>,
+    },
+    Event {
+        data: OrchestratorEvent,
+    },
+    System {
+        message: String,
+    },
+    Error {
+        message: String,
+    },
     Ping,
     Pong,
 }
@@ -54,7 +70,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
             &session_id[..8]
         ),
     };
-    if let Err(e) = ws_sender.send(Message::Text(simd_json::to_string(&welcome).unwrap())).await {
+    if let Err(e) = ws_sender
+        .send(Message::Text(simd_json::to_string(&welcome).unwrap()))
+        .await
+    {
         error!("Failed to send welcome: {}", e);
         return;
     }
@@ -88,9 +107,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         Ok(WsMessage::Chat { message, .. }) => message,
                         Ok(WsMessage::Ping) => {
                             let pong = WsMessage::Pong;
-                            let _ = session_tx_clone.send(
-                                simd_json::to_string(&pong).unwrap()
-                            ).await;
+                            let _ = session_tx_clone
+                                .send(simd_json::to_string(&pong).unwrap())
+                                .await;
                             continue;
                         }
                         _ => text.clone(), // Treat as plain text
@@ -117,7 +136,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     });
 
                     // Process through orchestrator with streaming
-                    match state_clone.orchestrator.process(&session_clone, &message_text, Some(event_tx)).await {
+                    match state_clone
+                        .orchestrator
+                        .process(&session_clone, &message_text, Some(event_tx))
+                        .await
+                    {
                         Ok(result) => {
                             // Store in conversation history
                             {
@@ -134,17 +157,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                 message: result.message,
                                 tools_executed: result.tools_executed,
                             };
-                            let _ = session_tx_clone.send(
-                                simd_json::to_string(&response).unwrap()
-                            ).await;
+                            let _ = session_tx_clone
+                                .send(simd_json::to_string(&response).unwrap())
+                                .await;
                         }
                         Err(e) => {
                             let error = WsMessage::Error {
                                 message: e.to_string(),
                             };
-                            let _ = session_tx_clone.send(
-                                simd_json::to_string(&error).unwrap()
-                            ).await;
+                            let _ = session_tx_clone
+                                .send(simd_json::to_string(&error).unwrap())
+                                .await;
                         }
                     }
                 }

@@ -142,10 +142,7 @@ impl WireGuardIdentity {
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 2 && parts[0] == pubkey {
-                return Ok(parts[1]
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .collect());
+                return Ok(parts[1].split(',').map(|s| s.trim().to_string()).collect());
             }
         }
 

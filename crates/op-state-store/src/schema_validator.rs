@@ -7,9 +7,9 @@
 
 use crate::plugin_schema::{PluginSchema, SchemaRegistry, DEFAULT_SCHEMA_DIALECT};
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
 use simd_json::ValueBuilder;
+use simd_json::{json, OwnedValue as Value};
 use std::collections::HashMap;
 
 /// Validation report with detailed error information
@@ -130,18 +130,14 @@ impl SchemaValidator {
                 // Single error returned, but we can get all errors via iter_errors
                 let validation_errors: Vec<ValidationError> = validator
                     .iter_errors(&serde_schema)
-                    .map(|e| {
-                        ValidationError::new(
-                            &e.instance_path.to_string(),
-                            &e.to_string(),
-                        )
-                    })
+                    .map(|e| ValidationError::new(&e.instance_path.to_string(), &e.to_string()))
                     .collect();
                 if validation_errors.is_empty() {
                     // Fallback if iter_errors returns empty but validate failed
-                    Ok(ValidationReport::failure(dialect, vec![
-                        ValidationError::new("", &error.to_string())
-                    ]))
+                    Ok(ValidationReport::failure(
+                        dialect,
+                        vec![ValidationError::new("", &error.to_string())],
+                    ))
                 } else {
                     Ok(ValidationReport::failure(dialect, validation_errors))
                 }
@@ -180,17 +176,13 @@ impl SchemaValidator {
                 // Get all errors via iter_errors
                 let validation_errors: Vec<ValidationError> = validator
                     .iter_errors(&serde_instance)
-                    .map(|e| {
-                        ValidationError::new(
-                            &e.instance_path.to_string(),
-                            &e.to_string(),
-                        )
-                    })
+                    .map(|e| ValidationError::new(&e.instance_path.to_string(), &e.to_string()))
                     .collect();
                 if validation_errors.is_empty() {
-                    Ok(ValidationReport::failure(dialect, vec![
-                        ValidationError::new("", &error.to_string())
-                    ]))
+                    Ok(ValidationReport::failure(
+                        dialect,
+                        vec![ValidationError::new("", &error.to_string())],
+                    ))
                 } else {
                     Ok(ValidationReport::failure(dialect, validation_errors))
                 }
@@ -345,9 +337,7 @@ pub fn canonicalize_json(value: &Value) -> Value {
 
             Value::Object(Box::new(canonical_map))
         }
-        Value::Array(arr) => {
-            Value::Array(arr.iter().map(canonicalize_json).collect())
-        }
+        Value::Array(arr) => Value::Array(arr.iter().map(canonicalize_json).collect()),
         Value::Static(s) => {
             if let Some(f) = s.as_f64() {
                 if f.fract() == 0.0 && f.abs() < i64::MAX as f64 {

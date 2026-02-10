@@ -1,7 +1,7 @@
 //! Direct Cloud-AI-Companion client (subscription endpoint).
 
 use identity::CachedToken;
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
@@ -35,15 +35,23 @@ impl CloudAICompanion {
             }
         });
         debug!("POST {} …", url);
-        let resp = self.cli
+        let resp = self
+            .cli
             .post(&url)
-            .header(header::AUTHORIZATION, format!("Bearer {}", token.access_token))
+            .header(
+                header::AUTHORIZATION,
+                format!("Bearer {}", token.access_token),
+            )
             .header(header::CONTENT_TYPE, "application/json")
             .body(body.to_string())
             .send()
             .await?;
         if !resp.status().is_success() {
-            anyhow::bail!("cloudaicompanion error {}: {}", resp.status(), resp.text().await?);
+            anyhow::bail!(
+                "cloudaicompanion error {}: {}",
+                resp.status(),
+                resp.text().await?
+            );
         }
         let json: simd_json::OwnedValue = resp.json().await?;
         let text = json["candidates"][0]["content"]["parts"][0]["text"]

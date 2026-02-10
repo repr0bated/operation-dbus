@@ -1,14 +1,12 @@
 use anyhow::{Context, Result};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use op_llm::{
-    provider::{ChatMessage, ChatRequest, LlmProvider, ToolChoice, ModelInfo},
-};
+use op_llm::provider::{ChatMessage, ChatRequest, LlmProvider, ModelInfo, ToolChoice};
 
-use super::{UnifiedOrchestrator, OrchestratorResponse, OrchestratorEvent, MAX_TURNS};
+use super::{OrchestratorEvent, OrchestratorResponse, UnifiedOrchestrator, MAX_TURNS};
 
 impl UnifiedOrchestrator {
     /// Process user input - main entry point
@@ -20,8 +18,11 @@ impl UnifiedOrchestrator {
     ) -> Result<OrchestratorResponse> {
         let input_trimmed = input.trim();
         let input_preview = if input_trimmed.len() > 80 {
-            format!("{}\
-...", &input_trimmed[..80])
+            format!(
+                "{}\
+...",
+                &input_trimmed[..80]
+            )
         } else {
             input_trimmed.to_string()
         };
@@ -50,15 +51,15 @@ impl UnifiedOrchestrator {
         input: &str,
         event_tx: Option<mpsc::Sender<OrchestratorEvent>>,
     ) -> Result<OrchestratorResponse> {
-        
         // Use compact mode - only expose 4 meta-tools
         let tool_defs = self.build_compact_mode_tools();
-        
+
         info!("LLM using COMPACT mode with {} meta-tools", tool_defs.len());
 
         // Fetch all tools to populate the context
         let all_tools = self.tool_registry.list().await;
-        let tool_list_context = all_tools.iter()
+        let tool_list_context = all_tools
+            .iter()
             .map(|t| format!("- {}: {}", t.name, t.description))
             .collect::<Vec<_>>()
             .join("\n");
@@ -66,8 +67,9 @@ impl UnifiedOrchestrator {
         // Build system prompt: Capabilities + Compact Instructions + Tool Directory
         let system_msg_core = op_chat::system_prompt::generate_system_prompt().await;
         let compact_instructions = self.build_compact_mode_system_prompt();
-        
-        let combined_prompt = format!("{}
+
+        let combined_prompt = format!(
+            "{}
 
 == INTERFACE MODE: COMPACT ==
 {}
@@ -75,10 +77,8 @@ impl UnifiedOrchestrator {
 ## GLOBAL TOOL DIRECTORY
 The following tools are available via execute_tool():
 
-{}", 
-            system_msg_core.content,
-            compact_instructions,
-            tool_list_context
+{}",
+            system_msg_core.content, compact_instructions, tool_list_context
         );
 
         // Convert role (default to system)
@@ -105,10 +105,7 @@ The following tools are available via execute_tool():
         };
 
         // Initialize conversation
-        let mut messages = vec![
-            system_msg,
-            ChatMessage::user(input),
-        ];
+        let mut messages = vec![system_msg, ChatMessage::user(input)];
 
         // Collect all results across turns
         let mut all_results = Vec::new();
@@ -122,7 +119,10 @@ The following tools are available via execute_tool():
             // Check if we're on the last turn - force completion
             let is_last_turn = turn == MAX_TURNS - 1;
             if is_last_turn {
-                info!("⚠️  Step {}: Final step - chatbot will respond after this", turn + 1);
+                info!(
+                    "⚠️  Step {}: Final step - chatbot will respond after this",
+                    turn + 1
+                );
             }
 
             info!("🧠 Step {}: Chatbot is thinking...", turn + 1);
@@ -136,7 +136,11 @@ The following tools are available via execute_tool():
             let request = ChatRequest {
                 messages: messages.clone(),
                 tools: tool_defs.clone(),
-                tool_choice: if is_last_turn { ToolChoice::None } else { ToolChoice::Auto },
+                tool_choice: if is_last_turn {
+                    ToolChoice::None
+                } else {
+                    ToolChoice::Auto
+                },
                 max_tokens: Some(4096),
                 temperature: Some(0.7),
                 top_p: None,
@@ -162,27 +166,32 @@ The following tools are available via execute_tool():
                 }
             });
 
-            let response = match tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                llm_future
-            ).await {
-                Ok(Ok(resp)) => {
-                    heartbeat_handle.abort();
-                    resp
-                }
-                Ok(Err(e)) => {
-                    heartbeat_handle.abort();
-                    error!("❌ Step {}: Chatbot encountered an error: {}", turn + 1, e);
-                    return Err(anyhow::anyhow!("Chatbot error at step {}: {}", turn + 1, e));
-                }
-                Err(_) => {
-                    heartbeat_handle.abort();
-                    error!("⏱️  Step {}: Chatbot timed out after 60 seconds", turn + 1);
-                    return Err(anyhow::anyhow!("Chatbot timed out at step {} (60s limit)", turn + 1));
-                }
-            };
+            let response =
+                match tokio::time::timeout(std::time::Duration::from_secs(60), llm_future).await {
+                    Ok(Ok(resp)) => {
+                        heartbeat_handle.abort();
+                        resp
+                    }
+                    Ok(Err(e)) => {
+                        heartbeat_handle.abort();
+                        error!("❌ Step {}: Chatbot encountered an error: {}", turn + 1, e);
+                        return Err(anyhow::anyhow!("Chatbot error at step {}: {}", turn + 1, e));
+                    }
+                    Err(_) => {
+                        heartbeat_handle.abort();
+                        error!("⏱️  Step {}: Chatbot timed out after 60 seconds", turn + 1);
+                        return Err(anyhow::anyhow!(
+                            "Chatbot timed out at step {} (60s limit)",
+                            turn + 1
+                        ));
+                    }
+                };
 
-            debug!("Step {} raw response: {:?}", turn + 1, response.message.content);
+            debug!(
+                "Step {} raw response: {:?}",
+                turn + 1,
+                response.message.content
+            );
 
             // Check for forbidden CLI commands
             let forbidden = self.detect_forbidden_commands(&response.message.content);
@@ -192,7 +201,8 @@ The following tools are available via execute_tool():
             }
 
             // Parse tool calls from response
-            let turn_tools = self.parse_tool_calls(&response.message.content, &response.message.tool_calls);
+            let turn_tools =
+                self.parse_tool_calls(&response.message.content, &response.message.tool_calls);
 
             // If no tool calls, we're done - this is the final response
             if turn_tools.is_empty() {
@@ -203,10 +213,16 @@ The following tools are available via execute_tool():
 
             // Execute all tool calls for this turn
             let tool_names: Vec<&str> = turn_tools.iter().map(|(n, _)| n.as_str()).collect();
-            info!("🔧 Step {}: Chatbot is calling {} tool(s): {}", turn + 1, turn_tools.len(), tool_names.join(", "));
+            info!(
+                "🔧 Step {}: Chatbot is calling {} tool(s): {}",
+                turn + 1,
+                turn_tools.len(),
+                tool_names.join(", ")
+            );
 
             // Add assistant message with tool calls
-            let tool_call_summary: Vec<String> = turn_tools.iter()
+            let tool_call_summary: Vec<String> = turn_tools
+                .iter()
                 .map(|(name, args)| format!("{}({})", name, args))
                 .collect();
             messages.push(ChatMessage {
@@ -226,10 +242,12 @@ The following tools are available via execute_tool():
 
                 // Emit ToolExecution event
                 if let Some(tx) = &event_tx {
-                    let _ = tx.send(OrchestratorEvent::ToolExecution {
-                        name: name.clone(),
-                        args: args.clone(),
-                    }).await;
+                    let _ = tx
+                        .send(OrchestratorEvent::ToolExecution {
+                            name: name.clone(),
+                            args: args.clone(),
+                        })
+                        .await;
                 }
 
                 // Execute the tool
@@ -237,12 +255,14 @@ The following tools are available via execute_tool():
 
                 // Emit ToolResult event
                 if let Some(tx) = &event_tx {
-                    let _ = tx.send(OrchestratorEvent::ToolResult {
-                        name: name.clone(),
-                        success: tool_result.success,
-                        result: tool_result.result.clone(),
-                        error: tool_result.error.clone(),
-                    }).await;
+                    let _ = tx
+                        .send(OrchestratorEvent::ToolResult {
+                            name: name.clone(),
+                            success: tool_result.success,
+                            result: tool_result.result.clone(),
+                            error: tool_result.error.clone(),
+                        })
+                        .await;
                 }
 
                 // Add tool result to conversation

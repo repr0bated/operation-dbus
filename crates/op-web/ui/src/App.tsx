@@ -1,24 +1,41 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ApiProvider } from '@/api/provider';
-import { AppShell, ChatPanel } from '@/components';
-import { DashboardPage, ToolsPage, AgentsPage, DbusPage, WorkflowsPage, StatePage } from '@/pages';
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Layout } from "@/components/Layout";
+import IntegratedDashboard from "./pages/IntegratedDashboard";
+import SystemPrompt from "./pages/SystemPrompt";
+import Tools from "./pages/Tools";
+import McpExecution from "./pages/McpExecution";
+import Plugins from "./pages/Plugins";
+import Audit from "./pages/Audit";
+import NotFound from "./pages/NotFound";
 
-export default function App() {
-  return (
-    <ApiProvider>
+const queryClient = new QueryClient();
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
       <BrowserRouter>
-        <AppShell>
+        <Layout>
           <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/chat" element={<div className="h-full"><ChatPanel /></div>} />
-            <Route path="/tools" element={<ToolsPage />} />
-            <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/dbus" element={<DbusPage />} />
-            <Route path="/workflows" element={<WorkflowsPage />} />
-            <Route path="/state" element={<StatePage />} />
+            <Route path="/" element={<IntegratedDashboard />} />
+            <Route path="/system-prompt" element={<SystemPrompt />} />
+            <Route path="/tools" element={<Tools />} />
+            <Route path="/mcp-execution" element={<McpExecution />} />
+            <Route path="/workflows" element={<Audit />} />
+            <Route path="/mcp-groups" element={<Audit />} />
+            <Route path="/plugins" element={<Plugins />} />
+            <Route path="/logs" element={<Audit />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
-        </AppShell>
+        </Layout>
       </BrowserRouter>
-    </ApiProvider>
-  );
-}
+    </TooltipProvider>
+  </QueryClientProvider>
+);
+
+export default App;

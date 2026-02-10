@@ -10,6 +10,7 @@ pub mod response_tools;
 // pub mod dbus;
 pub mod anydesk;
 pub mod dbus_introspection;
+pub mod dinit;
 pub mod gcloud_tools;
 // pub mod files;
 // pub mod network;
@@ -17,9 +18,9 @@ pub mod gcloud_tools;
 // pub mod self_tools;
 // pub mod shell;
 
-use anyhow::Result;
-use crate::ToolRegistry;
 use crate::registry::ToolDefinition;
+use crate::ToolRegistry;
+use anyhow::Result;
 
 /// Register all built-in tools
 pub async fn register_all_builtin_tools(registry: &ToolRegistry) -> Result<()> {
@@ -32,6 +33,10 @@ pub async fn register_all_builtin_tools(registry: &ToolRegistry) -> Result<()> {
     // Register AnyDesk tools
     tracing::info!("Registering AnyDesk tools...");
     anydesk::register_anydesk_tools(registry).await?;
+
+    // Register dinit service tools
+    tracing::info!("Registering dinit tools...");
+    dinit::register_dinit_tools(registry).await?;
 
     // Register D-Bus introspection tools
     tracing::info!("Registering D-Bus introspection tools...");
@@ -50,10 +55,10 @@ pub async fn register_all_builtin_tools(registry: &ToolRegistry) -> Result<()> {
 /// Register response tools (respond_to_user, cannot_perform, request_clarification)
 pub async fn register_response_tools(registry: &ToolRegistry) -> Result<()> {
     tracing::info!("Registering response tools...");
-    
+
     // Initialize response accumulator
     response_tools::init_response_accumulator();
-    
+
     // Create and register response tools
     let tools = response_tools::create_response_tools();
     let tool_count = tools.len();
@@ -70,14 +75,13 @@ pub async fn register_response_tools(registry: &ToolRegistry) -> Result<()> {
         };
         registry.register(name.into(), tool, definition).await?;
     }
-    
+
     tracing::info!("Registered {} response tools", tool_count);
     Ok(())
 }
 
 // Re-exports
 pub use agent_tool::{
-    AgentConnectionRegistry, AgentDef, AgentExecutor, AgentTool, 
-    BusType, DbusAgentExecutor, AGENT_DEFINITIONS,
-    create_agent_tool, create_agent_tool_with_executor,
+    create_agent_tool, create_agent_tool_with_executor, AgentConnectionRegistry, AgentDef,
+    AgentExecutor, AgentTool, BusType, DbusAgentExecutor, AGENT_DEFINITIONS,
 };

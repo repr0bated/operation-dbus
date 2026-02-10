@@ -196,8 +196,16 @@ impl WorkstackCache {
                 output_file = ?5, expires_at = ?7, last_accessed = ?8,
                 size_bytes = ?9, compressed = ?10, access_count = access_count + 1",
             rusqlite::params![
-                cache_key, workstack_id, step_index, input_hash, output_file,
-                now, expires_at, now, size_bytes, compressed
+                cache_key,
+                workstack_id,
+                step_index,
+                input_hash,
+                output_file,
+                now,
+                expires_at,
+                now,
+                size_bytes,
+                compressed
             ],
         )?;
 
@@ -236,9 +244,7 @@ impl WorkstackCache {
     pub fn invalidate_workstack(&self, workstack_id: &str) -> Result<usize> {
         let db = self.db.lock().unwrap();
 
-        let mut stmt = db.prepare(
-            "SELECT output_file FROM step_cache WHERE workstack_id = ?1",
-        )?;
+        let mut stmt = db.prepare("SELECT output_file FROM step_cache WHERE workstack_id = ?1")?;
 
         let files: Vec<String> = stmt
             .query_map([workstack_id], |row| row.get(0))?
@@ -262,7 +268,10 @@ impl WorkstackCache {
             let _ = std::fs::remove_file(self.cache_dir.join("data").join(&file));
         }
 
-        info!("Invalidated {} cache entries for workstack {}", count, workstack_id);
+        info!(
+            "Invalidated {} cache entries for workstack {}",
+            count, workstack_id
+        );
         Ok(count)
     }
 
@@ -271,9 +280,8 @@ impl WorkstackCache {
         let now = chrono::Utc::now().timestamp();
         let db = self.db.lock().unwrap();
 
-        let mut stmt = db.prepare(
-            "SELECT output_file, size_bytes FROM step_cache WHERE expires_at < ?1",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT output_file, size_bytes FROM step_cache WHERE expires_at < ?1")?;
 
         let expired: Vec<(String, u64)> = stmt
             .query_map([now], |row| Ok((row.get(0)?, row.get(1)?)))?
@@ -291,7 +299,10 @@ impl WorkstackCache {
         }
 
         if count > 0 {
-            info!("Cleaned up {} expired entries ({} bytes)", count, bytes_freed);
+            info!(
+                "Cleaned up {} expired entries ({} bytes)",
+                count, bytes_freed
+            );
         }
 
         Ok(CleanupResult {
@@ -446,7 +457,9 @@ mod tests {
             .unwrap();
 
         let test_data = b"test output";
-        cache.put("ws-001", 0, "input-hash", test_data, None).unwrap();
+        cache
+            .put("ws-001", 0, "input-hash", test_data, None)
+            .unwrap();
 
         let result = cache.get("ws-001", 0, "input-hash").unwrap();
         assert!(result.is_some());

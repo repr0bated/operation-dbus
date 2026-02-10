@@ -67,7 +67,7 @@ impl OAuthToken {
                 .as_secs_f64();
             return now > (expires_at - REFRESH_BUFFER_SECS as f64);
         }
-        
+
         // No expiry info = assume valid (rely on API to reject)
         false
     }
@@ -93,7 +93,7 @@ struct CachedToken {
 }
 
 /// Headless OAuth provider
-/// 
+///
 /// Loads tokens captured from Antigravity headless service.
 #[derive(Debug)]
 pub struct HeadlessOAuthProvider {
@@ -128,7 +128,10 @@ impl HeadlessOAuthProvider {
             .or_else(|_| {
                 // Fallback to gcloud ADC
                 dirs::config_dir()
-                    .map(|d| d.join("gcloud").join("application_default_credentials.json"))
+                    .map(|d| {
+                        d.join("gcloud")
+                            .join("application_default_credentials.json")
+                    })
                     .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))
             })?;
 
@@ -180,7 +183,7 @@ impl HeadlessOAuthProvider {
                 } else {
                     self.client_id.clone()
                 };
-                
+
                 let client_secret = if self.client_secret.is_empty() {
                     token.client_secret.clone().unwrap_or_default()
                 } else {
@@ -189,7 +192,10 @@ impl HeadlessOAuthProvider {
 
                 if !client_id.is_empty() {
                     info!("Token expired, refreshing...");
-                    match self.refresh_token(refresh_token, &client_id, &client_secret).await {
+                    match self
+                        .refresh_token(refresh_token, &client_id, &client_secret)
+                        .await
+                    {
                         Ok(new_token) => {
                             token = new_token;
                             if let Err(e) = self.save_token(&token).await {
@@ -247,8 +253,8 @@ impl HeadlessOAuthProvider {
             .with_context(|| format!("Token file not found: {}\n\nTo authenticate:\n1. Start Antigravity headless: sudo systemctl start antigravity-display\n2. Connect via VNC: vncviewer localhost:5900\n3. Log in with Google account\n4. Run: ./scripts/antigravity-extract-token.sh", self.token_file.display()))?;
 
         let mut contents_mut = contents;
-        let token: OAuthToken = unsafe { simd_json::from_str(&mut contents_mut) }
-            .context("Invalid token JSON")?;
+        let token: OAuthToken =
+            unsafe { simd_json::from_str(&mut contents_mut) }.context("Invalid token JSON")?;
 
         if let Some(remaining) = token.remaining_secs() {
             debug!("Loaded token, expires in {}s", remaining);
@@ -269,7 +275,8 @@ impl HeadlessOAuthProvider {
         client_id: &str,
         client_secret: &str,
     ) -> Result<OAuthToken> {
-        let response = self.client
+        let response = self
+            .client
             .post(GOOGLE_TOKEN_URL)
             .form(&[
                 ("client_id", client_id),
@@ -287,8 +294,8 @@ impl HeadlessOAuthProvider {
             anyhow::bail!("Token refresh failed {}: {}", status, body);
         }
 
-        let mut new_token: OAuthToken = response.json().await
-            .context("Invalid refresh response")?;
+        let mut new_token: OAuthToken =
+            response.json().await.context("Invalid refresh response")?;
 
         // Preserve fields
         if new_token.refresh_token.is_none() {

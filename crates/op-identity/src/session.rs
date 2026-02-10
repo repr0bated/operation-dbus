@@ -318,7 +318,10 @@ impl SessionManager {
         let db = self.db.lock().await;
         let cutoff = Utc::now().timestamp() - SESSION_TIMEOUT_SECS;
 
-        let deleted = db.execute("DELETE FROM sessions WHERE last_seen_at < ?", params![cutoff])?;
+        let deleted = db.execute(
+            "DELETE FROM sessions WHERE last_seen_at < ?",
+            params![cutoff],
+        )?;
 
         if deleted > 0 {
             info!("Cleaned up {} expired sessions", deleted);

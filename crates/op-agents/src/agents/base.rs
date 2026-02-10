@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::security::{SandboxResult, SandboxExecutor, SecurityProfile};
+use crate::security::{SandboxExecutor, SandboxResult, SecurityProfile};
 
 /// Agent task input
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,12 +2,12 @@
 //! Talks directly to /var/run/openvswitch/db.sock
 
 use anyhow::{Context, Result};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::value::owned::Object;
+use simd_json::{json, OwnedValue as Value};
 use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
-use simd_json::value::owned::Object;
 
 /// Direct OVSDB JSON-RPC client
 pub struct OvsdbClient {
@@ -204,12 +204,15 @@ impl OvsdbClient {
             for (i, op_result) in results.iter().enumerate() {
                 if let Some(error) = op_result.get("error") {
                     if let Some(error_str) = error.as_str() {
-                        let details = op_result.get("details")
+                        let details = op_result
+                            .get("details")
                             .and_then(|d| d.as_str())
                             .unwrap_or("no details");
                         return Err(anyhow::anyhow!(
                             "OVSDB operation {} failed: {} ({})",
-                            i, error_str, details
+                            i,
+                            error_str,
+                            details
                         ));
                     }
                 }
@@ -287,7 +290,12 @@ impl OvsdbClient {
     }
 
     /// Add port to bridge with optional type (e.g., "internal" for virtual ports)
-    pub async fn add_port_with_type(&self, bridge_name: &str, port_name: &str, port_type: Option<&str>) -> Result<()> {
+    pub async fn add_port_with_type(
+        &self,
+        bridge_name: &str,
+        port_name: &str,
+        port_type: Option<&str>,
+    ) -> Result<()> {
         // First, find the bridge UUID
         let bridge_uuid = self.find_bridge_uuid(bridge_name).await?;
 
@@ -337,7 +345,12 @@ impl OvsdbClient {
         ]);
 
         self.transact(operations).await?;
-        log::info!("Port {} (type: {:?}) added to bridge {}", port_name, port_type, bridge_name);
+        log::info!(
+            "Port {} (type: {:?}) added to bridge {}",
+            port_name,
+            port_type,
+            bridge_name
+        );
         Ok(())
     }
 

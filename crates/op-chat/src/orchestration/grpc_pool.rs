@@ -14,12 +14,12 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use simd_json::prelude::*;
 use simd_json::OwnedValue;
 use simd_json::OwnedValue as Value;
-use simd_json::prelude::*;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio::time::timeout;
-use tracing::{debug, error, info, warn, instrument, Span};
+use tracing::{debug, error, info, instrument, warn, Span};
 
 use super::error::{ErrorCode, OrchestrationError, OrchestrationResult};
 
@@ -82,23 +82,23 @@ impl AgentPoolConfig {
     /// Load config from environment variables
     pub fn from_env() -> Self {
         let mut config = Self::default();
-        
+
         if let Ok(addr) = std::env::var("OP_AGENT_POOL_ADDRESS") {
             config.base_address = addr;
         }
-        
+
         if let Ok(timeout) = std::env::var("OP_AGENT_CONNECT_TIMEOUT_MS") {
             if let Ok(ms) = timeout.parse::<u64>() {
                 config.connect_timeout = Duration::from_millis(ms);
             }
         }
-        
+
         if let Ok(timeout) = std::env::var("OP_AGENT_REQUEST_TIMEOUT_MS") {
             if let Ok(ms) = timeout.parse::<u64>() {
                 config.request_timeout = Duration::from_millis(ms);
             }
         }
-        
+
         if let Ok(agents) = std::env::var("OP_RUN_ON_CONNECTION_AGENTS") {
             config.run_on_connection = agents
                 .split(',')
@@ -106,7 +106,7 @@ impl AgentPoolConfig {
                 .filter(|s| !s.is_empty())
                 .collect();
         }
-        
+
         config
     }
 }
@@ -157,17 +157,17 @@ impl CircuitBreaker {
             reset_timeout,
         }
     }
-    
+
     fn record_success(&mut self) {
         self.state = CircuitState::Closed;
         self.failure_count = 0;
         self.last_failure = None;
     }
-    
+
     fn record_failure(&mut self) {
         self.failure_count += 1;
         self.last_failure = Some(Instant::now());
-        
+
         if self.failure_count >= self.threshold {
             self.state = CircuitState::Open;
             warn!(
@@ -176,7 +176,7 @@ impl CircuitBreaker {
             );
         }
     }
-    
+
     fn can_execute(&mut self) -> bool {
         match self.state {
             CircuitState::Closed => true,
@@ -235,11 +235,11 @@ impl AgentConnection {
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
         }
     }
-    
+
     fn full_address(&self) -> String {
         format!("{}:{}", self.address, self.port)
     }
-    
+
     fn uptime(&self) -> Option<Duration> {
         self.started_at.map(|t| t.elapsed())
     }
@@ -321,7 +321,7 @@ impl GrpcAgentPool {
             .iter()
             .map(|(name, port)| (name.to_string(), *port))
             .collect();
-        
+
         Self {
             config,
             connections: RwLock::new(HashMap::new()),
@@ -332,21 +332,21 @@ impl GrpcAgentPool {
             health_check_handle: RwLock::new(None),
         }
     }
-    
+
     /// Create with default configuration
     pub fn with_defaults() -> Self {
         Self::new(AgentPoolConfig::default())
     }
-    
+
     /// Create with configuration from environment
     pub fn from_env() -> Self {
         Self::new(AgentPoolConfig::from_env())
     }
-    
+
     // ========================================================================
     // SESSION MANAGEMENT
     // ========================================================================
-    
+
     /// Initialize pool for a session
     ///
     /// Called when a user connects. Starts all run-on-connection agents.
@@ -358,7 +358,7 @@ impl GrpcAgentPool {
         metadata: Option<HashMap<String, String>>,
     ) -> OrchestrationResult<Vec<String>> {
         info!("Initializing agent pool for session");
-        
+
         // Check if session already exists
         {
             let sessions = self.sessions.read().await;
@@ -369,10 +369,10 @@ impl GrpcAgentPool {
                 ));
             }
         }
-        
+
         let mut started = Vec::new();
         let mut failed = Vec::new();
-        
+
         // Start run-on-connection agents
         for agent_id in &self.config.run_on_connection {
             match self.connect_agent(agent_id).await {
@@ -386,7 +386,7 @@ impl GrpcAgentPool {
                 }
             }
         }
-        
+
         // Create session state
         let session_state = SessionState {
             session_id: session_id.to_string(),
@@ -395,47 +395,47 @@ impl GrpcAgentPool {
             request_count: AtomicU64::new(0),
             metadata: metadata.unwrap_or_default(),
         };
-        
+
         // Store session
         self.sessions
             .write()
             .await
             .insert(session_id.to_string(), session_state);
-        
+
         // Start health check task if not running
         self.start_health_check_task().await;
-        
+
         if started.is_empty() && !failed.is_empty() {
             return Err(OrchestrationError::new(
                 ErrorCode::AgentStartFailed,
                 format!("Failed to start any agents: {:?}", failed),
             ));
         }
-        
+
         info!(
             session = %session_id,
             started = ?started,
             failed_count = failed.len(),
             "Agent pool initialized"
         );
-        
+
         Ok(started)
     }
-    
+
     /// Shutdown a session
     #[instrument(skip(self), fields(session_id = %session_id))]
     pub async fn shutdown_session(&self, session_id: &str) -> OrchestrationResult<Duration> {
         info!("Shutting down session");
-        
+
         let session = self
             .sessions
             .write()
             .await
             .remove(session_id)
             .ok_or_else(|| OrchestrationError::session_not_found(session_id))?;
-        
+
         let duration = session.started_at.elapsed();
-        
+
         // Disconnect agents that were started for this session
         // (In a multi-session scenario, we'd track per-session connections)
         // For now, we just log the shutdown
@@ -445,30 +445,31 @@ impl GrpcAgentPool {
             requests = session.request_count.load(Ordering::Relaxed),
             "Session shutdown complete"
         );
-        
+
         Ok(duration)
     }
-    
+
     /// Check if a session exists
     pub async fn session_exists(&self, session_id: &str) -> bool {
         self.sessions.read().await.contains_key(session_id)
     }
-    
+
     // ========================================================================
     // AGENT CONNECTION
     // ========================================================================
-    
+
     /// Connect to a specific agent
     #[instrument(skip(self), fields(agent_id = %agent_id))]
     async fn connect_agent(&self, agent_id: &str) -> OrchestrationResult<()> {
-        let port = *self.port_map.get(agent_id).ok_or_else(|| {
-            OrchestrationError::agent_not_found(agent_id)
-        })?;
-        
+        let port = *self
+            .port_map
+            .get(agent_id)
+            .ok_or_else(|| OrchestrationError::agent_not_found(agent_id))?;
+
         let address = format!("{}:{}", self.config.base_address, port);
-        
+
         debug!(agent = %agent_id, address = %address, "Connecting to agent");
-        
+
         // Check if already connected
         {
             let connections = self.connections.read().await;
@@ -479,14 +480,14 @@ impl GrpcAgentPool {
                 }
             }
         }
-        
+
         // Attempt connection with timeout
         let connect_result = timeout(
             self.config.connect_timeout,
             self.do_connect(agent_id, &address, port),
         )
         .await;
-        
+
         match connect_result {
             Ok(Ok(())) => {
                 info!(agent = %agent_id, "Agent connected successfully");
@@ -505,7 +506,7 @@ impl GrpcAgentPool {
             }
         }
     }
-    
+
     /// Internal connection logic
     async fn do_connect(
         &self,
@@ -518,7 +519,7 @@ impl GrpcAgentPool {
         //     .connect_timeout(self.config.connect_timeout)
         //     .connect()
         //     .await?;
-        
+
         // For now, create connection entry (simulated)
         let conn = AgentConnection::new(
             agent_id.to_string(),
@@ -528,9 +529,9 @@ impl GrpcAgentPool {
             self.config.circuit_breaker_threshold,
             self.config.circuit_breaker_reset,
         );
-        
+
         let mut connections = self.connections.write().await;
-        
+
         if let Some(existing) = connections.get_mut(agent_id) {
             existing.connected = true;
             existing.started_at = Some(Instant::now());
@@ -540,10 +541,10 @@ impl GrpcAgentPool {
             new_conn.started_at = Some(Instant::now());
             connections.insert(agent_id.to_string(), new_conn);
         }
-        
+
         Ok(())
     }
-    
+
     /// Ensure agent is connected (lazy connection for on-demand agents)
     async fn ensure_connected(&self, agent_id: &str) -> OrchestrationResult<()> {
         let needs_connect = {
@@ -553,19 +554,19 @@ impl GrpcAgentPool {
                 .map(|c| c.connected)
                 .unwrap_or(false)
         };
-        
+
         if needs_connect {
             info!(agent = %agent_id, "Lazy-connecting on-demand agent");
             self.connect_agent(agent_id).await?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Check circuit breaker for an agent
     async fn check_circuit_breaker(&self, agent_id: &str) -> OrchestrationResult<()> {
         let mut connections = self.connections.write().await;
-        
+
         if let Some(conn) = connections.get_mut(agent_id) {
             if !conn.circuit_breaker.can_execute() {
                 return Err(OrchestrationError::agent_unavailable(
@@ -574,10 +575,10 @@ impl GrpcAgentPool {
                 ));
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Record successful operation
     async fn record_success(&self, agent_id: &str) {
         let mut connections = self.connections.write().await;
@@ -586,7 +587,7 @@ impl GrpcAgentPool {
             conn.last_used = Some(Instant::now());
         }
     }
-    
+
     /// Record failed operation
     async fn record_failure(&self, agent_id: &str) {
         let mut connections = self.connections.write().await;
@@ -595,11 +596,11 @@ impl GrpcAgentPool {
             conn.error_count.fetch_add(1, Ordering::Relaxed);
         }
     }
-    
+
     // ========================================================================
     // EXECUTION
     // ========================================================================
-    
+
     /// Execute an operation on an agent
     #[instrument(skip(self, arguments), fields(
         agent_id = %agent_id,
@@ -621,7 +622,7 @@ impl GrpcAgentPool {
         )
         .await
     }
-    
+
     /// Execute with custom timeout
     pub async fn execute_with_timeout(
         &self,
@@ -635,43 +636,43 @@ impl GrpcAgentPool {
         if !self.session_exists(session_id).await {
             return Err(OrchestrationError::session_not_found(session_id));
         }
-        
+
         // Ensure connected
         self.ensure_connected(agent_id).await?;
-        
+
         // Check circuit breaker
         self.check_circuit_breaker(agent_id).await?;
-        
+
         // Acquire semaphore permit
         let permit = self.acquire_permit(agent_id).await?;
-        
+
         // Update counters
         self.total_requests.fetch_add(1, Ordering::Relaxed);
         self.active_requests.fetch_add(1, Ordering::Relaxed);
-        
+
         // Execute with retry
         let result = self
             .execute_with_retry(agent_id, operation, &arguments, op_timeout)
             .await;
-        
+
         // Update counters
         self.active_requests.fetch_sub(1, Ordering::Relaxed);
         drop(permit);
-        
+
         // Update session request count
         if let Some(session) = self.sessions.read().await.get(session_id) {
             session.request_count.fetch_add(1, Ordering::Relaxed);
         }
-        
+
         // Record success/failure
         match &result {
             Ok(_) => self.record_success(agent_id).await,
             Err(_) => self.record_failure(agent_id).await,
         }
-        
+
         result
     }
-    
+
     /// Execute with retry logic
     async fn execute_with_retry(
         &self,
@@ -682,7 +683,7 @@ impl GrpcAgentPool {
     ) -> OrchestrationResult<Value> {
         let mut last_error = None;
         let mut delay = self.config.retry_base_delay;
-        
+
         for attempt in 0..=self.config.max_retries {
             if attempt > 0 {
                 debug!(
@@ -695,7 +696,7 @@ impl GrpcAgentPool {
                 tokio::time::sleep(delay).await;
                 delay *= 2; // Exponential backoff
             }
-            
+
             match timeout(op_timeout, self.do_execute(agent_id, operation, arguments)).await {
                 Ok(Ok(result)) => {
                     if attempt > 0 {
@@ -722,11 +723,8 @@ impl GrpcAgentPool {
                     last_error = Some(e);
                 }
                 Err(_) => {
-                    let timeout_err = OrchestrationError::agent_timeout(
-                        agent_id,
-                        operation,
-                        op_timeout,
-                    );
+                    let timeout_err =
+                        OrchestrationError::agent_timeout(agent_id, operation, op_timeout);
                     if attempt == self.config.max_retries {
                         return Err(timeout_err);
                     }
@@ -734,12 +732,12 @@ impl GrpcAgentPool {
                 }
             }
         }
-        
+
         Err(last_error.unwrap_or_else(|| {
             OrchestrationError::execution_failed(agent_id, operation, "Max retries exceeded")
         }))
     }
-    
+
     /// Internal execution logic
     async fn do_execute(
         &self,
@@ -748,7 +746,7 @@ impl GrpcAgentPool {
         arguments: &Value,
     ) -> OrchestrationResult<Value> {
         debug!(agent = %agent_id, operation = %operation, "Executing operation");
-        
+
         // Update connection stats
         {
             let mut connections = self.connections.write().await;
@@ -757,7 +755,7 @@ impl GrpcAgentPool {
                 conn.request_count.fetch_add(1, Ordering::Relaxed);
             }
         }
-        
+
         // TODO: Replace with actual gRPC call
         // let request = tonic::Request::new(ExecuteRequest {
         //     agent_id: agent_id.to_string(),
@@ -768,7 +766,7 @@ impl GrpcAgentPool {
         // });
         // let response = client.execute(request).await?;
         // let result: Value = simd_json::from_str(&response.into_inner().result_json)?;
-        
+
         // Simulated successful execution
         Ok(simd_json::json!({
             "agent": agent_id,
@@ -777,7 +775,7 @@ impl GrpcAgentPool {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         }))
     }
-    
+
     /// Acquire semaphore permit for an agent
     async fn acquire_permit(
         &self,
@@ -790,17 +788,17 @@ impl GrpcAgentPool {
                 .map(|c| c.semaphore.clone())
                 .ok_or_else(|| OrchestrationError::agent_not_found(agent_id))?
         };
-        
+
         semaphore
             .acquire_owned()
             .await
             .map_err(|_| OrchestrationError::agent_unavailable(agent_id, "Semaphore closed"))
     }
-    
+
     // ========================================================================
     // STREAMING EXECUTION
     // ========================================================================
-    
+
     /// Execute with streaming response
     #[instrument(skip(self, arguments, on_chunk), fields(
         agent_id = %agent_id,
@@ -821,32 +819,32 @@ impl GrpcAgentPool {
         if !self.session_exists(session_id).await {
             return Err(OrchestrationError::session_not_found(session_id));
         }
-        
+
         // Ensure connected
         self.ensure_connected(agent_id).await?;
-        
+
         // Check circuit breaker
         self.check_circuit_breaker(agent_id).await?;
-        
+
         // Acquire permit
         let permit = self.acquire_permit(agent_id).await?;
-        
+
         // Execute streaming
         let result = self
             .do_execute_streaming(agent_id, operation, &arguments, on_chunk)
             .await;
-        
+
         drop(permit);
-        
+
         // Record success/failure
         match &result {
             Ok(_) => self.record_success(agent_id).await,
             Err(_) => self.record_failure(agent_id).await,
         }
-        
+
         result
     }
-    
+
     /// Internal streaming execution
     async fn do_execute_streaming<F>(
         &self,
@@ -859,17 +857,17 @@ impl GrpcAgentPool {
         F: FnMut(StreamChunk) + Send + 'static,
     {
         debug!(agent = %agent_id, operation = %operation, "Starting streaming execution");
-        
+
         // TODO: Replace with actual gRPC streaming call
         // let request = tonic::Request::new(ExecuteRequest { ... });
         // let mut stream = client.execute_stream(request).await?.into_inner();
         // while let Some(chunk) = stream.next().await {
         //     on_chunk(chunk.into());
         // }
-        
+
         // Simulated streaming
         let mut sequence = 0u32;
-        
+
         on_chunk(StreamChunk {
             content: format!("Starting {} {}...\n", agent_id, operation),
             stream_type: StreamType::Progress,
@@ -878,10 +876,10 @@ impl GrpcAgentPool {
             timestamp: Instant::now(),
         });
         sequence += 1;
-        
+
         // Simulate some work
         tokio::time::sleep(Duration::from_millis(100)).await;
-        
+
         on_chunk(StreamChunk {
             content: format!("Executing {}...\n", operation),
             stream_type: StreamType::Stdout,
@@ -890,7 +888,7 @@ impl GrpcAgentPool {
             timestamp: Instant::now(),
         });
         sequence += 1;
-        
+
         on_chunk(StreamChunk {
             content: "Operation complete.\n".to_string(),
             stream_type: StreamType::Stdout,
@@ -898,7 +896,7 @@ impl GrpcAgentPool {
             is_final: true,
             timestamp: Instant::now(),
         });
-        
+
         Ok(simd_json::json!({
             "agent": agent_id,
             "operation": operation,
@@ -906,11 +904,11 @@ impl GrpcAgentPool {
             "streamed": true,
         }))
     }
-    
+
     // ========================================================================
     // BATCH EXECUTION
     // ========================================================================
-    
+
     /// Batch execute multiple operations
     pub async fn batch_execute(
         &self,
@@ -924,14 +922,14 @@ impl GrpcAgentPool {
             parallel = %parallel,
             "Batch executing operations"
         );
-        
+
         if parallel {
             self.batch_execute_parallel(session_id, operations).await
         } else {
             self.batch_execute_sequential(session_id, operations).await
         }
     }
-    
+
     async fn batch_execute_parallel(
         &self,
         session_id: &str,
@@ -949,35 +947,41 @@ impl GrpcAgentPool {
                         .execute(&session, &op.agent_id, &op.operation, op.arguments)
                         .await;
                     let duration = start.elapsed();
-                    
+
                     AgentOperationResult {
                         agent_id,
                         operation,
                         success: result.is_ok(),
-                        result: result.unwrap_or_else(|e| simd_json::json!({ "error": e.to_string() })),
+                        result: result
+                            .unwrap_or_else(|e| simd_json::json!({ "error": e.to_string() })),
                         duration,
                     }
                 }
             })
             .collect();
-        
+
         Ok(futures::future::join_all(futures).await)
     }
-    
+
     async fn batch_execute_sequential(
         &self,
         session_id: &str,
         operations: Vec<AgentOperation>,
     ) -> OrchestrationResult<Vec<AgentOperationResult>> {
         let mut results = Vec::with_capacity(operations.len());
-        
+
         for op in operations {
             let start = Instant::now();
             let result = self
-                .execute(session_id, &op.agent_id, &op.operation, op.arguments.clone())
+                .execute(
+                    session_id,
+                    &op.agent_id,
+                    &op.operation,
+                    op.arguments.clone(),
+                )
                 .await;
             let duration = start.elapsed();
-            
+
             results.push(AgentOperationResult {
                 agent_id: op.agent_id,
                 operation: op.operation,
@@ -986,31 +990,31 @@ impl GrpcAgentPool {
                 duration,
             });
         }
-        
+
         Ok(results)
     }
-    
+
     // ========================================================================
     // HEALTH CHECKS
     // ========================================================================
-    
+
     /// Start background health check task
     async fn start_health_check_task(&self) {
         let mut handle = self.health_check_handle.write().await;
-        
+
         // Don't start if already running
         if handle.is_some() {
             return;
         }
-        
+
         let interval = self.config.health_check_interval;
-        
+
         // Clone what we need for the task
         // Note: In a real implementation, this would hold a weak reference
         // to avoid preventing drop. For now, we just log.
         let task = tokio::spawn(async move {
             let mut tick = tokio::time::interval(interval);
-            
+
             loop {
                 tick.tick().await;
                 debug!("Running health checks");
@@ -1020,18 +1024,18 @@ impl GrpcAgentPool {
                 // - Reconnect failed agents
             }
         });
-        
+
         *handle = Some(task);
     }
-    
+
     /// Perform health check on a specific agent
     pub async fn health_check(&self, agent_id: &str) -> OrchestrationResult<AgentHealth> {
         let connections = self.connections.read().await;
-        
+
         let conn = connections
             .get(agent_id)
             .ok_or_else(|| OrchestrationError::agent_not_found(agent_id))?;
-        
+
         Ok(AgentHealth {
             agent_id: agent_id.to_string(),
             connected: conn.connected,
@@ -1041,11 +1045,11 @@ impl GrpcAgentPool {
             error_count: conn.error_count.load(Ordering::Relaxed),
         })
     }
-    
+
     // ========================================================================
     // CONVENIENCE METHODS
     // ========================================================================
-    
+
     /// Memory: Remember a value
     pub async fn memory_remember(
         &self,
@@ -1062,7 +1066,7 @@ impl GrpcAgentPool {
         .await?;
         Ok(())
     }
-    
+
     /// Memory: Recall a value
     pub async fn memory_recall(
         &self,
@@ -1077,10 +1081,13 @@ impl GrpcAgentPool {
                 simd_json::json!({ "key": key }),
             )
             .await?;
-        
-        Ok(result.get("value").and_then(|v| v.as_str()).map(String::from))
+
+        Ok(result
+            .get("value")
+            .and_then(|v| v.as_str())
+            .map(String::from))
     }
-    
+
     /// Sequential Thinking: Start a thinking chain
     pub async fn think_start(
         &self,
@@ -1099,14 +1106,14 @@ impl GrpcAgentPool {
                 }),
             )
             .await?;
-        
+
         Ok(result
             .get("chain_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string())
     }
-    
+
     /// Rust Pro: Cargo check with streaming
     pub async fn cargo_check<F>(
         &self,
@@ -1126,7 +1133,7 @@ impl GrpcAgentPool {
         )
         .await
     }
-    
+
     /// Rust Pro: Cargo build with streaming
     pub async fn cargo_build<F>(
         &self,
@@ -1147,7 +1154,7 @@ impl GrpcAgentPool {
         )
         .await
     }
-    
+
     /// Context Manager: Save context
     pub async fn context_save(
         &self,
@@ -1169,7 +1176,7 @@ impl GrpcAgentPool {
         .await?;
         Ok(())
     }
-    
+
     /// Context Manager: Load context
     pub async fn context_load(
         &self,
@@ -1184,14 +1191,21 @@ impl GrpcAgentPool {
                 simd_json::json!({ "name": name }),
             )
             .await?;
-        
-        if result.get("found").and_then(|v| v.as_bool()).unwrap_or(false) {
-            Ok(result.get("content").and_then(|v| v.as_str()).map(String::from))
+
+        if result
+            .get("found")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            Ok(result
+                .get("content")
+                .and_then(|v| v.as_str())
+                .map(String::from))
         } else {
             Ok(None)
         }
     }
-    
+
     /// Backend Architect: Analyze
     pub async fn analyze_architecture(
         &self,
@@ -1207,25 +1221,25 @@ impl GrpcAgentPool {
         )
         .await
     }
-    
+
     // ========================================================================
     // STATUS
     // ========================================================================
-    
+
     /// Get pool status
     pub async fn status(&self) -> PoolStatus {
         let connections = self.connections.read().await;
         let sessions = self.sessions.read().await;
-        
+
         let connected: Vec<_> = connections
             .values()
             .filter(|c| c.connected)
             .map(|c| c.agent_id.clone())
             .collect();
-        
+
         let total_requests = self.total_requests.load(Ordering::Relaxed);
         let active_requests = self.active_requests.load(Ordering::Relaxed);
-        
+
         PoolStatus {
             active_sessions: sessions.len(),
             connected_agents: connected.clone(),
@@ -1234,7 +1248,7 @@ impl GrpcAgentPool {
             active_requests,
         }
     }
-    
+
     /// Get configuration
     pub fn config(&self) -> &AgentPoolConfig {
         &self.config
@@ -1254,7 +1268,11 @@ pub struct AgentOperation {
 }
 
 impl AgentOperation {
-    pub fn new(agent_id: impl Into<String>, operation: impl Into<String>, arguments: Value) -> Self {
+    pub fn new(
+        agent_id: impl Into<String>,
+        operation: impl Into<String>,
+        arguments: Value,
+    ) -> Self {
         Self {
             agent_id: agent_id.into(),
             operation: operation.into(),
@@ -1301,40 +1319,40 @@ pub struct AgentHealth {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_pool_creation() {
         let pool = GrpcAgentPool::with_defaults();
         let status = pool.status().await;
-        
+
         assert_eq!(status.active_sessions, 0);
         assert_eq!(status.total_requests, 0);
     }
-    
+
     #[tokio::test]
     async fn test_session_lifecycle() {
         let pool = GrpcAgentPool::with_defaults();
-        
+
         // Init session
         let agents = pool
             .init_session("test-session", "test-client", None)
             .await
             .unwrap();
-        
+
         assert!(!agents.is_empty());
         assert!(pool.session_exists("test-session").await);
-        
+
         // Shutdown session
         let duration = pool.shutdown_session("test-session").await.unwrap();
         assert!(duration.as_nanos() > 0);
         assert!(!pool.session_exists("test-session").await);
     }
-    
+
     #[tokio::test]
     async fn test_execute() {
         let pool = GrpcAgentPool::with_defaults();
         pool.init_session("test", "test", None).await.unwrap();
-        
+
         let result = pool
             .execute(
                 "test",
@@ -1344,30 +1362,41 @@ mod tests {
             )
             .await
             .unwrap();
-        
-        assert!(result.get("success").and_then(|v| v.as_bool()).unwrap_or(false));
+
+        assert!(result
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false));
     }
-    
+
     #[tokio::test]
     async fn test_batch_execute() {
         let pool = GrpcAgentPool::with_defaults();
         pool.init_session("test", "test", None).await.unwrap();
-        
+
         let operations = vec![
-            AgentOperation::new("memory", "remember", simd_json::json!({ "key": "a", "value": "1" })),
-            AgentOperation::new("memory", "remember", simd_json::json!({ "key": "b", "value": "2" })),
+            AgentOperation::new(
+                "memory",
+                "remember",
+                simd_json::json!({ "key": "a", "value": "1" }),
+            ),
+            AgentOperation::new(
+                "memory",
+                "remember",
+                simd_json::json!({ "key": "b", "value": "2" }),
+            ),
         ];
-        
+
         let results = pool.batch_execute("test", operations, true).await.unwrap();
-        
+
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.success));
     }
-    
+
     #[tokio::test]
     async fn test_session_not_found() {
         let pool = GrpcAgentPool::with_defaults();
-        
+
         let result = pool
             .execute(
                 "nonexistent",
@@ -1376,29 +1405,29 @@ mod tests {
                 simd_json::json!({ "key": "test" }),
             )
             .await;
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.code, ErrorCode::SessionNotFound);
     }
-    
+
     #[tokio::test]
     async fn test_circuit_breaker() {
         let mut cb = CircuitBreaker::new(3, Duration::from_secs(60));
-        
+
         // Initial state
         assert_eq!(cb.state, CircuitState::Closed);
         assert!(cb.can_execute());
-        
+
         // Record failures
         cb.record_failure();
         cb.record_failure();
         assert!(cb.can_execute());
-        
+
         cb.record_failure(); // Threshold reached
         assert_eq!(cb.state, CircuitState::Open);
         assert!(!cb.can_execute());
-        
+
         // Success resets
         cb.record_success();
         assert_eq!(cb.state, CircuitState::Closed);

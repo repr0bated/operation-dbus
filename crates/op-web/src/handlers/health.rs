@@ -14,9 +14,7 @@ pub struct HealthResponse {
 }
 
 /// GET /api/health - Health check endpoint
-pub async fn health_handler(
-    Extension(state): Extension<Arc<AppState>>,
-) -> Json<HealthResponse> {
+pub async fn health_handler(Extension(state): Extension<Arc<AppState>>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "healthy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),

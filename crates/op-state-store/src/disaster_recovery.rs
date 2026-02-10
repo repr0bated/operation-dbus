@@ -2,7 +2,7 @@
 //!
 //! Provides system state export/import for disaster recovery with dependency tracking.
 //! Each export contains all plugin states plus the dependencies needed to restore.
-//! 
+//!
 //! Dependencies are installed via D-Bus PackageKit - NO CLI COMMANDS.
 
 use anyhow::{Context, Result};
@@ -257,28 +257,25 @@ fn detect_os_version() -> String {
             content
                 .lines()
                 .find(|l| l.starts_with("VERSION_ID="))
-                .map(|l| l.trim_start_matches("VERSION_ID=").trim_matches('"').to_string())
+                .map(|l| {
+                    l.trim_start_matches("VERSION_ID=")
+                        .trim_matches('"')
+                        .to_string()
+                })
         })
         .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn detect_kernel() -> String {
     std::fs::read_to_string("/proc/version")
-        .map(|s| {
-            s.split_whitespace()
-                .nth(2)
-                .unwrap_or("unknown")
-                .to_string()
-        })
+        .map(|s| s.split_whitespace().nth(2).unwrap_or("unknown").to_string())
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
 /// Get default dependencies for a plugin type
 pub fn get_plugin_dependencies(plugin_name: &str) -> Vec<SystemDependency> {
     match plugin_name {
-        "net" | "openflow" => vec![
-            SystemDependency::required("openvswitch-switch"),
-        ],
+        "net" | "openflow" => vec![SystemDependency::required("openvswitch-switch")],
         "lxc" => vec![
             // Proxmox provides pct, no extra deps on Proxmox hosts
         ],
@@ -289,18 +286,10 @@ pub fn get_plugin_dependencies(plugin_name: &str) -> Vec<SystemDependency> {
             SystemDependency::required("openvswitch-switch"),
             SystemDependency::optional("iptables"),
         ],
-        "netmaker" => vec![
-            SystemDependency::optional("netclient"),
-        ],
-        "btrfs" => vec![
-            SystemDependency::required("btrfs-progs"),
-        ],
-        "numa" => vec![
-            SystemDependency::optional("numactl"),
-        ],
-        "packagekit" => vec![
-            SystemDependency::required("packagekit"),
-        ],
+        "netmaker" => vec![SystemDependency::optional("netclient")],
+        "btrfs" => vec![SystemDependency::required("btrfs-progs")],
+        "numa" => vec![SystemDependency::optional("numactl")],
+        "packagekit" => vec![SystemDependency::required("packagekit")],
         _ => vec![],
     }
 }
@@ -324,22 +313,19 @@ pub async fn install_dependencies_via_packagekit(
     dependencies: &[&SystemDependency],
 ) -> Result<Vec<InstallResult>> {
     let mut results = Vec::new();
-    
+
     // Filter to just the package names we need to install
-    let package_names: Vec<&str> = dependencies
-        .iter()
-        .map(|d| d.name.as_str())
-        .collect();
-    
+    let package_names: Vec<&str> = dependencies.iter().map(|d| d.name.as_str()).collect();
+
     if package_names.is_empty() {
         return Ok(results);
     }
-    
+
     // Connect to D-Bus
     let connection = Connection::system()
         .await
         .context("Failed to connect to system D-Bus")?;
-    
+
     // Create PackageKit transaction
     let pk_proxy = zbus::Proxy::new(
         &connection,
@@ -349,13 +335,13 @@ pub async fn install_dependencies_via_packagekit(
     )
     .await
     .context("Failed to create PackageKit proxy")?;
-    
+
     // First, resolve package names to package IDs
     let tx_path: zbus::zvariant::OwnedObjectPath = pk_proxy
         .call("CreateTransaction", &())
         .await
         .context("Failed to create PackageKit transaction")?;
-    
+
     let tx_proxy = zbus::Proxy::new(
         &connection,
         "org.freedesktop.PackageKit",
@@ -364,12 +350,12 @@ pub async fn install_dependencies_via_packagekit(
     )
     .await
     .context("Failed to create transaction proxy")?;
-    
+
     // Resolve packages (filter: NONE=0, package names)
     let resolve_result: std::result::Result<(), zbus::Error> = tx_proxy
         .call("Resolve", &(0u64, package_names.clone()))
         .await;
-    
+
     match resolve_result {
         Ok(_) => {
             for name in &package_names {
@@ -383,13 +369,13 @@ pub async fn install_dependencies_via_packagekit(
         Err(e) => {
             // If resolve fails, try to install anyway (PackageKit will resolve)
             tracing::warn!("PackageKit resolve failed: {}, trying direct install", e);
-            
+
             // Create new transaction for install
             let install_tx_path: zbus::zvariant::OwnedObjectPath = pk_proxy
                 .call("CreateTransaction", &())
                 .await
                 .context("Failed to create install transaction")?;
-            
+
             let install_proxy = zbus::Proxy::new(
                 &connection,
                 "org.freedesktop.PackageKit",
@@ -397,13 +383,13 @@ pub async fn install_dependencies_via_packagekit(
                 "org.freedesktop.PackageKit.Transaction",
             )
             .await?;
-            
+
             // Try installing with package names directly
             // Note: This may need package IDs in format "name;version;arch;repo"
             let install_result: std::result::Result<(), zbus::Error> = install_proxy
                 .call("InstallPackages", &(0u64, package_names.clone()))
                 .await;
-            
+
             match install_result {
                 Ok(_) => {
                     for name in &package_names {
@@ -426,7 +412,7 @@ pub async fn install_dependencies_via_packagekit(
             }
         }
     }
-    
+
     Ok(results)
 }
 
@@ -443,7 +429,7 @@ pub async fn is_package_installed(package_name: &str) -> Result<bool> {
     let connection = Connection::system()
         .await
         .context("Failed to connect to system D-Bus")?;
-    
+
     let pk_proxy = zbus::Proxy::new(
         &connection,
         "org.freedesktop.PackageKit",
@@ -451,12 +437,10 @@ pub async fn is_package_installed(package_name: &str) -> Result<bool> {
         "org.freedesktop.PackageKit",
     )
     .await?;
-    
+
     // Create transaction
-    let tx_path: zbus::zvariant::OwnedObjectPath = pk_proxy
-        .call("CreateTransaction", &())
-        .await?;
-    
+    let tx_path: zbus::zvariant::OwnedObjectPath = pk_proxy.call("CreateTransaction", &()).await?;
+
     let tx_proxy = zbus::Proxy::new(
         &connection,
         "org.freedesktop.PackageKit",
@@ -464,12 +448,12 @@ pub async fn is_package_installed(package_name: &str) -> Result<bool> {
         "org.freedesktop.PackageKit.Transaction",
     )
     .await?;
-    
+
     // Search for installed packages (filter: INSTALLED=2)
     let result: std::result::Result<(), zbus::Error> = tx_proxy
         .call("SearchNames", &(2u64, vec![package_name.to_string()]))
         .await;
-    
+
     // If we get a result without error, package exists
     Ok(result.is_ok())
 }
@@ -484,11 +468,11 @@ pub async fn restore_from_export(export: &DisasterRecoveryExport) -> Result<Rest
         dependencies_failed: Vec::new(),
         warnings: Vec::new(),
     };
-    
+
     // Step 1: Install global dependencies via PackageKit
     tracing::info!("Installing global dependencies via PackageKit D-Bus...");
     let global_deps: Vec<&SystemDependency> = export.global_dependencies.iter().collect();
-    
+
     if !global_deps.is_empty() {
         match install_dependencies_via_packagekit(&global_deps).await {
             Ok(install_results) => {
@@ -504,16 +488,18 @@ pub async fn restore_from_export(export: &DisasterRecoveryExport) -> Result<Rest
                 }
             }
             Err(e) => {
-                result.warnings.push(format!("Global dependency install failed: {}", e));
+                result
+                    .warnings
+                    .push(format!("Global dependency install failed: {}", e));
             }
         }
     }
-    
+
     // Step 2: Install per-plugin dependencies
     for plugin_name in &export.apply_order {
         if let Some(plugin) = export.plugins.get(plugin_name) {
             tracing::info!("Installing dependencies for plugin: {}", plugin_name);
-            
+
             let plugin_deps: Vec<&SystemDependency> = plugin.dependencies.iter().collect();
             if !plugin_deps.is_empty() {
                 match install_dependencies_via_packagekit(&plugin_deps).await {
@@ -539,7 +525,7 @@ pub async fn restore_from_export(export: &DisasterRecoveryExport) -> Result<Rest
             }
         }
     }
-    
+
     // Step 3: Mark plugins as ready for restore
     // (Actual state application would be done by StateManager)
     for plugin_name in &export.apply_order {
@@ -547,16 +533,19 @@ pub async fn restore_from_export(export: &DisasterRecoveryExport) -> Result<Rest
             result.plugins_restored.push(plugin_name.clone());
         }
     }
-    
+
     // Check for any required dependency failures
     let required_failed: Vec<_> = result
         .dependencies_failed
         .iter()
         .filter(|(name, _)| {
-            export.required_dependencies().iter().any(|d| d.name == *name)
+            export
+                .required_dependencies()
+                .iter()
+                .any(|d| d.name == *name)
         })
         .collect();
-    
+
     if !required_failed.is_empty() {
         result.success = false;
         result.warnings.push(format!(
@@ -564,7 +553,7 @@ pub async fn restore_from_export(export: &DisasterRecoveryExport) -> Result<Rest
             required_failed
         ));
     }
-    
+
     Ok(result)
 }
 
@@ -579,11 +568,7 @@ mod tests {
         assert!(export.plugins.is_empty());
 
         // Add a plugin
-        let plugin = PluginStateExport::new(
-            "net",
-            "1.0.0",
-            simd_json::json!({"bridges": []}),
-        );
+        let plugin = PluginStateExport::new("net", "1.0.0", simd_json::json!({"bridges": []}));
         export.add_plugin(plugin);
         assert_eq!(export.plugins.len(), 1);
         assert_eq!(export.apply_order, vec!["net"]);

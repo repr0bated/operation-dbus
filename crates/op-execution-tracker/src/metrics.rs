@@ -1,6 +1,6 @@
+use prometheus::{Histogram, HistogramOpts, IntCounter, IntGauge, Registry};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use prometheus::{IntCounter, IntGauge, Histogram, Registry, HistogramOpts};
 
 /// Execution metrics collector
 #[derive(Clone)]

@@ -33,7 +33,10 @@ async fn main() -> Result<()> {
         .context("Failed to resolve package IDs")?;
 
     if package_ids.is_empty() {
-        anyhow::bail!("No packages resolved for requested names: {:?}", args.packages);
+        anyhow::bail!(
+            "No packages resolved for requested names: {:?}",
+            args.packages
+        );
     }
 
     install_packages(&connection, args.transaction_flags, &package_ids)
@@ -57,8 +60,7 @@ async fn create_transaction(connection: &Connection) -> Result<zbus::zvariant::O
     )
     .await?;
 
-    let path: zbus::zvariant::OwnedObjectPath =
-        proxy.call("CreateTransaction", &()).await?;
+    let path: zbus::zvariant::OwnedObjectPath = proxy.call("CreateTransaction", &()).await?;
     Ok(path)
 }
 
@@ -79,7 +81,9 @@ async fn resolve_packages(
     let mut package_stream = tx_proxy.receive_signal("Package").await?;
     let mut finished_stream = tx_proxy.receive_signal("Finished").await?;
 
-    let _: () = tx_proxy.call("Resolve", &(filters, packages.to_vec())).await?;
+    let _: () = tx_proxy
+        .call("Resolve", &(filters, packages.to_vec()))
+        .await?;
 
     let mut resolved = Vec::new();
 
@@ -124,7 +128,8 @@ async fn install_packages(
     // Wait for installation to complete
     if let Some(signal) = finished_stream.next().await {
         if let Ok((exit_code, _runtime)) = signal.body().deserialize::<(u32, u32)>() {
-            if exit_code != 1 { // 1 = PK_EXIT_ENUM_SUCCESS
+            if exit_code != 1 {
+                // 1 = PK_EXIT_ENUM_SUCCESS
                 anyhow::bail!("Package installation failed with exit code: {}", exit_code);
             }
         }

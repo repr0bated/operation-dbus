@@ -4,6 +4,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
+use op_identity::generate_magic_link_token;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -181,14 +182,7 @@ impl UserStore {
 
     /// Create a magic link for a user
     pub async fn create_magic_link(&self, user_id: &str) -> Result<MagicLink> {
-        use rand::Rng;
-
-        // Generate random token
-        let token: String = rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(32)
-            .map(char::from)
-            .collect();
+        let token = generate_magic_link_token(32);
 
         let link = MagicLink {
             token: token.clone(),

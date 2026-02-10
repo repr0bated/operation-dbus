@@ -217,7 +217,10 @@ impl ExecutionTracker {
             if let Some(duration) = record.duration_ms {
                 stats.total_duration_ms += duration;
             }
-            *stats.executions_by_tool.entry(record.tool_name.clone()).or_insert(0) += 1;
+            *stats
+                .executions_by_tool
+                .entry(record.tool_name.clone())
+                .or_insert(0) += 1;
 
             tracing::info!(
                 execution_id = %id,
@@ -241,8 +244,14 @@ impl ExecutionTracker {
             if let Some(duration) = record.duration_ms {
                 stats.total_duration_ms += duration;
             }
-            *stats.executions_by_tool.entry(record.tool_name.clone()).or_insert(0) += 1;
-            *stats.failures_by_tool.entry(record.tool_name.clone()).or_insert(0) += 1;
+            *stats
+                .executions_by_tool
+                .entry(record.tool_name.clone())
+                .or_insert(0) += 1;
+            *stats
+                .failures_by_tool
+                .entry(record.tool_name.clone())
+                .or_insert(0) += 1;
 
             tracing::error!(
                 execution_id = %id,
@@ -287,7 +296,9 @@ impl ExecutionTracker {
         let records = self.records.read().await;
         records
             .iter()
-            .filter(|r| r.status == ExecutionStatus::Running || r.status == ExecutionStatus::Pending)
+            .filter(|r| {
+                r.status == ExecutionStatus::Running || r.status == ExecutionStatus::Pending
+            })
             .cloned()
             .collect()
     }
@@ -298,7 +309,6 @@ impl Default for ExecutionTracker {
         Self::new(1000)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

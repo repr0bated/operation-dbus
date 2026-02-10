@@ -17,7 +17,7 @@ pub mod types;
 
 // Re-exports
 pub use error::{Error, Result};
-pub use execution::{ExecutionTracker, ExecutionRecord, ExecutionStatus, ExecutionStats};
-pub use security::{AccessZone, SecurityLevel, NetworkConfig};
+pub use execution::{ExecutionRecord, ExecutionStats, ExecutionStatus, ExecutionTracker};
+pub use security::{AccessZone, NetworkConfig, SecurityLevel};
 pub use self_identity::{get_self_repo_path, SelfRepositoryInfo};
 pub use types::*;

@@ -112,7 +112,7 @@ impl Orchestrator {
     }
 
     /// Execute a capability-based request
-    /// 
+    ///
     /// This is the main entry point:
     /// 1. Resolve capabilities to agent sequence
     /// 2. Route to workstack if 2+ agents
@@ -310,9 +310,15 @@ impl Orchestrator {
 
             // Try cache first
             let (output, cached) = if self.config.enable_caching {
-                match self.cache.get(&workstack_id, step_index, &step_input_hash)? {
+                match self
+                    .cache
+                    .get(&workstack_id, step_index, &step_input_hash)?
+                {
                     Some(cached_output) => {
-                        debug!("Cache hit: {} step {} ({})", workstack_id, step_index, agent_id);
+                        debug!(
+                            "Cache hit: {} step {} ({})",
+                            workstack_id, step_index, agent_id
+                        );
                         cache_hits += 1;
                         (cached_output, true)
                     }
@@ -333,7 +339,10 @@ impl Orchestrator {
                     }
                 }
             } else {
-                (self.registry.execute(agent_id, &current_input).await?, false)
+                (
+                    self.registry.execute(agent_id, &current_input).await?,
+                    false,
+                )
             };
 
             let latency_ms = step_start.elapsed().as_millis() as u64;
@@ -354,11 +363,10 @@ impl Orchestrator {
         // Track pattern
         if self.config.track_patterns {
             let input_hash = Self::hash_bytes(&input);
-            if let Some(suggestion) = self.pattern_tracker.record_sequence(
-                agent_ids,
-                &input_hash,
-                total_latency_ms,
-            )? {
+            if let Some(suggestion) =
+                self.pattern_tracker
+                    .record_sequence(agent_ids, &input_hash, total_latency_ms)?
+            {
                 info!(
                     "🔥 Pattern detected: '{}' called {} times",
                     suggestion.suggested_name, suggestion.pattern.call_count
@@ -462,15 +470,24 @@ mod tests {
         let analyzer = AgentDefinition::new("analyzer", "Code Analyzer")
             .with_capability(AgentCapability::CodeAnalysis)
             .with_capability(AgentCapability::DependencyAnalysis);
-        registry.register(analyzer, make_echo_executor()).await.unwrap();
+        registry
+            .register(analyzer, make_echo_executor())
+            .await
+            .unwrap();
 
         let tester = AgentDefinition::new("tester", "Test Generator")
             .with_capability(AgentCapability::TestGeneration);
-        registry.register(tester, make_transform_executor("_TESTS")).await.unwrap();
+        registry
+            .register(tester, make_transform_executor("_TESTS"))
+            .await
+            .unwrap();
 
         let security = AgentDefinition::new("security", "Security Auditor")
             .with_capability(AgentCapability::SecurityAudit);
-        registry.register(security, make_transform_executor("_SEC")).await.unwrap();
+        registry
+            .register(security, make_transform_executor("_SEC"))
+            .await
+            .unwrap();
 
         let config = OrchestratorConfig {
             numa_pinning: false,
@@ -486,10 +503,8 @@ mod tests {
     async fn test_single_capability_resolution() {
         let orchestrator = setup_test_orchestrator().await;
 
-        let request = CapabilityRequest::new(
-            vec![AgentCapability::CodeAnalysis],
-            b"test input".to_vec(),
-        );
+        let request =
+            CapabilityRequest::new(vec![AgentCapability::CodeAnalysis], b"test input".to_vec());
 
         let result = orchestrator.execute(request).await.unwrap();
 

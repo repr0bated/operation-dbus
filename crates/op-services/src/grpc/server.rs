@@ -1,12 +1,12 @@
 //! gRPC server implementation
 
 use std::sync::Arc;
-use tonic::{Request, Response, Status};
-use tokio_stream::wrappers::ReceiverStream;
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::{Request, Response, Status};
 
-use super::proto::*;
 use super::proto::service_manager_server::ServiceManager as ServiceManagerTrait;
+use super::proto::*;
 use crate::manager::ServiceManager;
 use crate::schema::ServiceName;
 
@@ -25,8 +25,11 @@ impl ServiceManagerTrait for GrpcServer {
     async fn start(&self, req: Request<StartRequest>) -> Result<Response<StartResponse>, Status> {
         let name = ServiceName::new(&req.get_ref().name)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        
-        let status = self.manager.start(&name).await
+
+        let status = self
+            .manager
+            .start(&name)
+            .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(StartResponse {
@@ -37,8 +40,11 @@ impl ServiceManagerTrait for GrpcServer {
     async fn stop(&self, req: Request<StopRequest>) -> Result<Response<StopResponse>, Status> {
         let name = ServiceName::new(&req.get_ref().name)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        
-        let status = self.manager.stop(&name).await
+
+        let status = self
+            .manager
+            .stop(&name)
+            .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(StopResponse {
@@ -46,11 +52,17 @@ impl ServiceManagerTrait for GrpcServer {
         }))
     }
 
-    async fn restart(&self, req: Request<RestartRequest>) -> Result<Response<RestartResponse>, Status> {
+    async fn restart(
+        &self,
+        req: Request<RestartRequest>,
+    ) -> Result<Response<RestartResponse>, Status> {
         let name = ServiceName::new(&req.get_ref().name)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        
-        let status = self.manager.restart(&name).await
+
+        let status = self
+            .manager
+            .restart(&name)
+            .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(RestartResponse {
@@ -58,15 +70,24 @@ impl ServiceManagerTrait for GrpcServer {
         }))
     }
 
-    async fn reload(&self, _req: Request<ReloadRequest>) -> Result<Response<ReloadResponse>, Status> {
+    async fn reload(
+        &self,
+        _req: Request<ReloadRequest>,
+    ) -> Result<Response<ReloadResponse>, Status> {
         Err(Status::unimplemented("reload not yet implemented"))
     }
 
-    async fn create(&self, _req: Request<CreateRequest>) -> Result<Response<CreateResponse>, Status> {
+    async fn create(
+        &self,
+        _req: Request<CreateRequest>,
+    ) -> Result<Response<CreateResponse>, Status> {
         Err(Status::unimplemented("create not yet implemented"))
     }
 
-    async fn delete(&self, _req: Request<DeleteRequest>) -> Result<Response<DeleteResponse>, Status> {
+    async fn delete(
+        &self,
+        _req: Request<DeleteRequest>,
+    ) -> Result<Response<DeleteResponse>, Status> {
         Err(Status::unimplemented("delete not yet implemented"))
     }
 
@@ -75,7 +96,10 @@ impl ServiceManagerTrait for GrpcServer {
     }
 
     async fn list(&self, _req: Request<ListRequest>) -> Result<Response<ListResponse>, Status> {
-        let services = self.manager.list().await
+        let services = self
+            .manager
+            .list()
+            .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(ListResponse {
@@ -83,17 +107,26 @@ impl ServiceManagerTrait for GrpcServer {
         }))
     }
 
-    async fn enable(&self, _req: Request<EnableRequest>) -> Result<Response<EnableResponse>, Status> {
+    async fn enable(
+        &self,
+        _req: Request<EnableRequest>,
+    ) -> Result<Response<EnableResponse>, Status> {
         Err(Status::unimplemented("enable not yet implemented"))
     }
 
-    async fn disable(&self, _req: Request<DisableRequest>) -> Result<Response<DisableResponse>, Status> {
+    async fn disable(
+        &self,
+        _req: Request<DisableRequest>,
+    ) -> Result<Response<DisableResponse>, Status> {
         Err(Status::unimplemented("disable not yet implemented"))
     }
 
     type WatchStatusStream = ReceiverStream<Result<ServiceEvent, Status>>;
 
-    async fn watch_status(&self, _req: Request<WatchRequest>) -> Result<Response<Self::WatchStatusStream>, Status> {
+    async fn watch_status(
+        &self,
+        _req: Request<WatchRequest>,
+    ) -> Result<Response<Self::WatchStatusStream>, Status> {
         let (tx, rx) = mpsc::channel(128);
         let mut sub = self.manager.subscribe();
 
@@ -144,7 +177,10 @@ impl From<crate::schema::ServiceDef> for ServiceDef {
             exec: Some(ExecConfig {
                 start_program: s.exec_start.program.to_string_lossy().to_string(),
                 start_args: s.exec_start.args,
-                stop_program: s.exec_stop.as_ref().map(|c| c.program.to_string_lossy().to_string()),
+                stop_program: s
+                    .exec_stop
+                    .as_ref()
+                    .map(|c| c.program.to_string_lossy().to_string()),
                 stop_args: s.exec_stop.map(|c| c.args).unwrap_or_default(),
                 working_dir: s.working_dir.map(|p| p.to_string_lossy().to_string()),
                 user: s.user,
@@ -154,8 +190,12 @@ impl From<crate::schema::ServiceDef> for ServiceDef {
             restart: Some(RestartPolicy {
                 condition: match s.restart.condition {
                     crate::schema::RestartCondition::Never => RestartCondition::RestartNever as i32,
-                    crate::schema::RestartCondition::Always => RestartCondition::RestartAlways as i32,
-                    crate::schema::RestartCondition::OnFailure => RestartCondition::RestartOnFailure as i32,
+                    crate::schema::RestartCondition::Always => {
+                        RestartCondition::RestartAlways as i32
+                    }
+                    crate::schema::RestartCondition::OnFailure => {
+                        RestartCondition::RestartOnFailure as i32
+                    }
                 },
                 delay: Some(prost_types::Duration {
                     seconds: s.restart.delay_secs as i64,

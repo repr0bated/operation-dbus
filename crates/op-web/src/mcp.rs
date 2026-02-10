@@ -13,14 +13,14 @@ use axum::{
 };
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
 use simd_json::prelude::*;
+use simd_json::{json, OwnedValue as Value};
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
-use tracing::{info, debug, error};
+use tracing::{debug, error, info};
 
 use crate::state::AppState;
 
@@ -106,14 +106,19 @@ impl McpResponse {
 pub fn create_mcp_router() -> Router {
     Router::new()
         // Compact mode (Preferred)
-        .route("/compact", get(crate::mcp_compact::mcp_compact_sse_handler).post(crate::mcp_compact::mcp_compact_message_handler))
-        .route("/compact/message", post(crate::mcp_compact::mcp_compact_message_handler))
-        
+        .route(
+            "/compact",
+            get(crate::mcp_compact::mcp_compact_sse_handler)
+                .post(crate::mcp_compact::mcp_compact_message_handler),
+        )
+        .route(
+            "/compact/message",
+            post(crate::mcp_compact::mcp_compact_message_handler),
+        )
         // Standard endpoints (all tools)
         .route("/", post(mcp_handler))
         .route("/sse", get(mcp_sse_handler))
         .route("/message", post(mcp_message_handler))
-        
         // Configuration
         .route("/_config", get(config_handler))
 }
@@ -155,11 +160,9 @@ async fn mcp_sse_handler(
         .unwrap_or("http");
 
     let post_url = format!("{}://{}/mcp/message", scheme, host);
-    
+
     // Initial endpoint event
-    let endpoint_event = Event::default()
-        .event("endpoint")
-        .data(&post_url);
+    let endpoint_event = Event::default().event("endpoint").data(&post_url);
 
     let stream = BroadcastStream::new(rx).filter_map(|result| {
         match result {
@@ -167,10 +170,9 @@ async fn mcp_sse_handler(
             Err(_) => None, // Skip lagged messages
         }
     });
-    
+
     // Combine initial event with broadcast stream
-    let combined_stream = stream::once(async move { Ok(endpoint_event) })
-        .chain(stream);
+    let combined_stream = stream::once(async move { Ok(endpoint_event) }).chain(stream);
 
     Sse::new(combined_stream).keep_alive(
         axum::response::sse::KeepAlive::new()
@@ -202,11 +204,7 @@ async fn process_request(state: &AppState, request: McpRequest) -> McpResponse {
 
     // Validate JSON-RPC version
     if request.jsonrpc != "2.0" {
-        return McpResponse::error(
-            request.id,
-            -32600,
-            "Invalid JSON-RPC version",
-        );
+        return McpResponse::error(request.id, -32600, "Invalid JSON-RPC version");
     }
 
     match request.method.as_str() {
@@ -227,25 +225,28 @@ async fn process_request(state: &AppState, request: McpRequest) -> McpResponse {
 }
 
 async fn handle_initialize(id: Option<Value>) -> McpResponse {
-    McpResponse::success(id, json!({
-        "protocolVersion": "2024-11-05",
-        "capabilities": {
-            "tools": {
-                "listChanged": true
+    McpResponse::success(
+        id,
+        json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {
+                "tools": {
+                    "listChanged": true
+                },
+                "resources": {
+                    "subscribe": false,
+                    "listChanged": false
+                },
+                "prompts": {
+                    "listChanged": false
+                }
             },
-            "resources": {
-                "subscribe": false,
-                "listChanged": false
-            },
-            "prompts": {
-                "listChanged": false
+            "serverInfo": {
+                "name": "op-dbus-mcp",
+                "version": env!("CARGO_PKG_VERSION"),
             }
-        },
-        "serverInfo": {
-            "name": "op-dbus-mcp",
-            "version": env!("CARGO_PKG_VERSION"),
-        }
-    }))
+        }),
+    )
 }
 
 async fn handle_initialized(id: Option<Value>) -> McpResponse {
@@ -253,23 +254,29 @@ async fn handle_initialized(id: Option<Value>) -> McpResponse {
 }
 
 async fn handle_tools_list(
-    state: &AppState, 
-    id: Option<Value>, 
+    state: &AppState,
+    id: Option<Value>,
     _params: Option<Value>,
 ) -> McpResponse {
     let tools = state.tool_registry.list().await;
-    
-    let tool_list: Vec<Value> = tools.iter().map(|t| {
-        json!({
-            "name": t.name,
-            "description": t.description,
-            "inputSchema": t.input_schema.clone()
-        })
-    }).collect();
 
-    McpResponse::success(id, json!({ 
-        "tools": tool_list
-    }))
+    let tool_list: Vec<Value> = tools
+        .iter()
+        .map(|t| {
+            json!({
+                "name": t.name,
+                "description": t.description,
+                "inputSchema": t.input_schema.clone()
+            })
+        })
+        .collect();
+
+    McpResponse::success(
+        id,
+        json!({
+            "tools": tool_list
+        }),
+    )
 }
 
 async fn handle_tools_call(
@@ -298,34 +305,43 @@ async fn handle_tools_call(
     };
 
     match tool.execute(arguments).await {
-        Ok(result) => McpResponse::success(id, json!({
-            "content": [{
-                "type": "text",
-                "text": simd_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string())
-            }],
-            "isError": false
-        })),
-        Err(e) => {
-            error!("Tool execution failed: {}", e);
-            McpResponse::success(id, json!({
+        Ok(result) => McpResponse::success(
+            id,
+            json!({
                 "content": [{
                     "type": "text",
-                    "text": format!("Error: {}", e)
+                    "text": simd_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string())
                 }],
-                "isError": true
-            }))
-        },
+                "isError": false
+            }),
+        ),
+        Err(e) => {
+            error!("Tool execution failed: {}", e);
+            McpResponse::success(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": format!("Error: {}", e)
+                    }],
+                    "isError": true
+                }),
+            )
+        }
     }
 }
 
 async fn handle_resources_list(id: Option<Value>) -> McpResponse {
-    McpResponse::success(id, json!({
-        "resources": []
-    }))
+    McpResponse::success(
+        id,
+        json!({
+            "resources": []
+        }),
+    )
 }
 
 async fn handle_resources_read(id: Option<Value>, _params: Option<Value>) -> McpResponse {
-     McpResponse::error(id, -32602, "Resource not found")
+    McpResponse::error(id, -32602, "Resource not found")
 }
 
 async fn handle_prompts_list(id: Option<Value>) -> McpResponse {
@@ -337,9 +353,7 @@ async fn handle_ping(id: Option<Value>) -> McpResponse {
 }
 
 /// GET /mcp/_config - Generate config for clients
-pub async fn config_handler(
-    Extension(_state): Extension<Arc<AppState>>,
-) -> Json<Value> {
+pub async fn config_handler(Extension(_state): Extension<Arc<AppState>>) -> Json<Value> {
     Json(json!({
         "mcpServers": {
             "op-dbus": {

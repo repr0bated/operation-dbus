@@ -69,10 +69,24 @@ pub struct SandboxResult {
 
 impl SandboxResult {
     pub fn success(stdout: String, stderr: String, duration_ms: u64) -> Self {
-        Self { exit_code: Some(0), stdout, stderr, success: true, duration_ms, truncated: false }
+        Self {
+            exit_code: Some(0),
+            stdout,
+            stderr,
+            success: true,
+            duration_ms,
+            truncated: false,
+        }
     }
     pub fn failure(code: Option<i32>, stdout: String, stderr: String, duration_ms: u64) -> Self {
-        Self { exit_code: code, stdout, stderr, success: false, duration_ms, truncated: false }
+        Self {
+            exit_code: code,
+            stdout,
+            stderr,
+            success: false,
+            duration_ms,
+            truncated: false,
+        }
     }
 }
 

@@ -1,10 +1,10 @@
-use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
+use std::sync::Arc;
 
-use op_tools::ToolRegistry;
-use op_execution_tracker::{ExecutionContext, ExecutionTracker};
 use crate::{DynamicToolRegistry, SmartLoadingStrategy};
+use op_execution_tracker::{ExecutionContext, ExecutionTracker};
+use op_tools::ToolRegistry;
 
 /// Execution-aware tool loader
 pub struct ExecutionAwareLoader {
@@ -50,10 +50,7 @@ impl ExecutionAwareLoader {
     }
 
     /// Get tool with automatic context creation
-    pub async fn get_tool(
-        &self,
-        tool_name: &str,
-    ) -> Result<op_tools::BoxedTool> {
+    pub async fn get_tool(&self, tool_name: &str) -> Result<op_tools::BoxedTool> {
         let context = ExecutionContext::new(tool_name);
         self.get_tool_with_context(tool_name, &context).await
     }
