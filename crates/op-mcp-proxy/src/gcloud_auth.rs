@@ -11,10 +11,11 @@ use std::process::Command;
 use chrono::{DateTime, Duration, Utc};
 use tracing::{debug, info, warn};
 
-const OAUTH_SCOPES: &[&str] = &[
+const OAUTH_SCOPES_PREFERRED: &[&str] = &[
     "https://www.googleapis.com/auth/cloud-platform",
-    "https://www.googleapis.com/auth/generative-language",
+    "https://www.googleapis.com/auth/cloud-ide",
 ];
+const OAUTH_SCOPES_FALLBACK: &[&str] = &["https://www.googleapis.com/auth/cloud-platform"];
 
 #[derive(Clone)]
 pub struct GCloudAuth {
@@ -104,73 +105,60 @@ impl GCloudAuth {
     }
 
     async fn try_gcloud_cli(&self) -> Option<(String, DateTime<Utc>)> {
-        let scopes = OAUTH_SCOPES.join(",");
-
-        let output = Command::new("gcloud")
-            .args([
-                "auth",
-                "print-access-token",
-                &format!("--scopes={}", scopes),
-            ])
-            .output()
-            .ok()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            debug!("gcloud auth print-access-token failed: {}", stderr);
-            return None;
+        if let Some(token) = run_gcloud_access_token(
+            &["auth", "print-access-token"],
+            OAUTH_SCOPES_PREFERRED,
+        ) {
+            return Some((token, Utc::now() + Duration::minutes(55)));
         }
-
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-        if token.is_empty() {
-            return None;
+        warn!("Preferred scopes failed; retrying gcloud CLI token with cloud-platform only");
+        if let Some(token) =
+            run_gcloud_access_token(&["auth", "print-access-token"], OAUTH_SCOPES_FALLBACK)
+        {
+            return Some((token, Utc::now() + Duration::minutes(55)));
         }
-
-        // gcloud tokens are valid for 1 hour
-        Some((token, Utc::now() + Duration::minutes(55)))
+        None
     }
 
     async fn try_adc(&self) -> Option<(String, DateTime<Utc>)> {
-        // Try application-default credentials
-        let output = Command::new("gcloud")
-            .args(["auth", "application-default", "print-access-token"])
-            .output()
-            .ok()?;
-
-        if !output.status.success() {
-            return None;
+        if let Some(token) = run_gcloud_access_token(
+            &["auth", "application-default", "print-access-token"],
+            OAUTH_SCOPES_PREFERRED,
+        ) {
+            return Some((token, Utc::now() + Duration::minutes(55)));
         }
-
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-        if token.is_empty() {
-            return None;
+        warn!("Preferred scopes failed; retrying ADC token with cloud-platform only");
+        if let Some(token) = run_gcloud_access_token(
+            &["auth", "application-default", "print-access-token"],
+            OAUTH_SCOPES_FALLBACK,
+        ) {
+            return Some((token, Utc::now() + Duration::minutes(55)));
         }
-
-        Some((token, Utc::now() + Duration::minutes(55)))
+        // Final fallback: let gcloud decide default scopes.
+        if let Some(token) =
+            run_gcloud_access_token_no_scopes(&["auth", "application-default", "print-access-token"])
+        {
+            return Some((token, Utc::now() + Duration::minutes(55)));
+        }
+        None
     }
 
     /// Force a token refresh via gcloud
     #[allow(dead_code)]
     pub async fn refresh_token(&self) -> anyhow::Result<(String, DateTime<Utc>)> {
-        let scopes = OAUTH_SCOPES.join(",");
-
-        let output = Command::new("gcloud")
-            .args([
-                "auth",
-                "print-access-token",
-                &format!("--scopes={}", scopes),
-            ])
-            .output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("gcloud auth failed: {}", stderr);
+        if let Some(token) = run_gcloud_access_token(
+            &["auth", "print-access-token"],
+            OAUTH_SCOPES_PREFERRED,
+        ) {
+            return Ok((token, Utc::now() + Duration::minutes(55)));
+        }
+        if let Some(token) =
+            run_gcloud_access_token(&["auth", "print-access-token"], OAUTH_SCOPES_FALLBACK)
+        {
+            return Ok((token, Utc::now() + Duration::minutes(55)));
         }
 
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok((token, Utc::now() + Duration::minutes(55)))
+        anyhow::bail!("gcloud auth failed for both preferred and fallback scope sets")
     }
 }
 
@@ -186,4 +174,37 @@ fn find_token_file_in_dir(dir: PathBuf) -> Option<PathBuf> {
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .find(|p| p.extension().map(|ext| ext == "token").unwrap_or(false))
+}
+
+fn run_gcloud_access_token(base_args: &[&str], scopes: &[&str]) -> Option<String> {
+    let mut args: Vec<String> = base_args.iter().map(|s| s.to_string()).collect();
+    args.push(format!("--scopes={}", scopes.join(",")));
+
+    let output = Command::new("gcloud").args(args).output().ok()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        debug!("gcloud {:?} failed: {}", base_args, stderr);
+        return None;
+    }
+
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() {
+        return None;
+    }
+    Some(token)
+}
+
+fn run_gcloud_access_token_no_scopes(base_args: &[&str]) -> Option<String> {
+    let output = Command::new("gcloud").args(base_args).output().ok()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        debug!("gcloud {:?} without scopes failed: {}", base_args, stderr);
+        return None;
+    }
+
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() {
+        return None;
+    }
+    Some(token)
 }
