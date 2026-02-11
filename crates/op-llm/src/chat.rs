@@ -2,23 +2,25 @@
 //!
 //! ## Authentication Priority
 //!
-//! 1. **Antigravity** (OAuth from headless service) - Enterprise, no charges
-//! 2. **Gemini** (API key fallback)
-//! 3. **Anthropic** (API key)
+//! 1. **MCP Proxy** (VS Code extension emulation through `op-mcp-proxy`)
+//! 2. **GCloud ADC** (direct OAuth via gcloud)
+//! 3. **Gemini** (API key fallback)
+//! 4. **Anthropic** (API key)
 //!
 //! ## Environment Variables
 //!
 //! ```bash
-//! # Primary: Headless OAuth (captured from Antigravity IDE)
-//! GOOGLE_AUTH_TOKEN_FILE=~/.config/antigravity/token.json
-//!
-//! # Fallback: API keys
-//! GEMINI_API_KEY=xxx
-//! ANTHROPIC_API_KEY=xxx
+//! # Preferred: MCP proxy bridge
+//! ENABLE_MCP_PROXY_PROVIDER=true
+//! OP_MCP_PROXY_BIN=op-mcp-proxy
 //!
 //! # Provider selection
-//! LLM_PROVIDER=antigravity  # or gemini, anthropic
+//! LLM_PROVIDER=mcp-proxy  # or gemini, gemini-cli, anthropic
 //! LLM_MODEL=gemini-2.5-flash
+//!
+//! # Optional API key fallbacks
+//! GEMINI_API_KEY=xxx
+//! ANTHROPIC_API_KEY=xxx
 //! ```
 
 use anyhow::{anyhow, Result};
@@ -28,9 +30,10 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::anthropic::AnthropicClient;
-use crate::antigravity::AntigravityProvider;
 use crate::gcloud_adc::GCloudADCProvider;
 use crate::gemini::GeminiClient;
+use crate::gemini_cli::create_gemini_cli_provider;
+use crate::mcp_proxy::McpProxyProvider;
 use crate::provider::{
     BoxedProvider, ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderType,
 };
@@ -49,9 +52,10 @@ impl ChatManager {
     ///
     /// Initialization order:
     /// 1. Check LLM_PROVIDER environment variable
-    /// 2. Try Antigravity (OAuth from headless service)
-    /// 3. Try Gemini (API key)
-    /// 4. Try Anthropic (API key)
+    /// 2. Try MCP Proxy (VS Code extension emulation)
+    /// 3. Try GCloud ADC
+    /// 4. Try Gemini (API key)
+    /// 5. Try Anthropic (API key)
     pub fn new() -> Self {
         let mut providers: HashMap<ProviderType, BoxedProvider> = HashMap::new();
         let mut default_provider = None;
@@ -70,12 +74,59 @@ impl ChatManager {
         }
 
         // =====================================================
-        // GCloud ADC - Directly from gcloud CLI (PRIMARY)
-        // Uses application-default credentials
+        // MCP Proxy - Gemini through op-mcp-proxy DIRECT_MODE
+        // =====================================================
+        if std::env::var("ENABLE_MCP_PROXY_PROVIDER")
+            .ok()
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(true)
+        {
+            match McpProxyProvider::from_env() {
+                Ok(proxy) => {
+                    info!("✅ MCP Proxy provider initialized");
+                    providers.insert(ProviderType::McpProxy, Box::new(proxy));
+                    if default_provider.is_none() {
+                        default_provider = Some(ProviderType::McpProxy);
+                    }
+                }
+                Err(e) => {
+                    debug!("MCP Proxy provider failed: {}", e);
+                }
+            }
+        }
+
+        // =====================================================
+        // Gemini CLI provider (optional)
+        // =====================================================
+        let wants_gemini_cli = std::env::var("ENABLE_GEMINI_CLI_PROVIDER")
+            .ok()
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+            || env_provider
+                .as_deref()
+                .map(|v| {
+                    v.eq_ignore_ascii_case("gemini-cli")
+                        || v.eq_ignore_ascii_case("gemini_cli")
+                        || v.eq_ignore_ascii_case("geminicli")
+                })
+                .unwrap_or(false);
+
+        if wants_gemini_cli {
+            let gemini_cli = create_gemini_cli_provider();
+            info!("✅ Gemini CLI provider initialized");
+            providers.insert(ProviderType::GeminiCli, Box::new(gemini_cli));
+            if default_provider.is_none() {
+                default_provider = Some(ProviderType::GeminiCli);
+            }
+        }
+
+        // =====================================================
+        // GCloud ADC - Directly from gcloud CLI / application-default credentials
+        // Kept under ProviderType::Antigravity for backward compatibility of provider ids.
         // =====================================================
         let gcloud = GCloudADCProvider::new();
         info!("✅ GCloud ADC provider initialized");
-        providers.insert(ProviderType::Antigravity, Box::new(gcloud)); // Reusing Antigravity type for now
+        providers.insert(ProviderType::Antigravity, Box::new(gcloud));
         if default_provider.is_none() {
             default_provider = Some(ProviderType::Antigravity);
         }
@@ -124,21 +175,22 @@ impl ChatManager {
                     pt
                 } else {
                     warn!("⚠️  LLM_PROVIDER '{}' not available", provider_name);
-                    default_provider.unwrap_or(ProviderType::Antigravity)
+                    default_provider.unwrap_or(ProviderType::McpProxy)
                 }
             } else {
                 warn!("⚠️  Invalid LLM_PROVIDER '{}'", provider_name);
-                default_provider.unwrap_or(ProviderType::Antigravity)
+                default_provider.unwrap_or(ProviderType::McpProxy)
             }
         } else {
-            default_provider.unwrap_or(ProviderType::Antigravity)
+            default_provider.unwrap_or(ProviderType::McpProxy)
         };
 
         if providers.is_empty() {
             warn!("⚠️  No LLM providers available!");
             warn!("   Configure authentication:");
-            warn!("   1. Antigravity headless: sudo systemctl start antigravity-display");
-            warn!("   2. Or set GEMINI_API_KEY environment variable");
+            warn!("   1. Install/build op-mcp-proxy and set OP_MCP_PROXY_BIN");
+            warn!("   2. Authenticate: gcloud auth application-default login");
+            warn!("   3. Or set GEMINI_API_KEY environment variable");
         } else {
             info!("\n📊 Default provider: {:?}", final_provider);
             info!("📊 Default model: {}", default_model);
@@ -228,10 +280,9 @@ impl ChatManager {
         Err(anyhow!(
             "No LLM providers configured.\n\n\
             To authenticate:\n\
-            1. Start Antigravity headless: sudo systemctl start antigravity-display antigravity-vnc\n\
-            2. Connect via VNC: vncviewer localhost:5900\n\
-            3. Log in with Google account\n\
-            4. Extract token: ./scripts/antigravity-extract-token.sh\n\n\
+            1. Build/install op-mcp-proxy and set OP_MCP_PROXY_BIN\n\
+            2. Run: gcloud auth application-default login\n\
+            3. Optional: set LLM_PROVIDER=mcp-proxy\n\n\
             Or set GEMINI_API_KEY environment variable."
         ))
     }
@@ -375,13 +426,25 @@ impl ChatManager {
         for ptype in self.providers.keys() {
             let models = self.list_models_for_provider(ptype).await.ok();
             let (auth_type, features) = match ptype {
+                ProviderType::McpProxy => (
+                    "OAuth via op-mcp-proxy (VS Code extension emulation)",
+                    vec![
+                        "Cloud Code-compatible headers",
+                        "Gemini models",
+                        "Headless-friendly",
+                    ],
+                ),
                 ProviderType::Antigravity => (
-                    "OAuth (headless Antigravity service)",
-                    vec!["Enterprise billing", "Gemini models", "No API charges"],
+                    "OAuth (gcloud ADC, legacy provider id)",
+                    vec!["Gemini models", "Application-default credentials"],
                 ),
                 ProviderType::Gemini => (
                     "API key (GEMINI_API_KEY)",
                     vec!["Gemini models", "Multimodal", "Long context"],
+                ),
+                ProviderType::GeminiCli => (
+                    "Local Gemini CLI bridge",
+                    vec!["Gemini CLI binary", "ADC/service account auth", "Headless-friendly"],
                 ),
                 ProviderType::Anthropic => (
                     "API key (ANTHROPIC_API_KEY)",
