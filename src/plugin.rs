@@ -17,26 +17,26 @@ use std::sync::Arc;
 use crate::error::{OpDbusError, Result};
 
 // ============================================================================
-// DESIRED STATE
+// MIRROR STATE
 // ============================================================================
 
-/// Desired state configuration
+/// Mirror state configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DesiredState {
+pub struct MirrorState {
     /// The target state configuration
     pub state: Value,
-    /// When this desired state was set
+    /// When this mirror state was set
     pub timestamp: DateTime<Utc>,
     /// Hash of the state for verification
     pub hash: String,
     /// Optional description of the change
     pub description: Option<String>,
-    /// Source of the desired state (user, auto, import, etc.)
+    /// Source of the mirror state (user, auto, import, etc.)
     pub source: StateSource,
 }
 
-impl DesiredState {
-    /// Create a new desired state
+impl MirrorState {
+    /// Create a new mirror state
     pub fn new(state: Value) -> Self {
         let hash = Self::compute_hash(&state);
         Self {
@@ -50,9 +50,9 @@ impl DesiredState {
 
     /// Create with description
     pub fn with_description(state: Value, description: impl Into<String>) -> Self {
-        let mut ds = Self::new(state);
-        ds.description = Some(description.into());
-        ds
+        let mut ms = Self::new(state);
+        ms.description = Some(description.into());
+        ms
     }
 
     /// Compute hash of the state
@@ -68,13 +68,13 @@ impl DesiredState {
     }
 }
 
-impl Default for DesiredState {
+impl Default for MirrorState {
     fn default() -> Self {
         Self::new(Value::Object(simd_json::value::owned::Object::new()))
     }
 }
 
-/// Source of the desired state
+/// Source of the projected state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum StateSource {
@@ -522,10 +522,10 @@ pub trait Plugin: Send + Sync {
     fn version(&self) -> &str;
 
     async fn get_state(&self) -> Result<Value>;
-    async fn get_desired_state(&self) -> Result<DesiredState>;
-    async fn set_desired_state(&self, desired: DesiredState) -> Result<()>;
+    async fn get_projected_state(&self) -> Result<MirrorState>;
+    async fn set_projected_state(&self, projected: MirrorState) -> Result<()>;
     async fn apply_state(&self) -> Result<Vec<StateChange>>;
-    async fn diff(&self) -> Result<Vec<StateChange>>;
+    async fn reconcile_plan(&self) -> Result<Vec<StateChange>>;
     async fn validate(&self, config: &Value) -> Result<ValidationResult>;
 
     async fn initialize(&mut self, _context: PluginContext) -> Result<()> {
@@ -571,10 +571,10 @@ mod tests {
     }
 
     #[test]
-    fn test_desired_state_hash() {
+    fn test_mirror_state_hash() {
         let state = simd_json::json!({"key": "value"});
-        let ds = DesiredState::new(state);
-        assert!(ds.verify());
+        let ms = MirrorState::new(state);
+        assert!(ms.verify());
     }
 
     #[test]

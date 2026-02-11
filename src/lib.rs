@@ -54,7 +54,7 @@ pub use op_execution_tracker::{
 pub use op_tools::{Tool, ToolRegistry};
 pub use op_core::{ToolResult, ToolRequest as ToolContext}; // Adjusted names for compatibility
 pub use op_core::types::BusType;
-pub use op_state::{DesiredState, StateChange, ValidationResult, StateSource, ChangeOperation, ValidationError};
+pub use op_state::{MirrorState, StateChange, ValidationResult, StateSource, ChangeOperation, ValidationError};
 pub use op_plugins::registry::PluginRegistry;
 pub use op_plugins::plugin::{PluginMetadata as PluginCore, BoxedPlugin as EffectivePlugin}; // Adjusted for naming compatibility
 pub use work_stack::{WorkStack, WorkStackNode, WorkStackExecution, VectorClock};
