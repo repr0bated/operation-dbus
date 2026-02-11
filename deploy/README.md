@@ -23,6 +23,14 @@ sudo ./deploy/install.sh --yes --domain example.com
 | `upgrade.sh` | Rebuild and reinstall binaries |
 | `uninstall.sh` | Remove installation |
 
+## Dinit Runtime (Chimera)
+
+Tracked standalone `dinit` runtime files live in `deploy/dinit/`.
+
+```bash
+doas ./deploy/dinit/install-op-dbus-dinit.sh
+```
+
 ## Options
 
 ```
@@ -43,6 +51,7 @@ deploy/
 ├── install.sh        # Main entry point
 ├── upgrade.sh        # Quick upgrade
 ├── uninstall.sh      # Clean removal
+├── dinit/            # dinit service + env templates + wrappers
 ├── lib/              # Shared functions
 │   ├── common.sh     # Colors, logging, utilities
 │   ├── build.sh      # Build functions

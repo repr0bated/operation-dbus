@@ -1,0 +1,22 @@
+# op-dbus runtime environment for dinit
+# Adjust HOME and credential paths for your deployment user.
+HOME=/home/jeremy
+GOOGLE_CLOUD_PROJECT=operation-dbus
+GOOGLE_APPLICATION_CREDENTIALS=/home/jeremy/.config/gcloud/application_default_credentials.json
+SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+ENABLE_MCP_PROXY_PROVIDER=true
+LLM_PROVIDER=mcp-proxy
+LLM_MODEL=auto
+OP_MCP_PROXY_BIN=/usr/local/bin/op-mcp-proxy-select3
+OP_MCP_PROXY_REAL_BIN=/usr/local/bin/op-mcp-proxy
+
+# Constrain auto-selection to Gemini 3 family.
+MCP_PROXY_AUTO_FLASH_MODEL=gemini-3-flash
+MCP_PROXY_AUTO_PRO_MODEL=gemini-3-pro
+MCP_PROXY_AUTO_PRO_THRESHOLD_CHARS=6000
+
+OP_DBUS_ENABLE_WEB=1
+OP_DBUS_WEB_HOST=127.0.0.1
+OP_DBUS_WEB_PORT=7010
+OP_DBUS_LISTEN=none

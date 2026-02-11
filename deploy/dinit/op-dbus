@@ -1,0 +1,5 @@
+type = process
+command = /usr/local/bin/op-dbus-dinit.sh
+restart = true
+depends-on = dbus
+logfile = /var/log/op-dbus.log
