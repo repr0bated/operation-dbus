@@ -1,7 +1,7 @@
-//! Google Cloud authentication for cloudaicompanion.googleapis.com
+//! Google Cloud authentication for cloudaicompanion.googleapis.com.
 //!
 //! Supports multiple token sources:
-//! 1. Cached token from antigravity-server
+//! 1. Cached token file (WG/MCP-proxy session context)
 //! 2. gcloud CLI
 //! 3. Application Default Credentials
 
@@ -13,40 +13,41 @@ use tracing::{debug, info, warn};
 
 const OAUTH_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/cloud-platform",
-    "https://www.googleapis.com/auth/cloud-ide",
+    "https://www.googleapis.com/auth/generative-language",
 ];
 
 #[derive(Clone)]
 pub struct GCloudAuth {
-    /// Path to cached token from antigravity-server
-    antigravity_token_path: Option<PathBuf>,
+    /// Path to cached token file from local session context
+    token_file_path: Option<PathBuf>,
 }
 
 impl GCloudAuth {
     pub fn new() -> Self {
-        // Look for antigravity token
-        let antigravity_token_path = dirs::home_dir()
-            .map(|h| h.join(".antigravity-server"))
-            .and_then(|dir| {
-                // Find any .token file in the directory
-                std::fs::read_dir(&dir)
-                    .ok()?
-                    .filter_map(|e| e.ok())
-                    .find(|e| {
-                        e.path()
-                            .extension()
-                            .map(|ext| ext == "token")
-                            .unwrap_or(false)
-                    })
-                    .map(|e| e.path())
-            });
+        // 1) Explicit file path override
+        let explicit = std::env::var("MCP_PROXY_TOKEN_FILE")
+            .ok()
+            .map(PathBuf::from)
+            .filter(|p| p.exists());
 
-        if let Some(ref path) = antigravity_token_path {
-            debug!("Found antigravity token at: {:?}", path);
+        // 2) Preferred local token locations
+        let discovered = dirs::home_dir().and_then(|home| {
+            let candidates = [
+                home.join(".config").join("op-mcp-proxy"),
+                home.join(".op-mcp-proxy"),
+                home.join(".antigravity-server"), // backward-compat
+            ];
+            candidates.into_iter().find_map(find_token_file_in_dir)
+        });
+
+        let token_file_path = explicit.or(discovered);
+
+        if let Some(ref path) = token_file_path {
+            debug!("Found cached token file at: {:?}", path);
         }
 
         Self {
-            antigravity_token_path,
+            token_file_path,
         }
     }
 
@@ -61,9 +62,9 @@ impl GCloudAuth {
             return Ok((token, Utc::now() + Duration::hours(1)));
         }
 
-        // 2. Antigravity cached token
-        if let Some(token) = self.try_antigravity_token().await {
-            info!("Using token from antigravity cache");
+        // 2. Cached token file
+        if let Some(token) = self.try_cached_token_file().await {
+            info!("Using token from cached token file");
             // These tokens are typically valid for 1 hour
             return Ok((token, Utc::now() + Duration::minutes(55)));
         }
@@ -83,8 +84,8 @@ impl GCloudAuth {
         anyhow::bail!("Could not obtain OAuth token. Please run: gcloud auth login")
     }
 
-    async fn try_antigravity_token(&self) -> Option<String> {
-        let path = self.antigravity_token_path.as_ref()?;
+    async fn try_cached_token_file(&self) -> Option<String> {
+        let path = self.token_file_path.as_ref()?;
 
         let content = std::fs::read_to_string(path).ok()?;
         let token = content.trim().to_string();
@@ -97,7 +98,7 @@ impl GCloudAuth {
         if token.starts_with("ya29.") {
             Some(token)
         } else {
-            warn!("Antigravity token doesn't look like an OAuth token");
+            warn!("Cached token does not look like an OAuth token");
             None
         }
     }
@@ -177,4 +178,12 @@ impl Default for GCloudAuth {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn find_token_file_in_dir(dir: PathBuf) -> Option<PathBuf> {
+    std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| p.extension().map(|ext| ext == "token").unwrap_or(false))
 }

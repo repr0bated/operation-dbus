@@ -103,7 +103,13 @@ impl CloudAICompanion {
                     "temperature": 0.7,
                     "maxOutputTokens": 8192,
                     "topP": 0.95,
-                    "topK": 40
+                    "topK": 40,
+                    "responseMimeType": "text/plain"
+                },
+                "toolConfig": {
+                    "functionCallingConfig": {
+                        "mode": "NONE"
+                    }
                 },
                 "session_id": ""
             }
@@ -154,17 +160,35 @@ impl CloudAICompanion {
 
         let text = inner
             .get("candidates")
-            .and_then(|c| c.get_idx(0))
-            .and_then(|c| c.get("content"))
-            .and_then(|c| c.get("parts"))
-            .and_then(|p| p.get_idx(0))
-            .and_then(|p| p.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string();
+            .and_then(|c| c.as_array())
+            .and_then(|candidates| {
+                candidates.iter().find_map(|candidate| {
+                    candidate
+                        .get("content")
+                        .and_then(|content| content.get("parts"))
+                        .and_then(|parts| parts.as_array())
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(|part| part.get("text").and_then(|t| t.as_str()))
+                                .collect::<String>()
+                        })
+                        .filter(|txt| !txt.is_empty())
+                })
+            })
+            .unwrap_or_default();
 
         if text.is_empty() {
-            anyhow::bail!("empty response text from code-assist");
+            let finish_reason = inner
+                .get("candidates")
+                .and_then(|c| c.get_idx(0))
+                .and_then(|c| c.get("finishReason"))
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown");
+            anyhow::bail!(
+                "empty response text from code-assist (finish_reason={})",
+                finish_reason
+            );
         }
 
         Ok(text)
