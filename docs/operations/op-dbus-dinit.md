@@ -41,16 +41,48 @@ doas install -m 0755 target/release/op-mcp-proxy /usr/local/bin/op-mcp-proxy
 
 - `gemini-3-flash`
 - `gemini-3-pro`
+- With preview mode enabled:
+  - `gemini-3-flash-preview`
+  - `gemini-3-pro-preview`
 
 Selector thresholds are configured in `/etc/op-dbus/environment` with:
 
 - `MCP_PROXY_AUTO_FLASH_MODEL`
 - `MCP_PROXY_AUTO_PRO_MODEL`
 - `MCP_PROXY_AUTO_PRO_THRESHOLD_CHARS`
+- `MCP_PROXY_EXPERIMENTAL`
+
+If `MCP_PROXY_EXPERIMENTAL` is not set, selector follows
+`~/.gemini/settings.json` -> `general.previewFeatures`.
 
 ## Health Check
 
 ```bash
 dinitctl status op-dbus
 curl -fsS http://127.0.0.1:7010/api/health
+```
+
+## Reverse Proxy and TLS
+
+Enable nginx at boot (dinit system instance):
+
+```bash
+doas ln -sfn ../nginx /etc/dinit.d/boot.d/nginx
+doas dinitctl restart nginx || doas dinitctl start nginx
+```
+
+Install nginx config from repo:
+
+```bash
+doas install -m 0644 deploy/nginx/op-web-3etched.com.conf /etc/nginx/http.d/op-web-3etched.conf
+doas nginx -t && doas nginx -s reload
+```
+
+Issue/expand cert to include dashboard:
+
+```bash
+doas certbot certonly --webroot -w /var/www/certbot \
+  --cert-name 3tched.com \
+  -d 3tched.com -d www.3tched.com -d dashboard.3tched.com --expand
+doas dinitctl restart nginx
 ```

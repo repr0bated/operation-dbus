@@ -9,6 +9,9 @@ For `LLM_MODEL=auto`, the runtime selector is constrained to Gemini 3 family onl
 
 - `gemini-3-flash` for default traffic.
 - `gemini-3-pro` for larger/complex prompts.
+- If preview mode is enabled, selector rewrites to:
+  - `gemini-3-flash-preview`
+  - `gemini-3-pro-preview`
 
 This is implemented by `deploy/dinit/op-mcp-proxy-select3`.
 
@@ -28,7 +31,13 @@ export MCP_PROXY_GCLOUD_PROJECT=operation-dbus
 export MCP_PROXY_AUTO_FLASH_MODEL=gemini-3-flash
 export MCP_PROXY_AUTO_PRO_MODEL=gemini-3-pro
 export MCP_PROXY_AUTO_PRO_THRESHOLD_CHARS=6000
+
+# Optional: force preview model IDs regardless of Gemini CLI settings
+export MCP_PROXY_EXPERIMENTAL=true
 ```
+
+If `MCP_PROXY_EXPERIMENTAL` is unset, preview mode follows
+`~/.gemini/settings.json` -> `general.previewFeatures`.
 
 ## VS Code Emulation Headers
 

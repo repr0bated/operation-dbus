@@ -15,6 +15,8 @@ OP_MCP_PROXY_REAL_BIN=/usr/local/bin/op-mcp-proxy
 MCP_PROXY_AUTO_FLASH_MODEL=gemini-3-flash
 MCP_PROXY_AUTO_PRO_MODEL=gemini-3-pro
 MCP_PROXY_AUTO_PRO_THRESHOLD_CHARS=6000
+# Force preview model routing (gemini-3-*-preview). If unset, selector follows ~/.gemini/settings.json previewFeatures.
+MCP_PROXY_EXPERIMENTAL=true
 
 OP_DBUS_ENABLE_WEB=1
 OP_DBUS_WEB_HOST=127.0.0.1

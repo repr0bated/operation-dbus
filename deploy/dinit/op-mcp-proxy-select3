@@ -4,6 +4,53 @@ import os
 import subprocess
 import sys
 
+TRUE_VALUES = ("1", "true", "yes", "on")
+
+
+def env_flag(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in TRUE_VALUES
+
+
+def gemini_preview_features_enabled():
+    settings_path = os.path.expanduser("~/.gemini/settings.json")
+    try:
+        with open(settings_path, "r", encoding="utf-8") as fh:
+            settings = json.load(fh)
+        return bool(settings.get("general", {}).get("previewFeatures", False))
+    except Exception:
+        return False
+
+
+def experimental_mode_enabled():
+    if "MCP_PROXY_EXPERIMENTAL" in os.environ:
+        return env_flag("MCP_PROXY_EXPERIMENTAL", False)
+    return gemini_preview_features_enabled()
+
+
+def normalize_model_name(model, experimental):
+    if not isinstance(model, str):
+        return model
+
+    norm = model.strip().lower()
+    aliases = {
+        "gemini-3.0-flash": "gemini-3-flash",
+        "gemini-3.0-pro": "gemini-3-pro",
+        "gemini-3.0-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.0-pro-preview": "gemini-3-pro-preview",
+    }
+    mapped = aliases.get(norm, norm)
+
+    if experimental:
+        if mapped == "gemini-3-flash":
+            return "gemini-3-flash-preview"
+        if mapped == "gemini-3-pro":
+            return "gemini-3-pro-preview"
+
+    return mapped
+
 
 def extract_prompt(params):
     prompt = params.get("prompt")
@@ -58,9 +105,13 @@ def should_use_pro(prompt_text, params):
     return any(h in lower for h in pro_hints)
 
 
-def select_model(prompt_text, params):
-    flash_model = os.environ.get("MCP_PROXY_AUTO_FLASH_MODEL", "gemini-3-flash")
-    pro_model = os.environ.get("MCP_PROXY_AUTO_PRO_MODEL", "gemini-3-pro")
+def select_model(prompt_text, params, experimental):
+    default_flash = "gemini-3-flash-preview" if experimental else "gemini-3-flash"
+    default_pro = "gemini-3-pro-preview" if experimental else "gemini-3-pro"
+    flash_model = os.environ.get("MCP_PROXY_AUTO_FLASH_MODEL", default_flash)
+    pro_model = os.environ.get("MCP_PROXY_AUTO_PRO_MODEL", default_pro)
+    flash_model = normalize_model_name(flash_model, experimental)
+    pro_model = normalize_model_name(pro_model, experimental)
     return pro_model if should_use_pro(prompt_text, params) else flash_model
 
 
@@ -76,14 +127,22 @@ def rewrite_request(line):
 
     model = params.get("model")
     model_norm = model.strip().lower() if isinstance(model, str) else ""
+    experimental = experimental_mode_enabled()
+
     if model_norm in ("", "auto", "gemini-auto", "gemini_auto"):
         prompt_text = extract_prompt(params)
-        selected = select_model(prompt_text, params)
+        selected = select_model(prompt_text, params, experimental)
         params["model"] = selected
         req["params"] = params
         return json.dumps(req, separators=(",", ":")), selected
 
-    return json.dumps(req, separators=(",", ":")), model
+    rewritten_model = normalize_model_name(model_norm, experimental)
+    if rewritten_model != model_norm:
+        params["model"] = rewritten_model
+        req["params"] = params
+        return json.dumps(req, separators=(",", ":")), rewritten_model
+
+    return json.dumps(req, separators=(",", ":")), model_norm
 
 
 def main():
