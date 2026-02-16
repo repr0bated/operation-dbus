@@ -1,7 +1,0 @@
-# Ignore other git repositories (nested .git directories)
-**/.git
-!/.git
-
-# Ignore nested repo directories entirely
-op-web/lovable-ad7c11f4
-op-web/ui-bk
