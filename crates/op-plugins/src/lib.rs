@@ -17,7 +17,7 @@ pub mod dynamic_loading;
 pub mod plugin;
 pub mod registry;
 pub mod state;
-pub mod systemd;
+pub mod service_def;
 
 // State plugins - each manages a specific domain
 pub mod default_registry;

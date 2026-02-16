@@ -17,6 +17,19 @@ pub const OAUTH_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/cloud-ide",
 ];
+const OAUTH_SCOPES_FALLBACK: &[&str] = &["https://www.googleapis.com/auth/cloud-platform"];
+
+fn adc_fallback_enabled() -> bool {
+    std::env::var("OP_ENABLE_ADC_FALLBACK")
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
 
 /// GCloud authentication provider
 #[derive(Clone)]
@@ -77,13 +90,19 @@ impl GCloudAuth {
             return Ok((token, expires));
         }
 
-        // 4. Application Default Credentials via gcloud
-        if let Some((token, expires)) = self.try_adc().await {
-            info!("Using Application Default Credentials");
-            return Ok((token, expires));
+        // 4. Application Default Credentials via gcloud (opt-in).
+        if adc_fallback_enabled() {
+            if let Some((token, expires)) = self.try_adc().await {
+                info!("Using Application Default Credentials");
+                return Ok((token, expires));
+            }
+        } else {
+            debug!("ADC fallback disabled (set OP_ENABLE_ADC_FALLBACK=1 to enable)");
         }
 
-        anyhow::bail!("Could not obtain OAuth token. Please run: gcloud auth login")
+        anyhow::bail!(
+            "Could not obtain OAuth token from GCLOUD_TOKEN, cached token file, or gcloud CLI credentials"
+        )
     }
 
     async fn try_antigravity_token(&self) -> Option<String> {
@@ -106,81 +125,80 @@ impl GCloudAuth {
     }
 
     async fn try_gcloud_cli(&self) -> Option<(String, DateTime<Utc>)> {
-        let scopes = OAUTH_SCOPES.join(",");
-
-        let output = Command::new("gcloud")
-            .args([
-                "auth",
-                "print-access-token",
-                &format!("--scopes={}", scopes),
-            ])
-            .output()
-            .ok()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            debug!("gcloud auth print-access-token failed: {}", stderr);
-            return None;
+        if let Some(token) = run_gcloud_access_token(&["auth", "print-access-token"], OAUTH_SCOPES)
+        {
+            return Some((token, Utc::now() + Duration::minutes(55)));
         }
-
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-        if token.is_empty() {
-            return None;
+        warn!("Preferred scopes failed; retrying gcloud CLI token with cloud-platform only");
+        if let Some(token) =
+            run_gcloud_access_token(&["auth", "print-access-token"], OAUTH_SCOPES_FALLBACK)
+        {
+            return Some((token, Utc::now() + Duration::minutes(55)));
         }
-
-        // gcloud tokens are valid for 1 hour
-        Some((token, Utc::now() + Duration::minutes(55)))
+        // Final fallback: let gcloud decide default scopes.
+        if let Some(token) = run_gcloud_access_token_no_scopes(&["auth", "print-access-token"]) {
+            return Some((token, Utc::now() + Duration::minutes(55)));
+        }
+        None
     }
 
     async fn try_adc(&self) -> Option<(String, DateTime<Utc>)> {
-        // Try application-default credentials
-        let output = Command::new("gcloud")
-            .args(["auth", "application-default", "print-access-token"])
-            .output()
-            .ok()?;
-
-        if !output.status.success() {
-            return None;
+        if let Some(token) = run_gcloud_access_token(
+            &["auth", "application-default", "print-access-token"],
+            OAUTH_SCOPES,
+        ) {
+            return Some((token, Utc::now() + Duration::minutes(55)));
         }
-
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-        if token.is_empty() {
-            return None;
+        warn!("Preferred scopes failed; retrying ADC token with cloud-platform only");
+        if let Some(token) = run_gcloud_access_token(
+            &["auth", "application-default", "print-access-token"],
+            OAUTH_SCOPES_FALLBACK,
+        ) {
+            return Some((token, Utc::now() + Duration::minutes(55)));
         }
-
-        Some((token, Utc::now() + Duration::minutes(55)))
+        // Final fallback: let gcloud decide default scopes.
+        if let Some(token) =
+            run_gcloud_access_token_no_scopes(&["auth", "application-default", "print-access-token"])
+        {
+            return Some((token, Utc::now() + Duration::minutes(55)));
+        }
+        None
     }
 
     /// Force a token refresh via gcloud
     pub async fn refresh_token(&self) -> anyhow::Result<(String, DateTime<Utc>)> {
-        let scopes = OAUTH_SCOPES.join(",");
-
-        let output = Command::new("gcloud")
-            .args([
-                "auth",
-                "print-access-token",
-                &format!("--scopes={}", scopes),
-            ])
-            .output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("gcloud auth failed: {}", stderr);
+        if let Some(token) = run_gcloud_access_token(&["auth", "print-access-token"], OAUTH_SCOPES)
+        {
+            return Ok((token, Utc::now() + Duration::minutes(55)));
+        }
+        if let Some(token) =
+            run_gcloud_access_token(&["auth", "print-access-token"], OAUTH_SCOPES_FALLBACK)
+        {
+            return Ok((token, Utc::now() + Duration::minutes(55)));
+        }
+        if let Some(token) = run_gcloud_access_token_no_scopes(&["auth", "print-access-token"]) {
+            return Ok((token, Utc::now() + Duration::minutes(55)));
         }
 
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok((token, Utc::now() + Duration::minutes(55)))
+        anyhow::bail!("gcloud auth failed for preferred, fallback, and default scope sets")
     }
 
     /// Check if gcloud is available and authenticated
     pub fn is_authenticated(&self) -> bool {
-        Command::new("gcloud")
-            .args(["auth", "print-access-token"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        if run_gcloud_access_token_no_scopes(&["auth", "print-access-token"]).is_some() {
+            return true;
+        }
+        if adc_fallback_enabled()
+            && run_gcloud_access_token_no_scopes(&[
+                "auth",
+                "application-default",
+                "print-access-token",
+            ])
+            .is_some()
+        {
+            return true;
+        }
+        false
     }
 }
 
@@ -188,4 +206,37 @@ impl Default for GCloudAuth {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn run_gcloud_access_token(base_args: &[&str], scopes: &[&str]) -> Option<String> {
+    let mut args: Vec<String> = base_args.iter().map(|s| s.to_string()).collect();
+    args.push(format!("--scopes={}", scopes.join(",")));
+
+    let output = Command::new("gcloud").args(args).output().ok()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        debug!("gcloud {:?} failed: {}", base_args, stderr);
+        return None;
+    }
+
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() {
+        return None;
+    }
+    Some(token)
+}
+
+fn run_gcloud_access_token_no_scopes(base_args: &[&str]) -> Option<String> {
+    let output = Command::new("gcloud").args(base_args).output().ok()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        debug!("gcloud {:?} without scopes failed: {}", base_args, stderr);
+        return None;
+    }
+
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() {
+        return None;
+    }
+    Some(token)
 }

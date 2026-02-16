@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue;
+use simd_json::OwnedValue as Value;
 use sha2::{Digest, Sha256};
 use std::any::Any;
 use std::collections::HashMap;
@@ -70,7 +70,7 @@ impl MirrorState {
 
 impl Default for MirrorState {
     fn default() -> Self {
-        Self::new(Value::Object(simd_json::value::owned::Object::new()))
+        Self::new(Value::Object(Box::new(simd_json::value::owned::Object::new())))
     }
 }
 
@@ -226,7 +226,7 @@ impl Default for PluginContext {
         Self {
             storage_path: PathBuf::from("/var/lib/op-dbus/plugins/default"),
             numa_node: None,
-            config: Value::Null,
+            config: simd_json::json!(null),
         }
     }
 }

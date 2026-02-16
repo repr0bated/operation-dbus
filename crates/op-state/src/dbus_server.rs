@@ -3,6 +3,7 @@
 use crate::manager::StateManager;
 use crate::plugin::{StateAction, StateDiff};
 use anyhow::Result;
+use op_jsonrpc::ovsdb::OvsdbClient;
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use simd_json::prelude::*;
@@ -23,7 +24,7 @@ struct ProjectedObject {
     origin_path: String,
 }
 
-#[zbus::interface(name = "org.opdbus.ProjectedObject")]
+#[zbus::interface(name = "org.opdbus.ProjectedObjectV1")]
 impl ProjectedObject {
     #[zbus(property)]
     async fn origin_service(&self) -> String {
@@ -247,21 +248,113 @@ impl StateManagerDBus {
     }
 }
 
-/// Start the system bus D-Bus service
-pub async fn start_system_bus(state_manager: Arc<StateManager>) -> Result<()> {
-    let interface = StateManagerDBus { state_manager };
+/// D-Bus interface for direct OVS bridge/port operations via OvsdbClient
+pub struct OvsdbDBus {
+    ovsdb: Arc<OvsdbClient>,
+}
+
+#[zbus::interface(name = "org.opdbus.OvsdbV1")]
+impl OvsdbDBus {
+    /// Create an OVS bridge (with internal management port)
+    async fn create_bridge(&self, name: String) -> zbus::fdo::Result<String> {
+        self.ovsdb
+            .create_bridge(&name)
+            .await
+            .map(|_| format!("Bridge '{}' created", name))
+            .map_err(|e| zbus::fdo::Error::Failed(format!("{}", e)))
+    }
+
+    /// Delete an OVS bridge
+    async fn delete_bridge(&self, name: String) -> zbus::fdo::Result<String> {
+        self.ovsdb
+            .delete_bridge(&name)
+            .await
+            .map(|_| format!("Bridge '{}' deleted", name))
+            .map_err(|e| zbus::fdo::Error::Failed(format!("{}", e)))
+    }
+
+    /// Add a port to a bridge
+    async fn add_port(&self, bridge: String, port: String) -> zbus::fdo::Result<String> {
+        self.ovsdb
+            .add_port(&bridge, &port)
+            .await
+            .map(|_| format!("Port '{}' added to bridge '{}'", port, bridge))
+            .map_err(|e| zbus::fdo::Error::Failed(format!("{}", e)))
+    }
+
+    /// List all bridges
+    async fn list_bridges(&self) -> zbus::fdo::Result<Vec<String>> {
+        self.ovsdb
+            .list_bridges()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("{}", e)))
+    }
+
+    /// List ports on a bridge
+    async fn list_ports(&self, bridge: String) -> zbus::fdo::Result<Vec<String>> {
+        self.ovsdb
+            .list_ports(&bridge)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("{}", e)))
+    }
+
+    /// Check if a bridge exists
+    async fn bridge_exists(&self, name: String) -> zbus::fdo::Result<bool> {
+        self.ovsdb
+            .bridge_exists(&name)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("{}", e)))
+    }
+}
+
+/// Register StateManager + OvsdbV1 interfaces on an existing D-Bus connection.
+///
+/// Use this when the caller already owns the bus name (e.g. `org.opdbus`).
+pub async fn register_on_connection(
+    connection: &Connection,
+    state_manager: Arc<StateManager>,
+    ovsdb: Arc<OvsdbClient>,
+) -> Result<()> {
+    let state_iface = StateManagerDBus { state_manager };
+    let ovsdb_iface = OvsdbDBus { ovsdb };
+
+    connection
+        .object_server()
+        .at("/org/opdbus/state", state_iface)
+        .await?;
+    connection
+        .object_server()
+        .at("/org/opdbus/ovsdb", ovsdb_iface)
+        .await?;
+
+    log::info!("Registered StateManager at /org/opdbus/state");
+    log::info!("Registered OvsdbV1 at /org/opdbus/ovsdb");
+
+    Ok(())
+}
+
+/// Start a standalone D-Bus service (owns its own bus name).
+///
+/// Use this when running as a standalone daemon, not embedded in op-web.
+pub async fn start_system_bus(
+    state_manager: Arc<StateManager>,
+    ovsdb: Arc<OvsdbClient>,
+) -> Result<()> {
+    let state_iface = StateManagerDBus { state_manager };
+    let ovsdb_iface = OvsdbDBus { ovsdb };
 
     let connection = Builder::system()?
         .name("org.opdbus")?
-        .serve_at("/org/opdbus/state", interface)?
+        .serve_at("/org/opdbus/state", state_iface)?
+        .serve_at("/org/opdbus/ovsdb", ovsdb_iface)?
         .build()
         .await?;
 
+    log::info!("D-Bus StateManager + OvsdbV1 started on org.opdbus");
+
     spawn_projection_task(connection.clone());
 
-    // Keep the connection alive
     std::future::pending::<()>().await;
-
     Ok(())
 }
 
@@ -349,11 +442,21 @@ async fn refresh_projection(
         }
     }
 
-    log::info!(
-        "D-Bus projection refresh complete: services_scanned={}, projected_objects_total={}",
-        service_count,
-        projected_count
-    );
+    let total_published = published_paths.read().await.len();
+    if projected_count > 0 {
+        log::info!(
+            "D-Bus projection refresh complete: services_scanned={}, new_objects={}, total_published={}",
+            service_count,
+            projected_count,
+            total_published
+        );
+    } else {
+        log::debug!(
+            "D-Bus projection refresh: services_scanned={}, no new objects (total_published={})",
+            service_count,
+            total_published
+        );
+    }
 
     Ok(())
 }

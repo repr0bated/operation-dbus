@@ -8,6 +8,13 @@ use op_llm::provider::{ChatMessage, ChatRequest, LlmProvider, ModelInfo, ToolCho
 
 use super::{OrchestratorEvent, OrchestratorResponse, UnifiedOrchestrator, MAX_TURNS};
 
+fn is_step1_no_tools_recoverable(err: &str) -> bool {
+    err.contains("MALFORMED_FUNCTION_CALL")
+        || err.contains("UNEXPECTED_TOOL_CALL")
+        || err.contains("empty response text from code-assist")
+        || err.contains("finish_reason=MALFORMED_FUNCTION_CALL")
+}
+
 impl UnifiedOrchestrator {
     /// Process user input - main entry point
     pub async fn process(
@@ -56,13 +63,32 @@ impl UnifiedOrchestrator {
 
         info!("LLM using COMPACT mode with {} meta-tools", tool_defs.len());
 
-        // Fetch all tools to populate the context
+        // Fetch tool counts for a summary instead of listing 16k tools
         let all_tools = self.tool_registry.list().await;
-        let tool_list_context = all_tools
-            .iter()
-            .map(|t| format!("- {}: {}", t.name, t.description))
+        let tool_count = all_tools.len();
+        
+        let mut categories = std::collections::HashMap::new();
+        for t in &all_tools {
+            *categories.entry(t.category.clone()).or_insert(0) += 1;
+        }
+        
+        let category_summary = categories.iter()
+            .map(|(cat, count)| format!("- {}: {} tools", cat, count))
             .collect::<Vec<_>>()
             .join("\n");
+
+        let tool_list_context = if tool_count < 100 {
+            all_tools
+                .iter()
+                .map(|t| format!("- {}: {}", t.name, t.description))
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            format!(
+                "Registry contains {} total tools across these categories:\n{}\n\nUse search_tools or list_tools to find specific capabilities.",
+                tool_count, category_summary
+            )
+        };
 
         // Build system prompt: Capabilities + Compact Instructions + Tool Directory
         let system_msg_core = op_chat::system_prompt::generate_system_prompt().await;
@@ -80,6 +106,7 @@ The following tools are available via execute_tool():
 {}",
             system_msg_core.content, compact_instructions, tool_list_context
         );
+        let core_prompt = system_msg_core.content.clone();
 
         // Convert role (default to system)
         let role_str = system_msg_core.role.clone();
@@ -139,7 +166,7 @@ The following tools are available via execute_tool():
                 tool_choice: if is_last_turn {
                     ToolChoice::None
                 } else {
-                    ToolChoice::Auto
+                    ToolChoice::Required
                 },
                 max_tokens: Some(4096),
                 temperature: Some(0.7),
@@ -174,8 +201,79 @@ The following tools are available via execute_tool():
                     }
                     Ok(Err(e)) => {
                         heartbeat_handle.abort();
-                        error!("❌ Step {}: Chatbot encountered an error: {}", turn + 1, e);
-                        return Err(anyhow::anyhow!("Chatbot error at step {}: {}", turn + 1, e));
+                        let err_text = e.to_string();
+                        error!("❌ Step {}: Chatbot encountered an error: {}", turn + 1, err_text);
+
+                        // Recovery path: if step 1 fails due to malformed function-call style
+                        // output from the upstream model, retry once with tools disabled.
+                        if turn == 0 && is_step1_no_tools_recoverable(&err_text) {
+                            warn!(
+                                "Step 1 recoverable error detected; retrying once in no-tools mode"
+                            );
+                            let fallback_messages = vec![
+                                ChatMessage {
+                                    role: "system".to_string(),
+                                    content: core_prompt.clone(),
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                },
+                                ChatMessage::user(input),
+                            ];
+                            let fallback_request = ChatRequest {
+                                messages: fallback_messages,
+                                tools: vec![],
+                                tool_choice: ToolChoice::None,
+                                max_tokens: Some(2048),
+                                temperature: Some(0.4),
+                                top_p: None,
+                            };
+                            let fallback_future = self
+                                .chat_manager
+                                .chat_with_request(&model.id, fallback_request);
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(45),
+                                fallback_future,
+                            )
+                            .await
+                            {
+                                Ok(Ok(fallback_resp)) => {
+                                    let fallback_text = fallback_resp.message.content.trim();
+                                    if !fallback_text.is_empty() {
+                                        info!(
+                                            "✅ Step 1 recovered via no-tools fallback ({} chars)",
+                                            fallback_text.len()
+                                        );
+                                        return Ok(OrchestratorResponse {
+                                            success: true,
+                                            message: fallback_text.to_string(),
+                                            tools_executed: vec![],
+                                            tool_results: vec![],
+                                            turns: 1,
+                                        });
+                                    }
+                                    warn!(
+                                        "No-tools fallback returned empty content; returning original error"
+                                    );
+                                }
+                                Ok(Err(fallback_err)) => {
+                                    warn!(
+                                        "No-tools fallback failed after recoverable step-1 error: {}",
+                                        fallback_err
+                                    );
+                                }
+                                Err(_) => {
+                                    warn!(
+                                        "No-tools fallback timed out after recoverable step-1 error"
+                                    );
+                                }
+                            }
+                        }
+
+                        return Err(anyhow::anyhow!(
+                            "Chatbot error at step {}: {}",
+                            turn + 1,
+                            err_text
+                        ));
                     }
                     Err(_) => {
                         heartbeat_handle.abort();

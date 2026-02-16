@@ -7,6 +7,7 @@ use crate::Tool;
 use crate::ToolRegistry;
 use async_trait::async_trait;
 use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
 use std::sync::Arc;
 use tracing::info;
 use anyhow::Result;
@@ -78,8 +79,8 @@ impl Tool for RtnetlinkListInterfacesTool {
                     
                 match output {
                     Ok(out) if out.status.success() => {
-                        let stdout = String::from_utf8_lossy(&out.stdout);
-                        let mut interfaces: Value = simd_json::from_str(&stdout)
+                        let mut stdout_mut = String::from_utf8_lossy(&out.stdout).to_string();
+                        let mut interfaces: Value = unsafe { simd_json::from_str(stdout_mut.as_mut_str()) }
                             .map_err(|je| anyhow::anyhow!("Failed to parse ip command output: {}", je))?;
                         
                         // Basic filtering if it's an array

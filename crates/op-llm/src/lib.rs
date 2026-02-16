@@ -41,10 +41,14 @@ pub mod antigravity;
 pub mod chat;
 pub mod gcloud_adc;
 pub mod gemini;
+pub mod gemini_cli;
 pub mod headless_oauth;
 pub mod huggingface;
+pub mod mcp_proxy;
+pub mod openclaw;
 pub mod perplexity;
 pub mod provider;
+pub mod pty_bridge;
 
 pub use anthropic::AnthropicClient;
 pub use antigravity::AntigravityProvider;
@@ -52,6 +56,7 @@ pub use gcloud_adc::GCloudADCProvider;
 pub use gemini::GeminiClient;
 pub use headless_oauth::{HeadlessOAuthProvider, OAuthToken};
 pub use huggingface::HuggingFaceClient;
+pub use openclaw::OpenClawProvider;
 pub use perplexity::PerplexityClient;
 pub use provider::{
     ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderConfig, ProviderType,

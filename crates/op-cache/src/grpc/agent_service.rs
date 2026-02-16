@@ -247,9 +247,8 @@ impl AgentService for AgentServiceImpl {
 
                                 let _ = tx
                                     .send(Ok(ExecuteAgentChunk {
-                                        data: chunk.to_vec(),
+                                        chunk: chunk.to_vec(),
                                         is_final,
-                                        sequence,
                                     }))
                                     .await;
 

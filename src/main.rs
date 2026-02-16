@@ -38,12 +38,26 @@ use op_dbus::{
     vectorization::FootprintGenerator,
 };
 use op_dbus_model;
+use op_jsonrpc::nonnet::NonNetDb;
+use op_jsonrpc::ovsdb::OvsdbClient;
 
 #[cfg(feature = "grpc")]
 use op_grpc_bridge::proto::PluginInfo;
 #[cfg(feature = "grpc")]
 use op_grpc_bridge::{
-    run_grpc_server, ChangeType, DbusWatcher, PluginSchemaProvider, SyncEngine, WatchConfig,
+    DbusWatcher, OperationGrpcServer, PluginSchemaProvider, SyncEngine, WatchConfig,
+};
+#[cfg(feature = "grpc")]
+use op_grpc_bridge::sync_engine::ChangeType;
+#[cfg(feature = "grpc")]
+use op_mcp::grpc::{GrpcInfrastructure, McpGrpcService, GrpcServerMode};
+#[cfg(feature = "grpc")]
+use op_mcp::grpc::proto::mcp_service_server::McpServiceServer;
+#[cfg(feature = "grpc")]
+use op_grpc_bridge::proto::{
+    event_chain_service_server::EventChainServiceServer,
+    plugin_service_server::PluginServiceServer,
+    state_sync_server::StateSyncServer,
 };
 #[cfg(feature = "grpc")]
 use op_state_store::ChainConfig;
@@ -245,7 +259,16 @@ async fn main() -> Result<()> {
     // Initialize tool registry and register built-in tools
     let tool_registry = Arc::new(ToolRegistry::new());
     register_builtin_tools(&tool_registry).await?;
-    tracing::info!("Registered {} tools", tool_registry.len().await);
+    
+    // Discover D-Bus tools to reach the full 16k+ toolset
+    let introspection = Arc::new(op_introspection::IntrospectionService::new());
+    let projection = op_tools::discovery::projection_engine::ProjectionEngine::new(introspection);
+    tracing::info!("Discovering D-Bus tools (System bus)...");
+    if let Ok(count) = projection.discover_all(&tool_registry, BusType::System).await {
+        tracing::info!("Registered {} tools from D-Bus projection", count);
+    }
+
+    tracing::info!("Total tools in registry: {}", tool_registry.len().await);
 
     // Initialize plugin registry
     let plugin_dir = PathBuf::from(&config.cache_dir).join("plugins");
@@ -326,6 +349,51 @@ async fn main() -> Result<()> {
 
     // D-Bus projection for mirrored state persistence paths.
     // Runtime discovery/introspection is migration-only and not executed here.
+    if config.enable_dbus {
+        let mirror_ovsdb = Arc::new(OvsdbClient::new());
+        let mirror_nonnet = Arc::new(NonNetDb::new());
+        let mirror = Arc::new(op_dbus_mirror::DbusMirror::new(
+            config.dbus_connection,
+            mirror_ovsdb,
+            mirror_nonnet,
+        ).await?);
+
+        let mirror_clone = mirror.clone();
+        tokio::spawn(async move {
+            if let Err(e) = mirror_clone.start().await {
+                tracing::error!("D-Bus mirror service failed: {}", e);
+            }
+        });
+
+        tracing::info!("1:1 D-Bus mirror initialized and started");
+
+        // Start StateManager + OvsdbV1 D-Bus service on org.opdbus
+        let state_manager = Arc::new(op_state::manager::StateManager::new());
+
+        // Load and register plugins via DefaultPluginRegistry
+        let plugin_registry_state = op_plugins::DefaultPluginRegistry::new(state_store.clone());
+        match plugin_registry_state.load_default_plugins().await {
+            Ok(plugins) => {
+                for plugin in plugins {
+                    state_manager.register_plugin(plugin).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load state plugins: {}", e);
+            }
+        }
+
+        let dbus_ovsdb = Arc::new(OvsdbClient::new());
+        let sm = state_manager.clone();
+        tokio::spawn(async move {
+            if let Err(e) = op_state::dbus_server::start_system_bus(sm, dbus_ovsdb).await {
+                tracing::error!("D-Bus StateManager service failed: {}", e);
+            }
+        });
+
+        tracing::info!("StateManager + OvsdbV1 D-Bus service started on org.opdbus");
+    }
+
     let _dbus_projection = if config.enable_dbus {
         let projection = DbusProjection::new().with_blockchain(blockchain.clone());
         tracing::info!("Runtime D-Bus introspection disabled; using mirrored state/registry");
@@ -425,14 +493,7 @@ async fn main() -> Result<()> {
         });
     }
 
-    // TODO: Start gRPC server (disabled due to op-mcp compilation errors)
-    // Will be enabled after fixing simd-json API issues in op-mcp
-    /*
-    #[cfg(feature = "grpc")]
-    if std::env::var("OP_DBUS_ENABLE_GRPC").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false) {
-        tracing::info!("gRPC server support temporarily disabled");
-    }
-    */
+    // Start gRPC server
     #[cfg(feature = "grpc")]
     if std::env::var("OP_DBUS_ENABLE_GRPC")
         .map(|v| v == "1" || v.to_lowercase() == "true")
@@ -487,9 +548,30 @@ async fn main() -> Result<()> {
         }
 
         let plugin_provider = Arc::new(OpdbusPluginProvider);
+        let op_grpc_server = OperationGrpcServer::with_plugin_provider(sync_engine, plugin_provider);
+
+        // Initialize MCP gRPC service with shared tool registry
+        let mcp_infra = GrpcInfrastructure::new()
+            .with_tool_registry(tool_registry.clone());
+        let mcp_grpc_service = McpGrpcService::with_infrastructure(GrpcServerMode::Compact, mcp_infra);
+
         tokio::spawn(async move {
-            tracing::info!("Starting gRPC server at {}", socket_addr);
-            if let Err(e) = run_grpc_server(socket_addr, sync_engine, Some(plugin_provider)).await {
+            tracing::info!("Starting unified gRPC server at {}", socket_addr);
+            
+            let reflection_service = tonic_reflection::server::Builder::configure()
+                .register_encoded_file_descriptor_set(op_grpc_bridge::proto::FILE_DESCRIPTOR_SET)
+                .build_v1()
+                .unwrap();
+
+            if let Err(e) = tonic::transport::Server::builder()
+                .add_service(reflection_service)
+                .add_service(StateSyncServer::new(op_grpc_server.clone()))
+                .add_service(PluginServiceServer::new(op_grpc_server.clone()))
+                .add_service(EventChainServiceServer::new(op_grpc_server))
+                .add_service(McpServiceServer::new(mcp_grpc_service))
+                .serve(socket_addr)
+                .await 
+            {
                 tracing::error!("gRPC server error: {}", e);
             }
         });

@@ -23,6 +23,8 @@ op-mcp = { path = "../op-mcp" }
 op-mcp-aggregator = { path = "../op-mcp-aggregator" }
 op-state-store = { path = "../op-state-store" }
 op-identity = { workspace = true }
+op-introspection = { workspace = true }
+op-grpc-bridge = { path = "../op-grpc-bridge" }
 
 # Rate limiting
 tower_governor = "0.4"

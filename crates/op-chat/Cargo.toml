@@ -30,6 +30,12 @@ op-execution-tracker = { path = "../op-execution-tracker" }
 regex = { workspace = true }
 libc = { workspace = true }
 op-agents = { path = "../op-agents" }
+op-mcp = { path = "../op-mcp" }
+tonic = { workspace = true }
+tokio-stream = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -8,9 +8,11 @@ use anyhow::Result;
 use simd_json::prelude::*;
 use simd_json::OwnedValue as Value;
 use std::time::Duration;
+use std::collections::{HashMap, BTreeMap};
 #[cfg(feature = "grpc")]
 use tonic::transport::{Channel, Endpoint};
 use tracing::info;
+use prost_types::{Struct as ProstStruct, Value as ProstValue, ListValue as ProstListValue};
 
 /// gRPC client configuration
 #[derive(Debug, Clone)]
@@ -125,7 +127,9 @@ impl GrpcClient {
     ) -> Result<CallToolResponse> {
         let request = CallToolRequest {
             tool_name: tool_name.to_string(),
-            arguments_json: arguments.to_string(),
+            arguments: simd_to_prost_struct(&arguments).ok().map(|s| ToolArguments {
+                args: Some(tool_arguments::Args::Generic(s))
+            }),
             session_id: self.session_id.clone(),
             timeout_ms: None,
         };
@@ -141,7 +145,9 @@ impl GrpcClient {
     ) -> Result<impl futures::Stream<Item = Result<ToolOutput, tonic::Status>>> {
         let request = CallToolRequest {
             tool_name: tool_name.to_string(),
-            arguments_json: arguments.to_string(),
+            arguments: simd_to_prost_struct(&arguments).ok().map(|s| ToolArguments {
+                args: Some(tool_arguments::Args::Generic(s))
+            }),
             session_id: self.session_id.clone(),
             timeout_ms: None,
         };
@@ -168,7 +174,7 @@ impl GrpcClient {
             jsonrpc: "2.0".to_string(),
             id: Some(uuid::Uuid::new_v4().to_string()),
             method: method.to_string(),
-            params_json: params.map(|p| p.to_string()),
+            params: params.and_then(|p| simd_to_prost_struct(&p).ok()),
         };
 
         let response = self.client.call(request).await?.into_inner();
@@ -177,5 +183,40 @@ impl GrpcClient {
 
     pub fn session_id(&self) -> Option<&str> {
         self.session_id.as_deref()
+    }
+}
+
+// Minimal conversion helper for client
+fn simd_to_prost_struct(value: &Value) -> Result<ProstStruct> {
+    if let Some(obj) = value.as_object() {
+        let fields: BTreeMap<String, ProstValue> = obj.iter().map(|(k, v): (&String, &Value)| (k.clone(), simd_to_prost_value(v))).collect();
+        Ok(ProstStruct { fields })
+    } else {
+        Err(anyhow::anyhow!("Value is not an object"))
+    }
+}
+
+fn simd_to_prost_value(value: &Value) -> ProstValue {
+    use prost_types::value::Kind;
+    match value {
+        v if v.is_null() => ProstValue { kind: Some(Kind::NullValue(0)) },
+        v if v.is_bool() => ProstValue { kind: Some(Kind::BoolValue(v.as_bool().unwrap())) },
+        v if v.is_str() => ProstValue { kind: Some(Kind::StringValue(v.as_str().unwrap().to_string())) },
+        v if v.is_f64() => ProstValue { kind: Some(Kind::NumberValue(v.as_f64().unwrap())) },
+        v if v.is_i64() => ProstValue { kind: Some(Kind::NumberValue(v.as_i64().unwrap() as f64)) },
+        v if v.is_u64() => ProstValue { kind: Some(Kind::NumberValue(v.as_u64().unwrap() as f64)) },
+        v if v.is_array() => ProstValue {
+            kind: Some(Kind::ListValue(ProstListValue {
+                values: v.as_array().unwrap().iter().map(simd_to_prost_value).collect(),
+            }))
+        },
+        v if v.is_object() => {
+            let fields: BTreeMap<String, ProstValue> = v.as_object().unwrap().iter()
+                .map(|(k, v)| (k.to_string(), simd_to_prost_value(v))).collect();
+            ProstValue {
+                kind: Some(Kind::StructValue(ProstStruct { fields }))
+            }
+        },
+        _ => ProstValue { kind: Some(Kind::NullValue(0)) },
     }
 }

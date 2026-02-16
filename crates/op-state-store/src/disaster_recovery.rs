@@ -279,9 +279,6 @@ pub fn get_plugin_dependencies(plugin_name: &str) -> Vec<SystemDependency> {
         "lxc" => vec![
             // Proxmox provides pct, no extra deps on Proxmox hosts
         ],
-        "systemd" => vec![
-            // systemd is always present on modern Linux
-        ],
         "privacy_router" => vec![
             SystemDependency::required("openvswitch-switch"),
             SystemDependency::optional("iptables"),

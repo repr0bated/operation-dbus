@@ -4,6 +4,7 @@
 use crate::grpc::proto::mcp_service_server::McpServiceServer;
 #[cfg(feature = "grpc")]
 use crate::grpc::service::{GrpcInfrastructure, McpGrpcService};
+use crate::ServerMode; // Unified ServerMode from lib.rs
 use anyhow::Result;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -11,24 +12,6 @@ use std::time::Duration;
 #[cfg(feature = "grpc")]
 use tonic::transport::Server;
 use tracing::{error, info};
-
-/// Server mode for MCP
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServerMode {
-    Compact,
-    Agents,
-    Full,
-}
-
-impl std::fmt::Display for ServerMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ServerMode::Compact => write!(f, "compact"),
-            ServerMode::Agents => write!(f, "agents"),
-            ServerMode::Full => write!(f, "full"),
-        }
-    }
-}
 
 /// gRPC transport configuration
 #[derive(Debug, Clone)]
@@ -219,7 +202,7 @@ pub async fn run_grpc_server(config: GrpcConfig) -> Result<()> {
 
 #[cfg(feature = "grpc")]
 pub async fn run_grpc_server_lightweight(address: SocketAddr, mode: ServerMode) -> Result<()> {
-    let _config = GrpcConfig::default()
+    let config = GrpcConfig::default()
         .with_address(address)
         .with_mode(mode)
         .without_infrastructure();

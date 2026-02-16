@@ -7,6 +7,7 @@
 
 use anyhow::{Context, Result};
 use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -192,7 +193,7 @@ impl JsonRpcServerConnection {
         let mut line = String::new();
 
         while reader.read_line(&mut line).await? > 0 {
-            let response = self.process_line(&line).await;
+            let response = self.process_line(&mut line).await;
             let response_str = simd_json::to_string(&response)?;
             writer.write_all(response_str.as_bytes()).await?;
             writer.write_all(b"\n").await?;
@@ -209,7 +210,7 @@ impl JsonRpcServerConnection {
         let mut line = String::new();
 
         while reader.read_line(&mut line).await? > 0 {
-            let response = self.process_line(&line).await;
+            let response = self.process_line(&mut line).await;
             let response_str = simd_json::to_string(&response)?;
             writer.write_all(response_str.as_bytes()).await?;
             writer.write_all(b"\n").await?;
@@ -220,20 +221,20 @@ impl JsonRpcServerConnection {
     }
 
     /// Process a JSON-RPC request line
-    async fn process_line(&self, line: &str) -> JsonRpcResponse {
-        match simd_json::from_str::<Value>(line) {
+    async fn process_line(&self, line: &mut String) -> JsonRpcResponse {
+        match unsafe { simd_json::from_str::<Value>(line.as_mut_str()) } {
             Ok(value) => {
                 match simd_json::serde::from_owned_value::<JsonRpcRequest>(value.clone()) {
                     Ok(request) => self.handle_request(request).await,
                     Err(e) => JsonRpcResponse::error(
-                        value.get("id").cloned().unwrap_or(Value::Null),
+                        value.get("id").cloned().unwrap_or(Value::null()),
                         error_codes::INVALID_REQUEST,
                         format!("Invalid request: {}", e),
                     ),
                 }
             }
             Err(e) => JsonRpcResponse::error(
-                Value::Null,
+                Value::null(),
                 error_codes::PARSE_ERROR,
                 format!("Parse error: {}", e),
             ),
@@ -314,7 +315,8 @@ impl JsonRpcServerConnection {
             "ovsdb.get_schema" => {
                 let db = request
                     .params
-                    .get(0)
+                    .as_array()
+                    .and_then(|a| a.get(0))
                     .and_then(|v| v.as_str())
                     .unwrap_or("Open_vSwitch");
                 match client.get_schema(db).await {

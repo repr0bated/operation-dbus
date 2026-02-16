@@ -34,6 +34,7 @@ use crate::gcloud_adc::GCloudADCProvider;
 use crate::gemini::GeminiClient;
 use crate::gemini_cli::create_gemini_cli_provider;
 use crate::mcp_proxy::McpProxyProvider;
+use crate::openclaw::OpenClawProvider;
 use crate::provider::{
     BoxedProvider, ChatMessage, ChatRequest, ChatResponse, LlmProvider, ModelInfo, ProviderType,
 };
@@ -150,6 +151,25 @@ impl ChatManager {
         }
 
         // =====================================================
+        // OpenClaw - Bearer token
+        // =====================================================
+        if std::env::var("OPENCLAW_TOKEN").is_ok() {
+            match OpenClawProvider::from_env() {
+                Ok(openclaw) => {
+                    let pt = ProviderType::Custom("openclaw".to_string());
+                    info!("✅ OpenClaw provider initialized");
+                    providers.insert(pt.clone(), Box::new(openclaw));
+                    if default_provider.is_none() {
+                        default_provider = Some(pt);
+                    }
+                }
+                Err(e) => {
+                    debug!("OpenClaw provider failed: {}", e);
+                }
+            }
+        }
+
+        // =====================================================
         // Anthropic - API key
         // =====================================================
         if std::env::var("ANTHROPIC_API_KEY").is_ok() {
@@ -189,7 +209,7 @@ impl ChatManager {
             warn!("⚠️  No LLM providers available!");
             warn!("   Configure authentication:");
             warn!("   1. Install/build op-mcp-proxy and set OP_MCP_PROXY_BIN");
-            warn!("   2. Authenticate: gcloud auth application-default login");
+            warn!("   2. Authenticate: gcloud auth login");
             warn!("   3. Or set GEMINI_API_KEY environment variable");
         } else {
             info!("\n📊 Default provider: {:?}", final_provider);
@@ -281,7 +301,7 @@ impl ChatManager {
             "No LLM providers configured.\n\n\
             To authenticate:\n\
             1. Build/install op-mcp-proxy and set OP_MCP_PROXY_BIN\n\
-            2. Run: gcloud auth application-default login\n\
+            2. Run: gcloud auth login\n\
             3. Optional: set LLM_PROVIDER=mcp-proxy\n\n\
             Or set GEMINI_API_KEY environment variable."
         ))
@@ -449,6 +469,10 @@ impl ChatManager {
                 ProviderType::Anthropic => (
                     "API key (ANTHROPIC_API_KEY)",
                     vec!["Claude models", "Best reasoning", "Tool use"],
+                ),
+                ProviderType::Custom(ref name) if name == "openclaw" => (
+                    "Bearer token (OPENCLAW_TOKEN)",
+                    vec!["OpenAI-compatible API", "Agent platform", "Tool use"],
                 ),
                 _ => ("API key", vec![]),
             };

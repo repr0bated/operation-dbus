@@ -930,6 +930,12 @@ impl WorkstackExecutor {
 
     /// Check if an agent operation should use streaming
     fn is_streaming_agent(agent_id: &str, operation: &str) -> bool {
+        // Convention: operations with "stream" in name are streaming
+        if operation.contains("stream") {
+            return true;
+        }
+        
+        // Legacy/Specific overrides
         matches!(
             (agent_id, operation),
             ("rust_pro", "build")

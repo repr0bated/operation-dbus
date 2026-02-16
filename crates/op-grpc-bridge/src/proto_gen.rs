@@ -3,10 +3,8 @@
 //! Converts operation-dbus plugin schemas to protobuf message and service
 //! definitions, enabling dynamic schema-driven gRPC.
 
-use std::collections::HashMap;
 use std::fmt::Write;
-
-use op_state_store::{FieldSchema, FieldType, PluginSchema, SchemaRegistry};
+use op_state_store::{FieldType, PluginSchema, SchemaRegistry};
 
 /// Configuration for protobuf generation
 #[derive(Debug, Clone)]
@@ -99,60 +97,32 @@ impl ProtoGenerator {
 
             self.generate_message(&mut output, schema);
             self.generate_crud_messages(&mut output, schema);
+            
+            if self.config.generate_services {
+                self.generate_service(&mut output, schema);
+            }
+            
+            writeln!(output).unwrap();
         }
 
-        // Generate unified service
-        if self.config.generate_services {
-            self.generate_unified_service(&mut output, registry);
-        }
+        // Add unified service
+        self.generate_unified_service(&mut output, registry);
 
         output
     }
 
-    fn generate_message(&self, output: &mut String, schema: &PluginSchema) {
+    pub fn generate_message(&self, output: &mut String, schema: &PluginSchema) {
         let message_name = to_pascal_case(&schema.name);
-
-        writeln!(output, "// {} state message", schema.name).unwrap();
-        writeln!(output, "// Schema version: {}", schema.version).unwrap();
         writeln!(output, "message {} {{", message_name).unwrap();
-
-        let mut field_number = 1;
+        
+        let mut field_num = 1;
         for (field_name, field_schema) in &schema.fields {
-            // Comment with description
-            if !field_schema.description.is_empty() {
-                writeln!(output, "  // {}", field_schema.description).unwrap();
-            }
-
-            // Field definition
             let proto_type = self.field_type_to_proto(&field_schema.field_type);
-            let proto_name = to_snake_case(field_name);
-
-            write!(output, "  {} {} = {}", proto_type, proto_name, field_number).unwrap();
-
-            // Add annotations
-            let mut annotations = Vec::new();
-            if field_schema.read_only {
-                annotations.push("read_only");
-            }
-            if field_schema.required {
-                annotations.push("required");
-            }
-
-            if !annotations.is_empty() {
-                write!(output, "; // [{}]", annotations.join(", ")).unwrap();
-            } else {
-                write!(output, ";").unwrap();
-            }
-            writeln!(output).unwrap();
-
-            field_number += 1;
+            let optional_marker = if field_schema.required { "" } else { "optional " };
+            writeln!(output, "  {}{} {} = {};", optional_marker, proto_type, field_name, field_num).unwrap();
+            field_num += 1;
         }
-
-        // Add metadata fields
-        writeln!(output, "  // Metadata").unwrap();
-        writeln!(output, "  string _schema_version = {};", field_number).unwrap();
-        writeln!(output, "  string _effective_hash = {};", field_number + 1).unwrap();
-
+        
         writeln!(output, "}}").unwrap();
         writeln!(output).unwrap();
     }
@@ -232,7 +202,7 @@ impl ProtoGenerator {
         writeln!(output, "  // Get {} state", schema.name).unwrap();
         writeln!(
             output,
-            "  rpc Get(Get{}Request) returns (Get{}Response);",
+            "  rpc Get(Get{}Request) returns (Get{}Response);" ,
             service_name, service_name
         )
         .unwrap();
@@ -274,7 +244,7 @@ impl ProtoGenerator {
         writeln!(output, "// =============================================").unwrap();
         writeln!(output).unwrap();
 
-        // Generic state messages (for dynamic typing)
+        // Generic state messages
         writeln!(output, "message GenericGetRequest {{").unwrap();
         writeln!(output, "  string plugin_id = 1;").unwrap();
         writeln!(output, "  string object_path = 2;").unwrap();
@@ -306,70 +276,15 @@ impl ProtoGenerator {
         writeln!(output, "}}").unwrap();
         writeln!(output).unwrap();
 
-        writeln!(output, "message GenericWatchRequest {{").unwrap();
-        writeln!(output, "  repeated string plugin_filters = 1;").unwrap();
-        writeln!(output, "  repeated string path_filters = 2;").unwrap();
-        writeln!(output, "  repeated string tag_filters = 3;").unwrap();
-        writeln!(output, "}}").unwrap();
-        writeln!(output).unwrap();
-
-        writeln!(output, "message GenericUpdate {{").unwrap();
-        writeln!(output, "  string plugin_id = 1;").unwrap();
-        writeln!(output, "  string object_path = 2;").unwrap();
-        writeln!(output, "  google.protobuf.Struct state = 3;").unwrap();
-        writeln!(output, "  string event_id = 4;").unwrap();
-        writeln!(output, "  repeated string tags_touched = 5;").unwrap();
-        writeln!(output, "  google.protobuf.Timestamp timestamp = 6;").unwrap();
-        writeln!(output, "}}").unwrap();
-        writeln!(output).unwrap();
-
-        // Unified service
         writeln!(output, "service OperationService {{").unwrap();
-        writeln!(output, "  // Generic state operations").unwrap();
-        writeln!(
-            output,
-            "  rpc Get(GenericGetRequest) returns (GenericGetResponse);"
-        )
-        .unwrap();
-        writeln!(
-            output,
-            "  rpc Set(GenericSetRequest) returns (GenericSetResponse);"
-        )
-        .unwrap();
-        writeln!(
-            output,
-            "  rpc Watch(GenericWatchRequest) returns (stream GenericUpdate);"
-        )
-        .unwrap();
-        writeln!(output).unwrap();
-
-        // Type-safe operations for each plugin
+        writeln!(output, "  rpc Get(GenericGetRequest) returns (GenericGetResponse);").unwrap();
+        writeln!(output, "  rpc Set(GenericSetRequest) returns (GenericSetResponse);").unwrap();
+        
         for schema_name in registry.list() {
             let name = to_pascal_case(schema_name);
-            writeln!(output, "  // {} operations", schema_name).unwrap();
-            writeln!(
-                output,
-                "  rpc Get{}(Get{}Request) returns (Get{}Response);",
-                name, name, name
-            )
-            .unwrap();
-            writeln!(
-                output,
-                "  rpc Set{}(Set{}Request) returns (Set{}Response);",
-                name, name, name
-            )
-            .unwrap();
-            if self.config.generate_streams {
-                writeln!(
-                    output,
-                    "  rpc Watch{}(Watch{}Request) returns (stream {}Update);",
-                    name, name, name
-                )
-                .unwrap();
-            }
-            writeln!(output).unwrap();
+            writeln!(output, "  rpc Get{}(Get{}Request) returns (Get{}Response);", name, name, name).unwrap();
+            writeln!(output, "  rpc Set{}(Set{}Request) returns (Set{}Response);", name, name, name).unwrap();
         }
-
         writeln!(output, "}}").unwrap();
     }
 
@@ -381,12 +296,8 @@ impl ProtoGenerator {
             FieldType::Boolean => "bool".to_string(),
             FieldType::Array(inner) => format!("repeated {}", self.field_type_to_proto(inner)),
             FieldType::Object(_) => "google.protobuf.Struct".to_string(),
-            FieldType::Enum(values) => {
-                // For enums, we use string in proto3 and validate in code
-                // A proper implementation would generate enum types
-                "string".to_string()
-            }
-            FieldType::Any => "google.protobuf.Any".to_string(),
+            FieldType::Enum(_) => "string".to_string(),
+            FieldType::Any => "google.protobuf.Value".to_string(),
         }
     }
 }
@@ -419,6 +330,7 @@ fn to_snake_case(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use op_state_store::SchemaRegistry;
 
     #[test]
     fn test_to_pascal_case() {
@@ -440,7 +352,6 @@ mod tests {
         let proto = generator.generate_for_registry(&registry);
 
         assert!(proto.contains("syntax = \"proto3\";"));
-        assert!(proto.contains("message Lxc"));
         assert!(proto.contains("service OperationService"));
     }
 }

@@ -71,7 +71,7 @@ fn default_auto_load() -> Vec<String> {
         "config".to_string(),
         "dinit".to_string(),
         "net".to_string(),
-        // "openflow".to_string(),
+        "ovsdb_bridge".to_string(),
     ]
 }
 

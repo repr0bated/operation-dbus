@@ -12,11 +12,41 @@
 
 use async_trait::async_trait;
 use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
 use std::path::Path;
+use std::sync::Arc;
 use tracing::{debug, info};
 
+use crate::registry::ToolDefinition;
 use crate::security::get_security_validator;
 use crate::Tool;
+
+/// Register all file tools
+pub async fn register_file_tools(registry: &crate::ToolRegistry) -> anyhow::Result<()> {
+    let tools = vec![
+        SecureFileTool::read(),
+        SecureFileTool::write(),
+        SecureFileTool::list(),
+        SecureFileTool::exists(),
+        SecureFileTool::stat(),
+    ];
+
+    for tool in tools {
+        let name = tool.name().to_string();
+        let definition = ToolDefinition {
+            name: name.clone(),
+            description: tool.description().to_string(),
+            input_schema: tool.input_schema(),
+            schema_version: "https://json-schema.org/draft/next/schema".to_string(),
+            category: tool.category().to_string(),
+            namespace: "system.v1".to_string(),
+            tags: tool.tags(),
+        };
+        registry.register(name.into(), Arc::new(tool), definition).await?;
+    }
+
+    Ok(())
+}
 
 // ============================================================================
 // SECURE FILE TOOL

@@ -10,6 +10,7 @@ pub mod builtin;
 pub mod context;
 pub mod engine;
 pub mod flow;
+pub mod history;
 pub mod node;
 pub mod orchestrator;
 pub mod workflows;

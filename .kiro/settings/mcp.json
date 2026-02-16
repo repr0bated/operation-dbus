@@ -1,0 +1,38 @@
+{
+  "mcpServers": {
+    "op-dbus-compact": {
+      "command": "cargo",
+      "args": ["run", "--package", "op-mcp", "--bin", "op-mcp-compact"],
+      "env": {
+        "RUST_LOG": "info",
+        "OP_MCP_ENFORCE_GCLOUD_AUTH": "0",
+        "WG_PUBLIC_KEY": "zyOysuhAyQI9DHL2i/Mw+U9p6F4m8ntkRCrzjU4Uei0="
+      },
+      "disabled": false,
+      "autoApprove": []
+    },
+    "op-dbus-agents": {
+      "command": "cargo",
+      "args": ["run", "--package", "op-mcp", "--bin", "op-mcp-agents"],
+      "env": {
+        "RUST_LOG": "info",
+        "DBUS_AGENT_SESSION": "1",
+        "OP_MCP_ENFORCE_GCLOUD_AUTH": "0",
+        "WG_PUBLIC_KEY": "zyOysuhAyQI9DHL2i/Mw+U9p6F4m8ntkRCrzjU4Uei0="
+      },
+      "disabled": false,
+      "autoApprove": []
+    },
+    "op-dbus-full": {
+      "command": "cargo",
+      "args": ["run", "--package", "op-mcp", "--bin", "op-mcp-server", "--", "--mode", "full"],
+      "env": {
+        "RUST_LOG": "info",
+        "OP_MCP_ENFORCE_GCLOUD_AUTH": "0",
+        "WG_PUBLIC_KEY": "zyOysuhAyQI9DHL2i/Mw+U9p6F4m8ntkRCrzjU4Uei0="
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}

@@ -26,7 +26,10 @@ pub struct WatchConfig {
 impl Default for WatchConfig {
     fn default() -> Self {
         Self {
-            paths: vec!["/org/operation".to_string()],
+            paths: vec![
+                "/org/operation".to_string(),
+                "/org/opdbus/v1".to_string(),
+            ],
             interfaces: vec![],
             use_system_bus: true,
         }

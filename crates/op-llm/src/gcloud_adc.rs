@@ -35,6 +35,18 @@ fn location() -> String {
     std::env::var("GCP_LOCATION").unwrap_or_else(|_| "global".to_string())
 }
 
+fn adc_fallback_enabled() -> bool {
+    std::env::var("OP_ENABLE_ADC_FALLBACK")
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 pub struct GCloudADCProvider {
     client: Client,
     model: String,
@@ -58,17 +70,7 @@ impl GCloudADCProvider {
             return Ok(token);
         }
 
-        // Try ADC first
-        let output = Command::new("gcloud")
-            .args(["auth", "application-default", "print-access-token"])
-            .output()
-            .context("Failed to execute gcloud auth application-default")?;
-
-        if output.status.success() {
-            return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
-        }
-
-        // Fallback to regular auth
+        // Prefer active gcloud user credentials.
         let output = Command::new("gcloud")
             .args(["auth", "print-access-token"])
             .output()
@@ -78,8 +80,20 @@ impl GCloudADCProvider {
             return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
         }
 
+        // Optional ADC fallback (disabled by default to avoid metadata-server auth on Compute hosts).
+        if adc_fallback_enabled() {
+            let output = Command::new("gcloud")
+                .args(["auth", "application-default", "print-access-token"])
+                .output()
+                .context("Failed to execute gcloud auth application-default print-access-token")?;
+
+            if output.status.success() {
+                return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+            }
+        }
+
         anyhow::bail!(
-            "Could not obtain gcloud token. Please run: gcloud auth application-default login"
+            "Could not obtain gcloud token from GCLOUD_TOKEN or gcloud CLI credentials"
         )
     }
 

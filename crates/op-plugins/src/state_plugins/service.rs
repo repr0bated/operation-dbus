@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use crate::service_def::{ServiceDef, ServiceName, ExecCommand, ServiceType, RestartPolicy, LogType, ReadyNotification};
 use op_state::{ApplyResult, Checkpoint, DiffMetadata, PluginCapabilities, StateAction, StateDiff, StatePlugin};
 use serde::{Deserialize, Serialize};
 use simd_json::{json, OwnedValue as Value};
@@ -9,199 +10,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct ServiceName(String);
-
-impl ServiceName {
-    pub fn new(name: impl Into<String>) -> Result<Self> {
-        let name = name.into();
-        if name.is_empty() { anyhow::bail!("service name cannot be empty") }
-        if name.len() > 64 { anyhow::bail!("service name exceeds 64 chars") }
-        Ok(Self(name))
-    }
-    pub fn as_str(&self) -> &str { &self.0 }
-}
-
-impl TryFrom<String> for ServiceName {
-    type Error = anyhow::Error;
-    fn try_from(s: String) -> Result<Self> { Self::new(s) }
-}
-impl From<ServiceName> for String {
-    fn from(n: ServiceName) -> String { n.0 }
-}
-
-impl std::fmt::Display for ServiceName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecCommand {
-    pub program: PathBuf,
-    #[serde(default)]
-    pub args: Vec<String>,
-}
-
-impl ExecCommand {
-    pub fn validate(&self) -> Result<()> {
-        if !self.program.exists() {
-            anyhow::bail!("executable not found: {}", self.program.display());
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let meta = std::fs::metadata(&self.program)?;
-            if meta.permissions().mode() & 0o111 == 0 {
-                anyhow::bail!("not executable: {}", self.program.display());
-            }
-        }
-        Ok(())
-    }
-
-    pub fn to_command_line(&self) -> String {
-        let mut cmd = self.program.display().to_string();
-        for arg in &self.args {
-            cmd.push(' ');
-            if arg.contains(' ') { cmd.push_str(&format!("\"{}\"", arg)); }
-            else { cmd.push_str(arg); }
-        }
-        cmd
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceLifecycle {
     pub last_active: Option<u64>,
     pub days_since_active: Option<u64>,
     pub is_orphaned: bool,
     pub orphan_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceDef {
-    pub name: ServiceName,
-    pub exec_start: ExecCommand,
-    pub exec_stop: Option<ExecCommand>,
-    pub working_dir: Option<PathBuf>,
-    pub user: Option<String>,
-    #[serde(default)]
-    pub depends_on: Vec<ServiceName>,
-    #[serde(default)]
-    pub environment: HashMap<String, String>,
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lifecycle: Option<ServiceLifecycle>,
-}
-
-impl ServiceDef {
-    pub fn validate(&self) -> Result<()> {
-        self.exec_start.validate()?;
-        if let Some(ref stop) = self.exec_stop { stop.validate()?; }
-        if let Some(ref dir) = self.working_dir {
-            if !dir.exists() { anyhow::bail!("working_dir missing: {}", dir.display()); }
-        }
-        #[cfg(unix)]
-        if let Some(ref user) = self.user {
-            let out = std::process::Command::new("id").arg(user).output()?;
-            if !out.status.success() { anyhow::bail!("user not found: {}", user); }
-        }
-        Ok(())
-    }
-    
-    pub fn to_dinit(&self) -> String {
-        let mut out = String::new();
-        out.push_str("type = process\n");
-        out.push_str(&format!("command = {}\n", self.exec_start.to_command_line()));
-        if let Some(ref stop) = self.exec_stop {
-            out.push_str(&format!("stop-command = {}\n", stop.to_command_line()));
-        }
-        if let Some(ref dir) = self.working_dir {
-            out.push_str(&format!("working-dir = {}\n", dir.display()));
-        }
-        if let Some(ref user) = self.user {
-            out.push_str(&format!("run-as = {}\n", user));
-        }
-        for dep in &self.depends_on {
-            out.push_str(&format!("depends-on = {}\n", dep));
-        }
-        for (k, v) in &self.environment {
-            out.push_str(&format!("env = {}={}\n", k, v));
-        }
-        out
-    }
-    
-    /// Convert from systemd unit file
-    pub fn from_systemd_unit(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let mut name = None;
-        let mut exec_start = None;
-        let mut exec_stop = None;
-        let mut working_dir = None;
-        let mut user = None;
-        let mut depends = vec![];
-        let mut env = HashMap::new();
-        
-        for line in content.lines() {
-            let line = line.trim();
-            if let Some((k, v)) = line.split_once('=') {
-                match k.trim() {
-                    "ExecStart" => {
-                        let parts: Vec<&str> = v.trim().split_whitespace().collect();
-                        if !parts.is_empty() {
-                            exec_start = Some(ExecCommand {
-                                program: PathBuf::from(parts[0]),
-                                args: parts[1..].iter().map(|s| s.to_string()).collect(),
-                            });
-                        }
-                    }
-                    "ExecStop" => {
-                        let parts: Vec<&str> = v.trim().split_whitespace().collect();
-                        if !parts.is_empty() {
-                            exec_stop = Some(ExecCommand {
-                                program: PathBuf::from(parts[0]),
-                                args: parts[1..].iter().map(|s| s.to_string()).collect(),
-                            });
-                        }
-                    }
-                    "WorkingDirectory" => working_dir = Some(PathBuf::from(v.trim())),
-                    "User" => user = Some(v.trim().to_string()),
-                    "Requires" | "Wants" | "After" => {
-                        for dep in v.split_whitespace() {
-                            if let Ok(sn) = ServiceName::new(dep) {
-                                depends.push(sn);
-                            }
-                        }
-                    }
-                    "Environment" => {
-                        if let Some((ek, ev)) = v.split_once('=') {
-                            env.insert(ek.trim().to_string(), ev.trim().to_string());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        
-        let file_name = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-        name = Some(ServiceName::new(file_name)?);
-        
-        Ok(ServiceDef {
-            name: name.unwrap(),
-            exec_start: exec_start.ok_or_else(|| anyhow::anyhow!("no ExecStart"))?,
-            exec_stop,
-            working_dir,
-            user,
-            depends_on: depends,
-            environment: env,
-            enabled: false,
-            lifecycle: None,
-        })
-    }
 }
 
 pub struct ServicePlugin {
@@ -231,20 +45,108 @@ impl ServicePlugin {
         
         Ok(ServiceDef {
             name: ServiceName::new(name)?,
-            exec_start: ExecCommand {
-                program: binary_path.to_path_buf(),
-                args: vec![],
-            },
+            service_type: ServiceType::Simple,
+            exec_start: ExecCommand::new(binary_path.to_path_buf(), vec![])?,
             exec_stop: None,
             working_dir: None,
             user: None,
+            group: None,
             depends_on: vec![],
+            waits_for: vec![],
+            restart: RestartPolicy::default(),
             environment: HashMap::new(),
+            env_file: None,
+            resources: None,
+            log_type: LogType::None,
+            ready_notification: ReadyNotification::None,
+            chain_to: None,
+            smooth_recovery: false,
             enabled: false,
-            lifecycle: None,
         })
     }
     
+    /// Convert from systemd unit file (Helper moved to ServicePlugin to avoid polluting schema)
+    fn from_systemd_unit(path: &Path) -> Result<ServiceDef> {
+        let content = std::fs::read_to_string(path)?;
+        let mut exec_start = None;
+        let mut exec_stop = None;
+        let mut working_dir = None;
+        let mut user = None;
+        let mut depends = vec![];
+        let mut env = HashMap::new();
+        
+        for line in content.lines() {
+            let line = line.trim();
+            if let Some((k, v)) = line.split_once('=') {
+                match k.trim() {
+                    "ExecStart" => {
+                        let parts: Vec<&str> = v.trim().split_whitespace().collect();
+                        if !parts.is_empty() {
+                            if let Ok(cmd) = ExecCommand::new(
+                                PathBuf::from(parts[0]),
+                                parts[1..].iter().map(|s| s.to_string()).collect(),
+                            ) {
+                                exec_start = Some(cmd);
+                            }
+                        }
+                    }
+                    "ExecStop" => {
+                        let parts: Vec<&str> = v.trim().split_whitespace().collect();
+                        if !parts.is_empty() {
+                            if let Ok(cmd) = ExecCommand::new(
+                                PathBuf::from(parts[0]),
+                                parts[1..].iter().map(|s| s.to_string()).collect(),
+                            ) {
+                                exec_stop = Some(cmd);
+                            }
+                        }
+                    }
+                    "WorkingDirectory" => working_dir = Some(PathBuf::from(v.trim())),
+                    "User" => user = Some(v.trim().to_string()),
+                    "Requires" | "Wants" | "After" => {
+                        for dep in v.split_whitespace() {
+                            if let Ok(sn) = ServiceName::new(dep) {
+                                depends.push(sn);
+                            }
+                        }
+                    }
+                    "Environment" => {
+                        if let Some((ek, ev)) = v.split_once('=') {
+                            env.insert(ek.trim().to_string(), ev.trim().to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        let file_name = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+        let name = ServiceName::new(file_name)?;
+        
+        Ok(ServiceDef {
+            name,
+            service_type: ServiceType::Simple, // Default, logic should improve
+            exec_start: exec_start.ok_or_else(|| anyhow::anyhow!("no ExecStart"))?,
+            exec_stop,
+            working_dir,
+            user,
+            group: None,
+            depends_on: depends,
+            waits_for: vec![],
+            restart: RestartPolicy::default(),
+            environment: env,
+            env_file: None,
+            resources: None,
+            log_type: LogType::None,
+            ready_notification: ReadyNotification::None,
+            chain_to: None,
+            smooth_recovery: false,
+            enabled: false,
+        })
+    }
+
     /// Convert all systemd units to dinit
     pub async fn convert_systemd_to_dinit(&self) -> Result<Vec<ServiceDef>> {
         let mut services = vec![];
@@ -259,9 +161,8 @@ impl ServicePlugin {
             let path = entry.path();
             
             if path.extension().and_then(|e| e.to_str()) == Some("service") {
-                match ServiceDef::from_systemd_unit(&path) {
+                match Self::from_systemd_unit(&path) {
                     Ok(svc) => {
-                        svc.validate()?;
                         services.push(svc);
                     }
                     Err(e) => {
@@ -276,13 +177,10 @@ impl ServicePlugin {
     
     /// Install service definition
     pub async fn install_service(&self, svc: &ServiceDef) -> Result<()> {
-        svc.validate()?;
-        
         match self.backend {
             ServiceBackend::Dinit => {
-                let path = format!("/etc/dinit.d/{}", svc.name);
-                std::fs::write(&path, svc.to_dinit())?;
-                log::info!("Installed dinit service: {}", path);
+                svc.install()?;
+                log::info!("Installed dinit service: {}", svc.name);
             }
             ServiceBackend::Systemd => {
                 anyhow::bail!("systemd installation not implemented - use dinit");

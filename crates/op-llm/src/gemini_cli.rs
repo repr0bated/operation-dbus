@@ -12,8 +12,8 @@
 //!
 //! ## How Auth Works
 //!
-//! This provider uses gcloud Application Default Credentials (ADC):
-//! 1. Set up gcloud auth: `gcloud auth application-default login`
+//! This provider uses gcloud credentials:
+//! 1. Set up gcloud auth: `gcloud auth login`
 //! 2. Or use service account: Set `GOOGLE_APPLICATION_CREDENTIALS` env var
 //! 3. PTY bridge passes credentials to Gemini CLI automatically
 //! 4. Gemini CLI uses gcloud credentials for API calls
@@ -21,7 +21,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -253,7 +253,7 @@ impl LlmProvider for GeminiCliProvider {
         }
 
         // Try to parse JSON response
-        let content = if let Ok(json_resp) = simd_json::from_str::<Value>(&result.stdout) {
+        let content = if let Ok(json_resp) = unsafe { simd_json::from_str::<simd_json::OwnedValue>(&mut result.stdout.clone()) } {
             json_resp
                 .get("response")
                 .or_else(|| json_resp.get("text"))

@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info, warn};
 
 // ============================================================================
@@ -124,17 +124,21 @@ pub struct TrackedToolExecutor {
     rate_config: RateLimitConfig,
     session_rates: RwLock<HashMap<String, SessionRateState>>,
     concurrent_count: AtomicU64,
+    concurrency_semaphore: Arc<Semaphore>,
 }
 
 impl TrackedToolExecutor {
     /// Create a new tracked executor
     pub fn new(registry: Arc<ToolRegistry>, tracker: Arc<ExecutionTracker>) -> Self {
+        let config = RateLimitConfig::default();
+        let semaphore = Arc::new(Semaphore::new(config.max_concurrent as usize));
         Self {
             registry,
             tracker,
-            rate_config: RateLimitConfig::default(),
+            rate_config: config,
             session_rates: RwLock::new(HashMap::new()),
             concurrent_count: AtomicU64::new(0),
+            concurrency_semaphore: semaphore,
         }
     }
 
@@ -144,12 +148,14 @@ impl TrackedToolExecutor {
         tracker: Arc<ExecutionTracker>,
         rate_config: RateLimitConfig,
     ) -> Self {
+        let semaphore = Arc::new(Semaphore::new(rate_config.max_concurrent as usize));
         Self {
             registry,
             tracker,
             rate_config,
             session_rates: RwLock::new(HashMap::new()),
             concurrent_count: AtomicU64::new(0),
+            concurrency_semaphore: semaphore,
         }
     }
 
@@ -188,7 +194,11 @@ impl TrackedToolExecutor {
             return Err(anyhow::anyhow!("Rate limit exceeded: {}", e));
         }
 
-        // Increment concurrent counter
+        // Acquire semaphore permit — actually blocks when at concurrency limit
+        let _permit = self.concurrency_semaphore.acquire().await
+            .map_err(|_| anyhow::anyhow!("Concurrency semaphore closed"))?;
+
+        // Increment concurrent counter (for metrics)
         self.concurrent_count.fetch_add(1, Ordering::Relaxed);
         let _guard = ConcurrentGuard {
             counter: &self.concurrent_count,
@@ -340,16 +350,34 @@ impl TrackedToolExecutor {
         results
     }
 
-    /// Get execution history
-    pub async fn get_history(&self, limit: usize) -> Vec<ExecutionContext> {
-        // TODO: Implement this - need to get records from tracker and convert to ExecutionContext
-        Vec::new()
+    /// Get execution history (recent completed executions)
+    pub async fn get_history(&self, limit: usize) -> Vec<Value> {
+        let records = self.tracker.get_recent(limit).await;
+        records
+            .into_iter()
+            .map(|r| {
+                simd_json::json!({
+                    "id": r.id,
+                    "tool_name": r.tool_name,
+                    "status": format!("{:?}", r.status),
+                    "initiated_by": r.initiated_by,
+                })
+            })
+            .collect()
     }
 
     /// Get execution statistics
     pub async fn get_stats(&self) -> Value {
-        // TODO: Implement this - need to get stats from tracker
-        simd_json::json!({"total_executions": 0, "successful_executions": 0})
+        let stats = self.tracker.get_stats().await;
+        simd_json::json!({
+            "total_executions": stats.total_executions,
+            "successful_executions": stats.successful_executions,
+            "failed_executions": stats.failed_executions,
+            "average_duration_ms": stats.average_duration_ms(),
+            "success_rate": stats.success_rate(),
+            "concurrent": self.concurrent_count.load(Ordering::Relaxed),
+            "max_concurrent": self.rate_config.max_concurrent,
+        })
     }
 
     /// Get rate limit status for a session

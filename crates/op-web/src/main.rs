@@ -27,6 +27,8 @@ async fn main() -> anyhow::Result<()> {
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
 
     let state = Arc::new(AppState::new().await?);
+    state.clone().start_event_bridge();
+    state.clone().start_system_monitor();
     let app = routes::create_router(state);
 
     let port = std::env::var("PORT")

@@ -657,8 +657,6 @@ impl SchemaRegistry {
 
         // Dinit Schema
         self.register(create_dinit_schema());
-        // Legacy compatibility alias
-        self.register(create_legacy_systemd_schema());
 
         // Privacy Router Schema
         self.register(create_privacy_router_schema());
@@ -1628,13 +1626,6 @@ fn create_dinit_schema() -> PluginSchema {
             ]
         }))
         .build()
-}
-
-fn create_legacy_systemd_schema() -> PluginSchema {
-    let mut schema = create_dinit_schema();
-    schema.name = "systemd".to_string();
-    schema.description = "Legacy compatibility alias for dinit service schema".to_string();
-    schema
 }
 
 fn create_privacy_router_schema() -> PluginSchema {

@@ -30,6 +30,18 @@ use tokio::sync::broadcast;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error, info, warn};
 
+fn auth_enforcement_enabled() -> bool {
+    std::env::var("OP_MCP_ENFORCE_GCLOUD_AUTH")
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Validate gcloud OAuth token via Google's tokeninfo API
 async fn validate_gcloud_token(token: &str) -> Result<(), StatusCode> {
     let url = format!(
@@ -61,6 +73,13 @@ async fn gcloud_auth_middleware(
 ) -> Result<axum::response::Response, StatusCode> {
     // Allow health check without auth
     if request.uri().path() == "/health" {
+        return Ok(next.run(request).await);
+    }
+
+    // Auth enforcement is optional; disabled by default.
+    // Set OP_MCP_ENFORCE_GCLOUD_AUTH=1 to require bearer auth.
+    if !auth_enforcement_enabled() {
+        debug!("gcloud auth middleware disabled; allowing request");
         return Ok(next.run(request).await);
     }
 

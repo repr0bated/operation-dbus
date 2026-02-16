@@ -1,6 +1,9 @@
 syntax = "proto3";
 package op_cache;
 
+import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
+
 // ============================================================================
 // Core Types
 // ============================================================================
@@ -49,6 +52,139 @@ message Agent {
     bool parallelizable = 7;
     uint64 estimated_latency_ms = 8;
     bool enabled = 9;
+}
+
+// ============================================================================
+// Structured Agent Input/Output
+// ============================================================================
+
+message AgentInput {
+    oneof input_type {
+        TextInput text = 1;
+        CodeInput code = 2;
+        AwsInput aws = 3;
+        DatabaseInput database = 4;
+        FileSystemInput filesystem = 5;
+        google.protobuf.Any generic = 99;
+    }
+    map<string, string> context = 100;
+}
+
+message AgentOutput {
+    oneof output_type {
+        TextOutput text = 1;
+        CodeOutput code = 2;
+        AwsOutput aws = 3;
+        DatabaseOutput database = 4;
+        FileSystemOutput filesystem = 5;
+        google.protobuf.Any generic = 99;
+    }
+    map<string, string> metadata = 100;
+}
+
+// Input types
+message TextInput {
+    string content = 1;
+    optional string language = 2;
+    optional string format = 3;
+}
+
+message CodeInput {
+    string source_code = 1;
+    string language = 2;
+    repeated string analysis_types = 3;
+}
+
+message AwsInput {
+    string service = 1;
+    string operation = 2;
+    google.protobuf.Struct parameters = 3;
+}
+
+message DatabaseInput {
+    string query = 1;
+    map<string, string> parameters = 2;
+    optional string database_type = 3;
+}
+
+message FileSystemInput {
+    string path = 1;
+    optional string content = 2;
+    FileOperation operation = 3;
+}
+
+enum FileOperation {
+    FILE_OPERATION_READ = 0;
+    FILE_OPERATION_WRITE = 1;
+    FILE_OPERATION_DELETE = 2;
+    FILE_OPERATION_LIST = 3;
+}
+
+// Output types
+message TextOutput {
+    string content = 1;
+    optional string summary = 2;
+    repeated string key_points = 3;
+}
+
+message CodeOutput {
+    string source_code = 1;
+    repeated CodeIssue issues = 2;
+    repeated CodeSuggestion suggestions = 3;
+}
+
+message CodeIssue {
+    string type = 1;
+    string message = 2;
+    uint32 line = 3;
+    uint32 column = 4;
+    string severity = 5;
+}
+
+message CodeSuggestion {
+    string type = 1;
+    string description = 2;
+    string code = 3;
+}
+
+message AwsOutput {
+    google.protobuf.Struct result = 1;
+    optional string next_token = 2;
+}
+
+message DatabaseOutput {
+    repeated google.protobuf.Struct rows = 1;
+    uint32 row_count = 2;
+}
+
+message FileSystemOutput {
+    oneof result {
+        FileContent content = 1;
+        FileList list = 2;
+        OperationResult operation = 3;
+    }
+}
+
+message FileContent {
+    string content = 1;
+    uint64 size = 2;
+    string mime_type = 3;
+}
+
+message FileList {
+    repeated FileInfo files = 1;
+}
+
+message FileInfo {
+    string name = 1;
+    uint64 size = 2;
+    bool is_directory = 3;
+    uint64 modified_time = 4;
+}
+
+message OperationResult {
+    bool success = 1;
+    optional string error = 2;
 }
 
 // ============================================================================
@@ -105,9 +241,30 @@ message ExecuteAgentResponse {
 }
 
 message ExecuteAgentChunk {
-    bytes data = 1;
+    bytes chunk = 1;
     bool is_final = 2;
-    uint64 sequence = 3;
+}
+
+message ProgressUpdate {
+    uint32 percent_complete = 1;
+    string status_message = 2;
+    optional uint64 estimated_remaining_ms = 3;
+}
+
+message PartialResult {
+    AgentOutput output = 1;
+    bool is_complete = 2;
+}
+
+message FinalResult {
+    AgentOutput output = 1;
+    uint64 total_duration_ms = 2;
+}
+
+message ErrorInfo {
+    string message = 1;
+    string code = 2;
+    optional google.protobuf.Struct details = 3;
 }
 
 message GetAgentRequest {

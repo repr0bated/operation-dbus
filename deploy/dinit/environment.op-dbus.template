@@ -1,7 +1,7 @@
 # op-dbus runtime environment for dinit
 # Adjust HOME and credential paths for your deployment user.
 HOME=/home/jeremy
-GOOGLE_CLOUD_PROJECT=operation-dbus
+GOOGLE_CLOUD_PROJECT=dbus-enterprise-2026
 GOOGLE_APPLICATION_CREDENTIALS=/home/jeremy/.config/gcloud/application_default_credentials.json
 SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 

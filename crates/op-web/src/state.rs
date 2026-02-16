@@ -6,13 +6,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use sysinfo::{System};
 use tokio::sync::{broadcast, RwLock};
+use tokio_stream::StreamExt;
 use tracing::{debug, info, warn};
 
 use op_agents::agent_registry::AgentRegistry;
 use op_llm::chat::ChatManager;
 use op_llm::provider::ChatMessage;
-use op_state::dbus_server;
+use op_grpc_bridge::{GrpcClientPool, RemoteOperationClient};
 use op_state::manager::StateManager;
 use op_state_store::{SqliteStore, StateStore};
 use op_tools::ToolRegistry;
@@ -88,6 +90,8 @@ pub struct AppState {
     pub state_store: Arc<dyn StateStore>,
     /// Google OAuth configuration (optional)
     pub google_oauth_config: Option<GoogleOAuthConfig>,
+    /// Remote operation client (gRPC)
+    pub grpc_client: Arc<RemoteOperationClient>,
 }
 
 impl AppState {
@@ -219,10 +223,11 @@ impl AppState {
 
         info!("✅ Application state initialized");
 
-        // Expose canonical system-bus namespace for state control.
-        // This is intentionally fire-and-forget: if policy denies ownership,
-        // HTTP APIs remain functional and we log the failure.
-        spawn_org_opdbus_service();
+        // Initialize gRPC client for remote operations
+        let grpc_addr = std::env::var("OP_DBUS_GRPC_ADDR")
+            .unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+        let pool = Arc::new(GrpcClientPool::new());
+        let grpc_client = Arc::new(RemoteOperationClient::new(pool, &grpc_addr, "op-web"));
 
         Ok(Self {
             orchestrator,
@@ -240,6 +245,7 @@ impl AppState {
             server_config,
             state_store,
             google_oauth_config,
+            grpc_client,
         })
     }
 
@@ -252,16 +258,115 @@ impl AppState {
     pub fn uptime_secs(&self) -> u64 {
         self.start_time.elapsed().as_secs()
     }
-}
 
-fn spawn_org_opdbus_service() {
-    tokio::spawn(async {
-        let manager = Arc::new(StateManager::new());
-        match dbus_server::start_system_bus(manager).await {
-            Ok(_) => info!("✅ D-Bus service org.opdbus started"),
-            Err(e) => warn!("⚠️ Failed to start org.opdbus D-Bus service: {}", e),
-        }
-    });
+    /// Start the system monitor for live metrics
+    pub fn start_system_monitor(self: Arc<Self>) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let mut sys = System::new_all();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+            loop {
+                interval.tick().await;
+                sys.refresh_all();
+
+                let memory_total_mb = sys.total_memory() / 1024 / 1024;
+                let memory_used_mb = sys.used_memory() / 1024 / 1024;
+                let cpu_usage = sys.global_cpu_info().cpu_usage();
+
+                let data = simd_json::json!({
+                    "uptime_secs": state.uptime_secs(),
+                    "memory_total_mb": memory_total_mb,
+                    "memory_used_mb": memory_used_mb,
+                    "cpu_usage": cpu_usage,
+                });
+
+                if let Ok(json_str) = simd_json::to_string(&data) {
+                    state.sse_broadcaster.broadcast("system_stats", &json_str);
+                }
+            }
+        });
+    }
+
+    /// Start the event bridge from gRPC to SSE
+    pub fn start_event_bridge(self: Arc<Self>) {
+        let state = self.clone();
+
+        // 1. State updates bridge
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            info!("Starting gRPC -> SSE state updates bridge...");
+            loop {
+                match state_clone.grpc_client.subscribe(vec![], vec![], vec![]).await {
+                    Ok(mut stream) => {
+                        info!("Subscribed to gRPC state updates");
+                        while let Some(msg_result) = stream.next().await {
+                            match msg_result {
+                                Ok(msg) => {
+                                    let data = simd_json::json!({
+                                        "plugin_id": msg.plugin_id,
+                                        "object_path": msg.object_path,
+                                        "property_name": msg.property_name,
+                                        "new_value": msg.new_value,
+                                        "event_id": msg.event_id,
+                                        "tags": msg.tags_touched,
+                                    });
+                                    if let Ok(json_str) = simd_json::to_string(&data) {
+                                        state_clone.sse_broadcaster.broadcast("state_update", &json_str);
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("gRPC subscription stream error: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to subscribe to gRPC updates: {}. Retrying...", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                }
+            }
+        });
+
+        // 2. Event chain bridge
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            info!("Starting gRPC -> SSE event chain bridge...");
+            loop {
+                match state_clone.grpc_client.stream_events(None, vec![], vec![]).await {
+                    Ok(mut stream) => {
+                        info!("Subscribed to gRPC event chain");
+                        while let Some(msg_result) = stream.next().await {
+                            match msg_result {
+                                Ok(msg) => {
+                                    let data = simd_json::json!({
+                                        "event_id": msg.event_id,
+                                        "plugin_id": msg.plugin_id,
+                                        "operation": msg.operation_type,
+                                        "target": msg.target,
+                                        "decision": msg.decision,
+                                        "tags": msg.tags_touched,
+                                    });
+                                    if let Ok(json_str) = simd_json::to_string(&data) {
+                                        state_clone.sse_broadcaster.broadcast("audit_event", &json_str);
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("gRPC event stream error: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to stream gRPC events: {}. Retrying...", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                }
+            }
+        });
+    }
 }
 
 const PERSISTED_MODEL_PATH: &str = "/etc/op-dbus/llm-model";
@@ -288,12 +393,17 @@ async fn register_all_tools(registry: &Arc<ToolRegistry>) -> anyhow::Result<()> 
     info!("Registering tools...");
 
     // Canonical tool/agent registration lives in op_tools/op_dbus.
-    // op-web standalone mode uses the same entrypoint, with no web-specific
-    // registration layers.
     op_tools::register_builtin_tools(registry).await?;
 
-    // Keep runtime strictly mirror-driven. Introspection/discovery is migration-only.
-    info!("Runtime introspection disabled; using canonical mirrored state/registry sources");
+    // Perform D-Bus tool discovery to populate the registry with 16k+ tools
+    let introspection = Arc::new(op_introspection::IntrospectionService::new());
+    let projection = op_tools::discovery::projection_engine::ProjectionEngine::new(introspection);
+    
+    info!("Discovering D-Bus tools (System bus)...");
+    match projection.discover_all(registry, op_core::BusType::System).await {
+        Ok(count) => info!("Registered {} tools from D-Bus System bus", count),
+        Err(e) => warn!("System bus discovery failed: {}", e),
+    }
 
     Ok(())
 }

@@ -20,6 +20,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -276,8 +277,9 @@ impl Tool for ShellExecuteBatchTool {
         let default_timeout_secs = 60u64.min(max_timeout.as_secs());
 
         let mut results = Vec::new();
+        let commands_list: Vec<_> = commands.iter().collect();
 
-        for (idx, entry) in commands.iter().enumerate() {
+        for (idx, entry) in commands_list.into_iter().enumerate() {
             // Rate limit each command in the batch
             if let Err(e) = validator.check_rate_limit(session_id).await {
                 return Err(anyhow::anyhow!("{}", e));

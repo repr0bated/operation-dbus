@@ -8,6 +8,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::groups_admin;
@@ -141,8 +142,13 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .nest("/groups-admin", groups_admin::create_groups_admin_router())
         .nest("/admin", admin::admin_routes());
 
-    // Use embedded UI for all non-API routes
-    router = router.fallback(crate::embedded_ui::serve_embedded_ui);
+    // Use filesystem static files if available, otherwise fallback to embedded UI
+    let static_dir = std::env::var("OP_WEB_STATIC_DIR").unwrap_or_else(|_| "static".to_string());
+    if std::path::Path::new(&static_dir).exists() {
+        router = router.fallback_service(ServeDir::new(static_dir).fallback(get(crate::embedded_ui::serve_embedded_ui)));
+    } else {
+        router = router.fallback(crate::embedded_ui::serve_embedded_ui);
+    }
 
     router
         .layer(Extension(state))

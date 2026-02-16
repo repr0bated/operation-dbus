@@ -21,7 +21,9 @@ mod service;
 #[cfg(feature = "grpc")]
 pub use client::{GrpcClient, GrpcClientConfig};
 #[cfg(feature = "grpc")]
-pub use server::{GrpcConfig, GrpcTransport, ServerMode as GrpcServerMode};
+pub use server::{GrpcConfig, GrpcTransport};
+#[cfg(feature = "grpc")]
+pub use crate::ServerMode as GrpcServerMode; // Direct export from crate root
 #[cfg(feature = "grpc")]
 pub use service::{GrpcInfrastructure, McpGrpcService};
 

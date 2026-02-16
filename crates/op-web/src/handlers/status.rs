@@ -165,7 +165,7 @@ pub async fn status_handler(Extension(state): Extension<Arc<AppState>>) -> Json<
     };
 
     // Get key services status
-    let services = get_key_services().await;
+    let services = get_key_services(&state.grpc_client).await;
 
     // Get network interfaces
     let network = get_network_info().await;
@@ -180,17 +180,51 @@ pub async fn status_handler(Extension(state): Extension<Arc<AppState>>) -> Json<
     })
 }
 
-async fn get_key_services() -> Vec<ServiceStatus> {
-    let key_services = ["nginx", "docker", "sshd", "openvswitch-switch"];
+async fn get_key_services(_client: &op_grpc_bridge::RemoteOperationClient) -> Vec<ServiceStatus> {
     let mut services = Vec::new();
 
-    for name in key_services {
-        // Try to get status via /sys/fs/cgroup or just mark as unknown
-        let status = "unknown".to_string();
-        services.push(ServiceStatus {
-            name: name.to_string(),
-            status,
-        });
+    let key_services = [
+        "nginx",
+        "docker",
+        "sshd",
+        "openvswitch-switch",
+        "ovsdb-server",
+        "ovs-vswitchd",
+        "op-dbus",
+        "op-web",
+    ];
+
+    // Try to get statuses via doas dinitctl list
+    let out = tokio::process::Command::new("doas")
+        .arg("dinitctl")
+        .arg("list")
+        .output()
+        .await;
+
+    if let Ok(output) = out {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for name in key_services {
+            // Check for [{+}] which means started/active
+            let status = if stdout.lines().any(|l| l.contains(name) && (l.contains("{+}") || l.contains("[+]"))) {
+                "active".to_string()
+            } else if stdout.lines().any(|l| l.contains(name)) {
+                "inactive".to_string()
+            } else {
+                "unknown".to_string()
+            };
+            services.push(ServiceStatus {
+                name: name.to_string(),
+                status,
+            });
+        }
+    } else {
+        // Fallback if dinitctl fails
+        for name in key_services {
+            services.push(ServiceStatus {
+                name: name.to_string(),
+                status: "unknown".to_string(),
+            });
+        }
     }
 
     services

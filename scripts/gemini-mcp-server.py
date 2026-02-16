@@ -6,20 +6,91 @@ Provides Gemini capabilities through Model Context Protocol
 import os
 import json
 import asyncio
+import time
 from typing import Any, Optional
 from mcp.server import Server
 from mcp.types import Tool, TextContent
 from openai import AsyncOpenAI
+import httpx
 
 # Configuration
-GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "http://127.0.0.1:8045/v1")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "sk-28da1542217448069593b22690c561ca")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
+GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://cloudcode-pa.googleapis.com/v1internal")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
-# Initialize OpenAI client pointing to Antigravity proxy
+def get_gemini_token():
+    """Read Gemini CLI OAuth token"""
+    try:
+        creds_path = os.path.expanduser("~/.gemini/oauth_creds.json")
+        if os.path.exists(creds_path):
+            with open(creds_path, "r") as f:
+                creds = json.load(f)
+                token = creds.get("access_token")
+                expiry = creds.get("expiry_date", 0)
+                # Check if token is still valid (with 5 min buffer)
+                if token and expiry > (time.time() * 1000) + 300000:
+                    return token
+    except Exception:
+        pass
+    return None
+
+def get_auth_headers():
+    """Get headers for Cloud AI Companion API"""
+    token = get_gemini_token() or GEMINI_API_KEY
+    if not token:
+        return {}
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "User-Agent": "google-cloud-code-vscode/1.22.0 (GPN:Cloud Code for VS Code) vscode/1.85.0 (linux; x64)",
+        "x-goog-api-client": "gl-rust/1.76.0 gax/2.12.0 gapic/1.0.0",
+        "x-client-data": "eyJpc0lkZSI6dHJ1ZSwiaWRlVHlwZSI6InZzY29kZSIsImlkZVZlcnNpb24iOiIxLjg1LjAiLCJwbHVnaW5WZXJzaW9uIjoiMS4yMi4wIn0="
+    }
+    return headers
+
+async def call_cloud_ai(prompt: str, model: str = GEMINI_MODEL):
+    """Call Cloud AI Companion directly"""
+    headers = get_auth_headers()
+    if not headers:
+        return "Error: No authentication found. Please run 'gemini' CLI or set GEMINI_API_KEY."
+    
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "operation-dbus")
+    url = f"{GEMINI_BASE_URL}/generateContent"
+    
+    body = {
+        "model": model,
+        "project": project,
+        "request": {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 8192,
+            }
+        }
+    }
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code != 200:
+                return f"Error: API returned {resp.status_code}: {resp.text}"
+            
+            data = resp.json()
+            candidates = data.get("response", {}).get("candidates", [])
+            if not candidates:
+                return "Error: No response candidates returned."
+            
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts)
+            return text
+        except Exception as e:
+            return f"Error calling Gemini: {str(e)}"
+
+# Initialize OpenAI client as fallback
 client = AsyncOpenAI(
-    base_url=GEMINI_BASE_URL,
-    api_key=GEMINI_API_KEY
+    base_url=os.getenv("OPENAI_BASE_URL", "http://127.0.0.1:8045/v1"),
+    api_key=GEMINI_API_KEY or "none"
 )
 
 # Create MCP server
@@ -121,24 +192,13 @@ async def gemini_chat(args: dict) -> list[TextContent]:
     message = args["message"]
     model = args.get("model", GEMINI_MODEL)
     system = args.get("system")
-    temperature = args.get("temperature", 1.0)
     
-    messages = []
+    prompt = message
     if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": message})
+        prompt = f"System: {system}\n\nUser: {message}"
     
-    try:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature
-        )
-        
-        content = response.choices[0].message.content
-        return [TextContent(type="text", text=content)]
-    except Exception as e:
-        return [TextContent(type="text", text=f"Error: {str(e)}")]
+    content = await call_cloud_ai(prompt, model)
+    return [TextContent(type="text", text=content)]
 
 async def gemini_analyze_code(args: dict) -> list[TextContent]:
     """Analyze code with Gemini"""

@@ -5,19 +5,21 @@
 //! - Routes requests to appropriate handlers (tools, D-Bus, LLM)
 //! - Manages sessions and conversation state
 //! - **Executes tools with full tracking and accountability**
-//! - Provides unified JSON responses
+//! - Uses ForcedToolPipeline for anti-hallucination chat
 
 use anyhow::Result;
-use op_execution_tracker::{ExecutionMetrics, ExecutionTelemetry, ExecutionTracker};
-// use op_introspection::IntrospectionService;
+use op_execution_tracker::ExecutionTracker;
+use op_llm::provider::{ChatMessage as LlmChatMessage, LlmProvider};
 use op_tools::ToolRegistry;
 use serde::{Deserialize, Serialize};
 use simd_json::{json, OwnedValue as Value};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
+use crate::forced_tool_pipeline::ForcedToolPipeline;
 use crate::session::SessionManager;
+use crate::system_prompt::generate_system_prompt;
 use crate::tool_executor::TrackedToolExecutor;
 
 /// Configuration for ChatActor
@@ -31,6 +33,8 @@ pub struct ChatActorConfig {
     pub enable_tracking: bool,
     /// Maximum execution history to keep
     pub max_history: usize,
+    /// Default LLM model to use
+    pub default_model: String,
 }
 
 impl Default for ChatActorConfig {
@@ -40,6 +44,7 @@ impl Default for ChatActorConfig {
             request_timeout_secs: 300,
             enable_tracking: true,
             max_history: 1000,
+            default_model: "default".to_string(),
         }
     }
 }
@@ -222,7 +227,6 @@ impl ChatActorHandle {
     }
 
     pub async fn list_services(&self, _bus_type: op_core::BusType) -> RpcResponse {
-        // TODO: Add RpcRequest::ListServices
         RpcResponse::error("List services not supported via RPC yet")
     }
 
@@ -248,74 +252,72 @@ impl ChatActorHandle {
 
 /// The Chat Actor - central processing unit
 pub struct ChatActor {
-    // config: ChatActorConfig,
+    config: ChatActorConfig,
     tool_executor: Arc<TrackedToolExecutor>,
     tool_registry: Arc<ToolRegistry>,
-    // introspection: Arc<IntrospectionService>,
     session_manager: Arc<SessionManager>,
+    pipeline: Arc<ForcedToolPipeline>,
+    llm_provider: Arc<dyn LlmProvider>,
     receiver: mpsc::Receiver<ActorMessage>,
 }
 
 impl ChatActor {
-    /// Create a new ChatActor
-    pub async fn new(config: ChatActorConfig) -> Result<(Self, ChatActorHandle)> {
-        let (sender, receiver) = mpsc::channel(config.max_concurrent);
-
-        // Initialize components
+    /// Create a new ChatActor with an LLM provider
+    pub async fn new(
+        config: ChatActorConfig,
+        llm_provider: Arc<dyn LlmProvider>,
+    ) -> Result<(Self, ChatActorHandle)> {
         let tool_registry = Arc::new(ToolRegistry::new());
-
-        // Metrics and Telemetry
-        let metrics = Arc::new(ExecutionMetrics::new().unwrap_or_default());
-        let telemetry = Arc::new(ExecutionTelemetry::new("op-chat"));
-
-        let tracker = Arc::new(ExecutionTracker::new(config.max_history));
-
-        let tool_executor = Arc::new(TrackedToolExecutor::new(tool_registry.clone(), tracker));
-        // let introspection = Arc::new(IntrospectionService::new());
-        let session_manager = Arc::new(SessionManager::new());
-
-        let actor = Self {
-            // config,
-            tool_executor,
-            tool_registry,
-            // introspection,
-            session_manager,
-            receiver,
-        };
-
-        let handle = ChatActorHandle { sender };
-
-        Ok((actor, handle))
+        Self::build(config, tool_registry, llm_provider).await
     }
 
     /// Create with existing tool registry
     pub async fn with_registry(
         config: ChatActorConfig,
         tool_registry: Arc<ToolRegistry>,
+        llm_provider: Arc<dyn LlmProvider>,
+    ) -> Result<(Self, ChatActorHandle)> {
+        Self::build(config, tool_registry, llm_provider).await
+    }
+
+    /// Internal builder shared by constructors
+    async fn build(
+        config: ChatActorConfig,
+        tool_registry: Arc<ToolRegistry>,
+        llm_provider: Arc<dyn LlmProvider>,
     ) -> Result<(Self, ChatActorHandle)> {
         let (sender, receiver) = mpsc::channel(config.max_concurrent);
 
-        // Metrics and Telemetry
-        let metrics = Arc::new(ExecutionMetrics::new().unwrap_or_default());
-        let telemetry = Arc::new(ExecutionTelemetry::new("op-chat"));
-
         let tracker = Arc::new(ExecutionTracker::new(config.max_history));
-
         let tool_executor = Arc::new(TrackedToolExecutor::new(tool_registry.clone(), tracker));
-        // let introspection = Arc::new(IntrospectionService::new());
         let session_manager = Arc::new(SessionManager::new());
+        let pipeline = Arc::new(ForcedToolPipeline::new(
+            tool_registry.clone(),
+            tool_executor.clone(),
+        ));
+
+        // Register builtin tools so the LLM has tools to call
+        if let Err(e) = op_tools::builtin::register_all_builtin_tools(&tool_registry).await {
+            warn!("Failed to register some builtin tools: {}", e);
+        }
+        if let Err(e) = op_tools::builtin::register_response_tools(&tool_registry).await {
+            warn!("Failed to register response tools: {}", e);
+        }
+
+        let tool_count = tool_registry.list().await.len();
+        info!("ChatActor initialized with {} tools", tool_count);
 
         let actor = Self {
-            // config,
+            config,
             tool_executor,
             tool_registry,
-            // introspection,
             session_manager,
+            pipeline,
+            llm_provider,
             receiver,
         };
 
         let handle = ChatActorHandle { sender };
-
         Ok((actor, handle))
     }
 
@@ -329,17 +331,13 @@ impl ChatActor {
         &self.tool_executor
     }
 
-    // pub fn introspection(&self) -> &Arc<IntrospectionService> {
-    //     &self.introspection
-    // }
-
     /// Get session manager
     pub fn session_manager(&self) -> &Arc<SessionManager> {
         &self.session_manager
     }
 
     /// Run the actor event loop
-    pub async fn run(mut self) {
+    pub async fn run(&mut self) {
         info!("ChatActor started");
 
         while let Some(msg) = self.receiver.recv().await {
@@ -455,12 +453,90 @@ impl ChatActor {
 
     async fn handle_chat(
         &self,
-        _message: &str,
-        _session_id: &str,
-        _model: Option<String>,
+        message: &str,
+        session_id: &str,
+        model: Option<String>,
     ) -> RpcResponse {
-        // TODO: Integrate with LLM provider
-        RpcResponse::error("Chat not yet implemented")
+        let model = model
+            .as_deref()
+            .unwrap_or(&self.config.default_model);
+
+        info!(session_id = %session_id, model = %model, "Processing chat message");
+
+        // Get or create session, retrieve history
+        let session = self.session_manager.get_or_create(session_id).await;
+
+        // Build LLM message history
+        let mut messages = Vec::new();
+
+        // 1. System prompt
+        let system_msg = generate_system_prompt().await;
+        messages.push(system_msg);
+
+        // 2. Convert session history (op_core::ChatMessage -> op_llm::ChatMessage)
+        for hist_msg in &session.messages {
+            let role = match hist_msg.role {
+                op_core::ChatRole::User => "user",
+                op_core::ChatRole::Assistant => "assistant",
+                op_core::ChatRole::System => "system",
+                op_core::ChatRole::Tool => "tool",
+            };
+            messages.push(LlmChatMessage {
+                role: role.to_string(),
+                content: hist_msg.content.clone(),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+
+        // 3. Add new user message
+        messages.push(LlmChatMessage::user(message));
+
+        // Store user message in session
+        self.session_manager
+            .add_message(session_id, op_core::ChatMessage::user(message))
+            .await;
+
+        // 4. Process through ForcedToolPipeline
+        match self
+            .pipeline
+            .process_message(
+                self.llm_provider.as_ref(),
+                model,
+                messages,
+                Some(session_id.to_string()),
+            )
+            .await
+        {
+            Ok(result) => {
+                // Store assistant response in session
+                self.session_manager
+                    .add_message(
+                        session_id,
+                        op_core::ChatMessage::assistant(&result.response),
+                    )
+                    .await;
+
+                if !result.verified {
+                    warn!(
+                        session_id = %session_id,
+                        issues = ?result.hallucination_check.issues,
+                        "Response had hallucination issues"
+                    );
+                }
+
+                RpcResponse::success(json!({
+                    "response": result.response,
+                    "verified": result.verified,
+                    "tools_executed": result.executed_tools,
+                    "session_id": session_id,
+                }))
+            }
+            Err(e) => {
+                error!(session_id = %session_id, error = %e, "Chat pipeline failed");
+                RpcResponse::error(format!("Chat failed: {}", e))
+            }
+        }
     }
 
     async fn handle_get_history(&self, limit: usize) -> RpcResponse {
@@ -478,13 +554,13 @@ impl ChatActor {
 
     async fn handle_health(&self) -> RpcResponse {
         let tool_count = self.tool_registry.list().await.len();
-        // let stats = self.tool_executor.get_stats().await;
+        let session_count = self.session_manager.count().await;
 
         RpcResponse::success(json!({
             "status": "healthy",
             "tools_registered": tool_count,
-            // "total_executions": stats.total_executions,
-            // "success_rate": stats.success_rate()
+            "active_sessions": session_count,
+            "provider": format!("{:?}", self.llm_provider.provider_type()),
         }))
     }
 
@@ -501,8 +577,6 @@ impl ChatActor {
         _args: Value,
         _bus_type: Option<String>,
     ) -> RpcResponse {
-        // Generic D-Bus calling is not yet implemented in ChatActor directly.
-        // Users should use registered tools for specific D-Bus operations.
-        RpcResponse::error("Generic D-Bus call not implemented")
+        RpcResponse::error("Generic D-Bus call not implemented - use registered tools")
     }
 }

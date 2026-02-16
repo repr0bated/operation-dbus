@@ -42,6 +42,7 @@ op-http = { path = "../op-http" }
 
 # Web
 axum = { workspace = true }
+reqwest = { workspace = true }
 
 # System info
 op-state = { workspace = true }

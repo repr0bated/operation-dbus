@@ -205,8 +205,8 @@ impl PtyAuthBridge {
         // Pass through gcloud credentials for Gemini CLI
         // Priority: GOOGLE_APPLICATION_CREDENTIALS env var > service account > ADC
         if let Ok(creds) = std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
-            cmd.env("GOOGLE_APPLICATION_CREDENTIALS", creds);
             debug!("Using GOOGLE_APPLICATION_CREDENTIALS from env: {}", creds);
+            cmd.env("GOOGLE_APPLICATION_CREDENTIALS", creds);
         } else if let Some(home) = dirs::home_dir() {
             // Try service account key first (preferred for service accounts)
             let gcloud_creds = home.join(".config/gcloud/gemini-cli.json");
@@ -423,9 +423,18 @@ fn extract_url(line: &str) -> Option<String> {
 
 /// Extract device code from a line of text
 fn extract_device_code(line: &str) -> Option<String> {
-    // Look for patterns like XXXX-XXXX or similar
-    let re = regex::Regex::new(r"[A-Z0-9]{4,8}[-\s]?[A-Z0-9]{4,8}").ok()?;
-    re.find(line).map(|m| m.as_str().to_string())
+    // Look for patterns like XXXX-XXXX or similar alphanumeric codes
+    for word in line.split_whitespace() {
+        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
+        if clean.len() >= 8
+            && clean.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && clean.chars().any(|c| c.is_ascii_uppercase())
+            && clean.chars().any(|c| c.is_ascii_digit() || c == '-')
+        {
+            return Some(clean.to_string());
+        }
+    }
+    None
 }
 
 // =============================================================================

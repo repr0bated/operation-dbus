@@ -17,9 +17,12 @@ pub enum ProviderType {
     Anthropic,
     Antigravity,
     Gemini,
+    GeminiCli,
     HuggingFace,
+    McpProxy,
     OpenAI,
     Perplexity,
+    Custom(String),
 }
 
 impl fmt::Display for ProviderType {
@@ -28,9 +31,12 @@ impl fmt::Display for ProviderType {
             ProviderType::Anthropic => write!(f, "anthropic"),
             ProviderType::Antigravity => write!(f, "antigravity"),
             ProviderType::Gemini => write!(f, "gemini"),
+            ProviderType::GeminiCli => write!(f, "gemini-cli"),
             ProviderType::HuggingFace => write!(f, "huggingface"),
+            ProviderType::McpProxy => write!(f, "mcp-proxy"),
             ProviderType::OpenAI => write!(f, "openai"),
             ProviderType::Perplexity => write!(f, "perplexity"),
+            ProviderType::Custom(name) => write!(f, "{}", name),
         }
     }
 }
@@ -43,9 +49,12 @@ impl FromStr for ProviderType {
             "anthropic" => Ok(ProviderType::Anthropic),
             "antigravity" => Ok(ProviderType::Antigravity),
             "gemini" => Ok(ProviderType::Gemini),
+            "gemini-cli" | "gemini_cli" | "geminicli" => Ok(ProviderType::GeminiCli),
             "huggingface" | "hugging_face" | "hf" => Ok(ProviderType::HuggingFace),
+            "mcp-proxy" | "mcp_proxy" | "mcpproxy" => Ok(ProviderType::McpProxy),
             "openai" | "open_ai" => Ok(ProviderType::OpenAI),
             "perplexity" => Ok(ProviderType::Perplexity),
+            "openclaw" | "open_claw" => Ok(ProviderType::Custom("openclaw".to_string())),
             other => Err(format!("Unknown provider type: {}", other)),
         }
     }

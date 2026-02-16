@@ -5,19 +5,28 @@
 
 use anyhow::{Context, Result};
 use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::protocol::{error_codes, JsonRpcRequest, JsonRpcResponse};
 
+/// NonNet update event
+#[derive(Debug, Clone)]
+pub struct NonNetUpdate {
+    pub table: String,
+    pub rows: Vec<Value>,
+}
+
 /// NonNet database state
 pub struct NonNetDb {
     state: Arc<RwLock<NonNetState>>,
+    update_tx: broadcast::Sender<NonNetUpdate>,
 }
 
 /// Internal state structure
@@ -30,9 +39,16 @@ struct NonNetState {
 impl NonNetDb {
     /// Create a new NonNet database
     pub fn new() -> Self {
+        let (update_tx, _) = broadcast::channel(100);
         Self {
             state: Arc::new(RwLock::new(NonNetState::default())),
+            update_tx,
         }
+    }
+
+    /// Subscribe to database updates
+    pub fn subscribe(&self) -> broadcast::Receiver<NonNetUpdate> {
+        self.update_tx.subscribe()
     }
 
     /// Set the tables/schema from plugin state
@@ -55,10 +71,16 @@ impl NonNetDb {
 
             // Convert value to rows
             let rows = value_to_rows(value);
-            tables.insert(name.clone(), rows);
+            tables.insert(name.clone(), rows.clone());
+            
+            // Broadcast initial load as update
+            let _ = self.update_tx.send(NonNetUpdate {
+                table: name.clone(),
+                rows,
+            });
         }
 
-        state.schema = json!({"tables": Value::Object(schema_tables)});
+        state.schema = json!({"tables": Value::Object(Box::new(schema_tables))});
         state.tables = tables;
 
         debug!("NonNet DB loaded {} tables", state.tables.len());
@@ -67,7 +89,12 @@ impl NonNetDb {
     /// Update a specific table
     pub async fn update_table(&self, name: &str, rows: Vec<Value>) {
         let mut state = self.state.write().await;
-        state.tables.insert(name.to_string(), rows);
+        state.tables.insert(name.to_string(), rows.clone());
+        
+        let _ = self.update_tx.send(NonNetUpdate {
+            table: name.to_string(),
+            rows,
+        });
     }
 
     /// Run the JSON-RPC server on a Unix socket
@@ -120,20 +147,20 @@ async fn handle_connection(state: Arc<RwLock<NonNetState>>, stream: UnixStream) 
     let mut line = String::new();
 
     while reader.read_line(&mut line).await? > 0 {
-        let response = match simd_json::from_str::<Value>(&line) {
+        let response = match unsafe { simd_json::from_str::<Value>(line.as_mut_str()) } {
             Ok(value) => {
                 let state = state.read().await;
                 match simd_json::serde::from_owned_value::<JsonRpcRequest>(value.clone()) {
                     Ok(request) => handle_method(&state, request),
                     Err(e) => JsonRpcResponse::error(
-                        value.get("id").cloned().unwrap_or(Value::Null),
+                        value.get("id").cloned().unwrap_or(Value::null()),
                         error_codes::INVALID_REQUEST,
                         format!("Invalid request: {}", e),
                     ),
                 }
             }
             Err(e) => JsonRpcResponse::error(
-                Value::Null,
+                Value::null(),
                 error_codes::PARSE_ERROR,
                 format!("Parse error: {}", e),
             ),
@@ -226,10 +253,10 @@ fn infer_columns(value: &Value) -> Value {
     match value {
         Value::Object(map) => {
             let mut cols = simd_json::value::owned::Object::new();
-            for (k, v) in map {
+            for (k, v) in map.iter() {
                 cols.insert(k.clone(), json!({"type": infer_type(v)}));
             }
-            Value::Object(cols)
+            Value::Object(Box::new(cols))
         }
         Value::Array(arr) => {
             if let Some(first) = arr.first() {
@@ -244,14 +271,25 @@ fn infer_columns(value: &Value) -> Value {
 
 /// Infer the type of a value
 fn infer_type(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "integer",
-        Value::String(_) => "string",
-        Value::Array(_) => "set",
-        Value::Object(_) => "map",
+    if value.is_null() {
+        return "null";
     }
+    if value.is_bool() {
+        return "boolean";
+    }
+    if value.is_number() {
+        return "integer";
+    }
+    if value.is_str() {
+        return "string";
+    }
+    if value.is_array() {
+        return "set";
+    }
+    if value.is_object() {
+        return "map";
+    }
+    "unknown"
 }
 
 /// Convert a value to table rows
@@ -260,7 +298,7 @@ fn value_to_rows(value: &Value) -> Vec<Value> {
         Value::Array(arr) => arr.clone(),
         Value::Object(map) => {
             // Check if there's an array field
-            for (_, v) in map {
+            for (_, v) in map.iter() {
                 if let Value::Array(arr) = v {
                     return arr.clone();
                 }
@@ -281,9 +319,9 @@ mod tests {
         let db = NonNetDb::new();
         let mut plugins = HashMap::new();
         plugins.insert(
-            "systemd".to_string(),
+            "test_plugin".to_string(),
             json!({
-                "units": ["nginx.service", "ssh.service"]
+                "items": ["item1", "item2"]
             }),
         );
 

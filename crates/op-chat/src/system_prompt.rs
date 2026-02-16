@@ -484,7 +484,7 @@ mod tests {
     #[tokio::test]
     async fn test_system_prompt_generation() {
         let prompt = generate_system_prompt().await;
-        assert!(prompt.content.contains("ANTI-HALLUCINATION"));
+        assert!(prompt.content.contains("FORCED TOOL EXECUTION"));
         assert!(prompt.content.contains("ovs-br0"));
         assert!(prompt.content.contains("CUSTOM INSTRUCTIONS"));
     }
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn test_fixed_prompt() {
         let fixed = get_fixed_prompt();
-        assert!(fixed.contains("CRITICAL RULES"));
+        assert!(fixed.contains("CRITICAL:"));
         assert!(fixed.contains("TOPOLOGY"));
     }
 

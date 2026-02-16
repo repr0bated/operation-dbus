@@ -1,7 +1,8 @@
 //! JSON-RPC 2.0 protocol types
 
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue;
+use simd_json::OwnedValue as Value;
+use simd_json::prelude::*;
 
 /// JSON-RPC 2.0 request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +21,7 @@ impl JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             method: method.into(),
             params,
-            id: Value::Number(0.into()),
+            id: Value::from(0),
         }
     }
 
@@ -114,7 +115,7 @@ pub mod error_codes {
 pub fn parse_request(value: Value) -> Result<JsonRpcRequest, JsonRpcResponse> {
     simd_json::serde::from_owned_value(value.clone()).map_err(|e| {
         JsonRpcResponse::error(
-            value.get("id").cloned().unwrap_or(Value::Null),
+            value.get("id").cloned().unwrap_or(Value::null()),
             error_codes::INVALID_REQUEST,
             format!("Invalid request: {}", e),
         )
@@ -135,7 +136,7 @@ mod tests {
     #[test]
     fn test_response_serialization() {
         let resp =
-            JsonRpcResponse::success(Value::Number(1.into()), simd_json::json!({"ok": true}));
+            JsonRpcResponse::success(Value::from(1), simd_json::json!({"ok": true}));
         let json = simd_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\""));
         assert!(!json.contains("\"error\""));

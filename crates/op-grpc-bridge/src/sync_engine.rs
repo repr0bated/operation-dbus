@@ -536,9 +536,9 @@ impl SyncEngine {
         let connection = self.dbus_connection().await?;
         let proxy = Proxy::new(
             &connection,
-            "org.opdbus",
-            "/org/opdbus/state",
-            "org.opdbus.StateManager",
+            "org.opdbus.v1",
+            "/org/opdbus/v1/state",
+            "org.opdbus.StateManagerV1",
         )
         .await
         .map_err(|e| SyncError::DBus(format!("StateManager proxy error: {}", e)))?;

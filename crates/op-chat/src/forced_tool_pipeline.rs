@@ -96,7 +96,11 @@ impl ForcedToolPipeline {
             .map(|tool| ToolDefinition {
                 name: tool.name.clone(),
                 description: tool.description.clone(),
-                parameters: tool.input_schema.clone(),
+                input_schema: tool.input_schema.clone(),
+                schema_version: String::new(),
+                category: tool.category.clone(),
+                tags: tool.tags.clone(),
+                namespace: tool.namespace.clone(),
             })
             .collect()
     }
@@ -111,9 +115,9 @@ impl ForcedToolPipeline {
     /// 5. Loops if LLM wants more tool calls
     /// 6. Verifies for hallucinations
     /// 7. Returns verified response
-    pub async fn process_message<P: LlmProvider>(
+    pub async fn process_message(
         &self,
-        provider: &P,
+        provider: &dyn LlmProvider,
         model: &str,
         messages: Vec<ChatMessage>,
         session_id: Option<String>,

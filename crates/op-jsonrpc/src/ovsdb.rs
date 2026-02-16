@@ -4,6 +4,7 @@
 
 use anyhow::{Context, Result};
 use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -65,7 +66,7 @@ impl OvsdbClient {
 
         debug!("OVSDB response: {}", response_line.trim());
 
-        let response: Value = simd_json::from_str(&response_line)?;
+        let response: Value = unsafe { simd_json::from_str(response_line.as_mut_str())? };
 
         if let Some(error) = response.get("error") {
             if !error.is_null() {
@@ -338,7 +339,8 @@ impl OvsdbClient {
         let mut out = simd_json::value::owned::Object::new();
         for (i, name) in order.into_iter().enumerate() {
             let rows = result
-                .get(i)
+                .as_array()
+                .and_then(|a| a.get(i))
                 .and_then(|r| r.get("rows"))
                 .cloned()
                 .unwrap_or_else(|| json!([]));
@@ -346,6 +348,66 @@ impl OvsdbClient {
         }
 
         Ok(Value::Object(Box::new(out)))
+    }
+
+    /// Monitor a database for changes
+    pub async fn monitor_db(&self, db: &str) -> Result<tokio::sync::mpsc::Receiver<Value>> {
+        let mut stream = UnixStream::connect(&self.socket_path)
+            .await
+            .context("Failed to connect to OVSDB socket for monitoring")?;
+
+        let schema = self.get_schema(db).await?;
+        let tables = schema
+            .get("tables")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| anyhow::anyhow!("Invalid schema: missing tables"))?;
+
+        let mut monitor_requests = simd_json::value::owned::Object::new();
+        for (name, _) in tables {
+            monitor_requests.insert(name.clone(), json!({
+                "columns": [], // All columns
+                "select": {
+                    "initial": true,
+                    "insert": true,
+                    "delete": true,
+                    "modify": true
+                }
+            }));
+        }
+
+        let request = json!({
+            "method": "monitor",
+            "params": [db, null, Value::Object(Box::new(monitor_requests))],
+            "id": "monitor"
+        });
+
+        let request_str = simd_json::to_string(&request)?;
+        stream.write_all(request_str.as_bytes()).await?;
+        stream.write_all(b"\n").await?;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            while let Ok(n) = reader.read_line(&mut line).await {
+                if n == 0 { break; }
+                
+                let mut line_clone = line.clone();
+                if let Ok(update) = unsafe { simd_json::from_str::<Value>(line_clone.as_mut_str()) } {
+                    if let Some(method) = update.get("method").and_then(|m| m.as_str()) {
+                        if method == "update" {
+                            if let Err(_) = tx.send(update).await {
+                                break;
+                            }
+                        }
+                    }
+                }
+                line.clear();
+            }
+        });
+
+        Ok(rx)
     }
 
     /// Find bridge UUID by name

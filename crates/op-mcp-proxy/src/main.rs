@@ -24,8 +24,10 @@ async fn main() -> anyhow::Result<()> {
     // If DIRECT_MODE is set we handle LLM requests ourselves.
     let direct_mode = std::env::var("DIRECT_MODE").is_ok();
     let direct_llm = if direct_mode {
-        info!("Running in DIRECT_MODE – LLM calls go to cloudaicompanion.googleapis.com");
-        Some(Arc::new(DirectLLM::new().await?))
+        info!("Running in DIRECT_MODE – LLM calls go to cloudcode-pa.googleapis.com");
+        let llm = Arc::new(DirectLLM::new().await?);
+        llm.start_auto_refresh();
+        Some(llm)
     } else {
         None
     };

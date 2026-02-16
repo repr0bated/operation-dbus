@@ -363,82 +363,45 @@ impl NetworkPlugin {
     }
 
     async fn bring_up_interface(&self, name: &str) -> Result<()> {
-        let output = tokio::process::Command::new("ip")
-            .arg("link")
-            .arg("set")
-            .arg(name)
-            .arg("up")
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            warn!("Failed to bring up interface {}: {}", name, stderr);
-        } else {
-            info!("    ✓ Interface '{}' is up", name);
-        }
-
+        crate::rtnetlink::link_up(name).await
+            .map_err(|e| anyhow::anyhow!("Failed to bring up interface {}: {}", name, e))?;
+        
+        info!("    ✓ Interface '{}' is up", name);
         Ok(())
     }
 
     async fn bring_down_interface(&self, name: &str) -> Result<()> {
-        let output = tokio::process::Command::new("ip")
-            .arg("link")
-            .arg("set")
-            .arg(name)
-            .arg("down")
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!(
-                "Failed to bring down interface {}: {}",
-                name,
-                stderr
-            ));
-        }
-
+        crate::rtnetlink::link_down(name).await
+            .map_err(|e| anyhow::anyhow!("Failed to bring down interface {}: {}", name, e))?;
+            
         Ok(())
     }
 
     async fn configure_ip(&self, interface: &str, address: &str) -> Result<()> {
-        // Remove existing IP addresses first
-        let _ = tokio::process::Command::new("ip")
-            .arg("addr")
-            .arg("flush")
-            .arg("dev")
-            .arg(interface)
-            .output()
-            .await;
-
-        // Add new IP address
-        let output = tokio::process::Command::new("ip")
-            .arg("addr")
-            .arg("add")
-            .arg(address)
-            .arg("dev")
-            .arg(interface)
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // Ignore "RTNETLINK answers: File exists" error
-            if !stderr.contains("File exists") {
-                return Err(anyhow::anyhow!(
-                    "Failed to configure IP {}: {}",
-                    address,
-                    stderr
-                ));
-            }
+        // Parse CIDR (e.g. 192.168.1.1/24)
+        let parts: Vec<&str> = address.split('/').collect();
+        if parts.len() != 2 {
+            return Err(anyhow::anyhow!("Invalid CIDR address: {}", address));
         }
+        
+        let ip_str = parts[0];
+        let prefix: u8 = parts[1].parse().context("Invalid prefix length")?;
+
+        // Flush existing addresses
+        crate::rtnetlink::flush_addresses(interface).await
+            .map_err(|e| anyhow::anyhow!("Failed to flush addresses on {}: {}", interface, e))?;
+
+        // Add new address
+        crate::rtnetlink::add_ipv4_address(interface, ip_str, prefix).await
+            .map_err(|e| anyhow::anyhow!("Failed to add IP {} to {}: {}", address, interface, e))?;
 
         info!("    ✓ IP address {} configured on {}", address, interface);
         Ok(())
     }
 
     async fn enable_dhcp(&self, interface: &str) -> Result<()> {
+        // TODO: Replace with native DHCP client library (e.g., dhcproto)
+        // For now, we still rely on external dhclient but wrap it to be more robust
         let output = tokio::process::Command::new("dhclient")
             .arg("-v")
             .arg(interface)

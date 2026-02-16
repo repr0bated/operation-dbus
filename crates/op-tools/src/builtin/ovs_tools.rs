@@ -6,6 +6,7 @@
 use crate::Tool;
 use async_trait::async_trait;
 use simd_json::{json, OwnedValue as Value};
+use simd_json::prelude::*;
 use std::time::Duration;
 use anyhow::Result;
 use crate::ToolRegistry;
@@ -1027,6 +1028,9 @@ impl Tool for OvsApplyObfuscationTool {
         let bridge = input.get("bridge")
             .and_then(|v| v.as_str())
             .unwrap_or("ovs-br0");
+        let bridge = input.get("bridge")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: bridge"))?;
 
         let level = input.get("level")
             .and_then(|v| v.as_u64())
@@ -1036,18 +1040,14 @@ impl Tool for OvsApplyObfuscationTool {
             return Err(anyhow::anyhow!("Invalid obfuscation level: {}. Must be 0-3.", level));
         }
 
-        let privacy_ports = input.get("privacy_ports")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect::<Vec<String>>()
-            })
-            .unwrap_or_else(|| vec![
+        let ports_list: Vec<String> = match input.get("privacy_ports").and_then(|v| v.as_array()) {
+            Some(arr) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+            None => vec![
                 "priv_wg".to_string(),
                 "priv_warp".to_string(),
                 "priv_xray".to_string(),
-            ]);
+            ],
+        };
 
         info!("Generating obfuscation level {} configuration for bridge {}", level, bridge);
 
@@ -1055,24 +1055,23 @@ impl Tool for OvsApplyObfuscationTool {
         let security_flows = if level >= 1 { 11 } else { 0 };
         let pattern_flows = if level >= 2 { 3 } else { 0 };
         let advanced_flows = if level >= 3 { 4 } else { 0 };
-        let forwarding_flows = privacy_ports.len() * 2 + 1;
+        let forwarding_flows = ports_list.len() * 2 + 1;
         let total_flows = security_flows + pattern_flows + advanced_flows + forwarding_flows;
 
         // Generate flow descriptions
         let mut flow_descriptions = vec![];
 
         // Forwarding flows
-        for (idx, port) in privacy_ports.iter().enumerate() {
-            if idx < privacy_ports.len() - 1 {
-                let next = &privacy_ports[idx + 1];
+        for (idx, port) in ports_list.iter().enumerate() {
+            if idx < ports_list.len() - 1 {
+                let next = &ports_list[idx + 1];
                 flow_descriptions.push(format!("[Table 40:P100] Forward {} → {}", port, next));
             }
         }
-        for (idx, port) in privacy_ports.iter().enumerate().rev() {
-            if idx > 0 {
-                let prev = &privacy_ports[idx - 1];
-                flow_descriptions.push(format!("[Table 40:P100] Return {} → {}", port, prev));
-            }
+        for idx in (1..ports_list.len()).rev() {
+            let port = &ports_list[idx];
+            let prev = &ports_list[idx - 1];
+            flow_descriptions.push(format!("[Table 40:P100] Return {} → {}", port, prev));
         }
         flow_descriptions.push("[Table 40:P1] Normal L2/L3 forwarding".to_string());
 

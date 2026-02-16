@@ -20,6 +20,7 @@ async fn register_tool(registry: &ToolRegistry, tool: BoxedTool) -> Result<()> {
         name: tool.name().to_string(),
         description: tool.description().to_string(),
         input_schema: tool.input_schema(),
+        schema_version: String::new(),
         category: tool.category().to_string(),
         tags: tool.tags(),
         namespace: tool.namespace().to_string(),
@@ -566,15 +567,17 @@ impl Tool for ListAgentsTool {
     }
 
     async fn execute(&self, input: Value) -> Result<Value> {
-        let filter = input.get("filter").and_then(|v| v.as_str());
+        use simd_json::prelude::*;
+        let filter: Option<&str> = input.get_str("filter");
         let agents = get_default_agents();
 
         let filtered: Vec<_> = agents
             .iter()
             .filter(|a| {
-                filter.map_or(true, |f| {
-                    a.agent_type.contains(f) || a.name.to_lowercase().contains(&f.to_lowercase())
-                })
+                match filter {
+                    Some(f) => a.agent_type.contains(f) || a.name.to_lowercase().contains(&f.to_lowercase()),
+                    None => true,
+                }
             })
             .map(|a| {
                 json!({
@@ -616,6 +619,7 @@ pub async fn register_all_agent_tools(registry: &ToolRegistry) -> Result<usize> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use simd_json::prelude::*;
 
     #[test]
     fn test_get_default_agents() {
@@ -641,15 +645,15 @@ mod tests {
         assert_eq!(tool.category(), "agent");
 
         let result = tool.execute(json!({"path": "/tmp/test.py"})).await.unwrap();
-        assert_eq!(result.get("success").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(result.get_bool("success"), Some(true));
     }
 
     #[tokio::test]
     async fn test_list_agents_tool() {
         let tool = ListAgentsTool::new();
         let result = tool.execute(json!({})).await.unwrap();
-        
-        assert_eq!(result.get("success").and_then(|v| v.as_bool()), Some(true));
-        assert!(result.get("count").and_then(|v| v.as_u64()).unwrap() > 0);
+
+        assert_eq!(result.get_bool("success"), Some(true));
+        assert!(result.get_u64("count").unwrap_or(0) > 0);
     }
 }

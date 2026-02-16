@@ -8,7 +8,10 @@
 //! - SessionManager: Conversation state management
 
 pub mod actor;
+pub mod agent_tools;
 pub mod forced_execution;
+pub mod forced_tool_pipeline;
+pub mod mcp_server;
 pub mod nl_admin;
 pub mod orchestration;
 pub mod session;
@@ -25,6 +28,8 @@ pub use orchestration::{
     builtin_workstacks, GrpcAgentPool, Skill, SkillMetadata, SkillRegistry, Workstack,
     WorkstackExecutor, WorkstackPhase, WorkstackResult,
 };
+pub use agent_tools::{register_all_agent_tools, register_context_agents};
+pub use forced_tool_pipeline::{ForcedToolPipeline, PipelineResult};
 pub use session::SessionManager;
 pub use system_prompt::{create_session_with_system_prompt, generate_system_prompt};
 pub use tool_executor::TrackedToolExecutor;
