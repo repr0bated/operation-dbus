@@ -1,3 +1,0 @@
-[submodule "crates"]
-	path = crates
-	url = https://github.com/repr0bated/branch-bestie-sync.git
