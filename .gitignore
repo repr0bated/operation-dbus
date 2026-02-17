@@ -3,5 +3,3 @@ grpc-gateway/
 
 # Nested git repos (whole directories)
 branch-bestie-sync/
-crates/op-web/lovable-ad7c11f4/
-crates/op-web/ui-bk/
