@@ -6,7 +6,12 @@ Chimera Linux using `dinit` instead of `systemd`.
 ## Files in Repo
 
 - `deploy/dinit/op-dbus`
+- `deploy/dinit/op-session-bus`
+- `deploy/dinit/op-ovsdb-bridge`
 - `deploy/dinit/op-dbus-dinit.sh`
+- `deploy/dinit/op-web-dinit.sh`
+- `deploy/dinit/op-session-bus.sh`
+- `deploy/dinit/op-ovsdb-bridge-start.sh`
 - `deploy/dinit/op-mcp-proxy-select3`
 - `deploy/dinit/environment.op-dbus.template`
 - `deploy/dinit/install-op-dbus-dinit.sh`
@@ -21,10 +26,30 @@ doas ./deploy/dinit/install-op-dbus-dinit.sh
 The installer writes:
 
 - `/etc/dinit.d/op-dbus`
+- `/etc/dinit.d/op-session-bus`
+- `/etc/dinit.d/op-ovsdb-bridge`
 - `/etc/dinit.d/boot.d/op-dbus` symlink
+- `/etc/dinit.d/boot.d/op-session-bus` symlink
+- `/etc/dinit.d/boot.d/op-ovsdb-bridge` symlink
 - `/usr/local/bin/op-dbus-dinit.sh`
+- `/usr/local/sbin/op-dbus-dinit.sh`
+- `/usr/local/sbin/op-web-dinit.sh`
+- `/usr/local/sbin/op-session-bus`
+- `/etc/dinit.d/scripts/op-ovsdb-bridge-start.sh`
 - `/usr/local/bin/op-mcp-proxy-select3`
 - `/etc/op-dbus/environment` (only if missing)
+
+## OVS Boot Protocol
+
+`op-ovsdb-bridge` is **bring-up only** at boot:
+
+- It does **not** create bridges.
+- It expects `PRIVACY_BRIDGE_NAME` (default `ovsbr0`) to already exist.
+- It ensures `PRIVACY_UPLINK_PORT` is attached.
+- It calls `org.opdbus.RtnetlinkV1.LinkUp` for bridge/uplink activation.
+- It runs mirror reconcile via `org.opdbus.v1` at `/org/opdbus/v1` (with legacy fallback).
+
+Bridge creation is a one-time bootstrap action outside dinit.
 
 ## Binary Paths
 
