@@ -426,8 +426,48 @@ def chunk_proto(file_info: FileInfo, content: str) -> list[CodeChunk]:
     return chunks
 
 
+def chunk_pdf(file_info: FileInfo) -> list[CodeChunk]:
+    """Chunk a PDF by extracting text per page."""
+    try:
+        import pdfplumber
+    except ImportError:
+        console.print(f"[yellow]pdfplumber not installed, skipping PDF: {file_info.relative_path}[/yellow]")
+        return []
+
+    try:
+        pdf = pdfplumber.open(str(file_info.path))
+    except Exception as e:
+        console.print(f"[yellow]Failed to open PDF {file_info.relative_path}: {e}[/yellow]")
+        return []
+
+    chunks = []
+    for page_num, page in enumerate(pdf.pages):
+        text = (page.extract_text() or "").strip()
+        if not text:
+            continue
+
+        chunks.append(CodeChunk(
+            repo_name=file_info.repo_name,
+            file_path=file_info.relative_path,
+            language="pdf",
+            chunk_type="page",
+            name=f"page-{page_num + 1}",
+            content=text,
+            line_start=page_num + 1,
+            line_end=page_num + 1,
+            keywords=_extract_keywords(text, "pdf", f"page-{page_num + 1}"),
+        ))
+
+    pdf.close()
+    return chunks
+
+
 def chunk_file(file_info: FileInfo, config: Config) -> list[CodeChunk]:
     """Chunk a file using the appropriate strategy."""
+    # PDF is binary — handle before read_text
+    if file_info.language == "pdf":
+        return chunk_pdf(file_info)
+
     try:
         content = file_info.path.read_text(errors="replace")
     except (OSError, UnicodeDecodeError):

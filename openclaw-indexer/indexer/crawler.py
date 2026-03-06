@@ -33,21 +33,52 @@ class FileInfo:
 
 
 EXTENSION_LANGUAGES = {
+    # Code
     ".rs": "rust",
     ".py": "python",
+    ".pyi": "python",
     ".ts": "typescript",
     ".tsx": "typescript",
     ".js": "javascript",
     ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
     ".go": "go",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".hpp": "cpp",
+    # Web
+    ".html": "html",
+    ".css": "css",
+    ".scss": "css",
+    ".less": "css",
+    ".svg": "xml",
+    # Data / config
     ".proto": "protobuf",
     ".toml": "toml",
     ".yaml": "yaml",
     ".yml": "yaml",
-    ".md": "markdown",
     ".json": "json",
+    ".xml": "xml",
+    ".ini": "config",
+    ".cfg": "config",
+    ".conf": "config",
+    ".env.example": "config",
+    # Docs / text
+    ".md": "markdown",
+    ".mdx": "markdown",
+    ".txt": "text",
+    ".rst": "text",
+    ".log": "text",
+    # Scripts / infra
     ".sh": "shell",
     ".sql": "sql",
+    ".service": "config",
+    ".template": "text",
+    ".patch": "text",
+    # Binary-with-extraction
+    ".pdf": "pdf",
 }
 
 

@@ -44,7 +44,10 @@ async fn main() -> Result<()> {
     println!("3. Creating bridge '{}'...", bridge_name);
 
     if bridges.contains(&bridge_name.to_string()) {
-        println!("   Bridge '{}' already exists, skipping creation\n", bridge_name);
+        println!(
+            "   Bridge '{}' already exists, skipping creation\n",
+            bridge_name
+        );
     } else {
         client.create_bridge(bridge_name).await?;
         println!("   ✓ Bridge '{}' created successfully\n", bridge_name);
@@ -79,20 +82,26 @@ async fn main() -> Result<()> {
 
     // 7. Add a virtual port (veth pair example)
     let port_name = "veth-example";
-    println!("7. Adding port '{}' to bridge '{}'...", port_name, bridge_name);
-    
+    println!(
+        "7. Adding port '{}' to bridge '{}'...",
+        port_name, bridge_name
+    );
+
     // Note: In a real scenario, you'd create the veth pair first using rtnetlink
     // For this example, we'll just show the OVSDB operation
     match client.add_port(bridge_name, port_name).await {
         Ok(_) => {
             println!("   ✓ Port '{}' added successfully\n", port_name);
-            
+
             // List ports again to verify
             let ports_after = client.list_ports(bridge_name).await?;
             println!("   Updated ports: {:?}\n", ports_after);
         }
         Err(e) => {
-            println!("   Note: Port addition may fail if interface doesn't exist: {}\n", e);
+            println!(
+                "   Note: Port addition may fail if interface doesn't exist: {}\n",
+                e
+            );
         }
     }
 
@@ -100,14 +109,17 @@ async fn main() -> Result<()> {
     // println!("8. Setting up database monitoring...");
     // let mut monitor_rx = client.monitor_db("Open_vSwitch").await?;
     // println!("   Monitoring started. Press Ctrl+C to stop.");
-    // 
+    //
     // while let Some(update) = monitor_rx.recv().await {
     //     println!("   Update: {:?}", update);
     // }
 
     println!("=== Example Complete ===\n");
     println!("Summary:");
-    println!("  - Bridge '{}' created via native OVSDB JSON-RPC", bridge_name);
+    println!(
+        "  - Bridge '{}' created via native OVSDB JSON-RPC",
+        bridge_name
+    );
     println!("  - No CLI commands (ovs-vsctl) were used");
     println!("  - All operations performed over Unix socket");
     println!("\nTo clean up, run:");

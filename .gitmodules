@@ -1,3 +1,6 @@
 [submodule "crates"]
 	path = crates
 	url = https://github.com/repr0bated/branch-bestie-sync.git
+[submodule "lovable/lovable"]
+	path = lovable/lovable
+	url = https://github.com/repr0bated/operation-hub.git

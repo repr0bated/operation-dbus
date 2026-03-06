@@ -35,9 +35,20 @@ class Config:
 
     # File extensions to index
     code_extensions: set = field(default_factory=lambda: {
-        ".rs", ".py", ".ts", ".tsx", ".js", ".jsx",
-        ".go", ".proto", ".toml", ".yaml", ".yml",
-        ".md", ".json", ".sh", ".sql",
+        # Code
+        ".rs", ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx",
+        ".mjs", ".cjs", ".go", ".c", ".h", ".cpp", ".hpp",
+        # Web
+        ".html", ".css", ".scss", ".less", ".svg",
+        # Data / config
+        ".proto", ".toml", ".yaml", ".yml", ".json", ".xml",
+        ".ini", ".cfg", ".conf", ".env.example",
+        # Docs / text
+        ".md", ".mdx", ".txt", ".rst", ".log",
+        # Scripts / infra
+        ".sh", ".sql", ".service", ".template", ".patch",
+        # Binary-with-extraction
+        ".pdf",
     })
 
     # Directories to skip
@@ -49,15 +60,11 @@ class Config:
     })
 
     # Repos to exclude from indexing
-    skip_repos: set = field(default_factory=lambda: {
-        "operation-dbus",
-    })
+    skip_repos: set = field(default_factory=lambda: set())
 
     # Subdirectories from skipped repos to include anyway
     # Format: {repo_name: [subdir_path, ...]}
-    include_subdirs: dict = field(default_factory=lambda: {
-        "operation-dbus": ["crates"],
-    })
+    include_subdirs: dict = field(default_factory=lambda: {})
 
     # Batch sizes
     embed_batch_size: int = 32

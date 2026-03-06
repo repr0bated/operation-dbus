@@ -10,7 +10,7 @@ cd "$PROJECT_ROOT"
 
 # Components: "crate_name:binary_name:service_name"
 SERVICES=(
-    "op-dbus:op-dbus:op-dbus"
+    "op-web:op-web-server:op-web"
     "op-services:op-services:op-services"
     "op-chat:op-chat:op-chat"
 )
@@ -93,8 +93,8 @@ EOF
     fi
 
     # Add dependencies if needed
-    if [ "$service" != "op-dbus" ]; then
-        echo "depends-on = op-dbus" >> "$file"
+    if [ "$service" != "op-web" ]; then
+        echo "depends-on = op-web" >> "$file"
     fi
 }
 
