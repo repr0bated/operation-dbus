@@ -49,6 +49,7 @@ fi
 log() { echo -e "\033[0;32m[DEPLOY]\033[0m $1"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $1"; }
 error() { echo -e "\033[0;31m[ERROR]\033[0m $1"; exit 1; }
+is_started() { $DINITCTL status "$1" 2>/dev/null | grep -q "State: STARTED"; }
 
 build_and_install() {
     local crate=$1
@@ -61,8 +62,9 @@ build_and_install() {
     fi
 
     log "Installing $binary..."
-    cp "target/release/$binary" "$INSTALL_DIR/$binary"
-    chmod 755 "$INSTALL_DIR/$binary"
+    local staged="$INSTALL_DIR/${binary}.new.$$"
+    install -m 755 "target/release/$binary" "$staged"
+    mv -f "$staged" "$INSTALL_DIR/$binary"
 }
 
 generate_service_file() {
@@ -102,6 +104,7 @@ deploy_service() {
     local crate=$1
     local binary=$2
     local service=$3
+    local stopped_dependents=()
 
     # Build & Install
     build_and_install "$crate" "$binary" "$service"
@@ -109,13 +112,39 @@ deploy_service() {
     # Generate Service Config
     generate_service_file "$binary" "$service"
 
-    # Restart if running, otherwise start
-    if $DINITCTL list | grep -q "$service"; then
+    # Ensure services start on boot in system mode
+    if [ "$EUID" -eq 0 ]; then
+        mkdir -p "$SERVICE_DIR/boot.d"
+        ln -sf "../$service" "$SERVICE_DIR/boot.d/$service"
+    fi
+
+    # op-web cannot restart while dependents are active under dinit.
+    # Stop dependents first and bring them back after op-web restarts.
+    if [ "$service" = "op-web" ]; then
+        for entry in "${SERVICES[@]}"; do
+            IFS=':' read -r _ _ dep_service <<< "$entry"
+            if [ "$dep_service" != "op-web" ] && is_started "$dep_service"; then
+                log "Stopping dependent $dep_service..."
+                $DINITCTL stop "$dep_service"
+                stopped_dependents+=("$dep_service")
+            fi
+        done
+    fi
+
+    # Restart only when already started, otherwise start
+    if is_started "$service"; then
         log "Restarting $service..."
         $DINITCTL restart "$service"
     else
         log "Starting $service..."
         $DINITCTL start "$service"
+    fi
+
+    if [ "$service" = "op-web" ] && [ "${#stopped_dependents[@]}" -gt 0 ]; then
+        for dep in "${stopped_dependents[@]}"; do
+            log "Starting dependent $dep..."
+            $DINITCTL start "$dep"
+        done
     fi
     
     log "✅ $service deployed"
