@@ -7,10 +7,16 @@ REPO_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)"
 
 echo "Installing dinit op-dbus service files..."
 
-install -d "$ROOT/etc/dinit.d" "$ROOT/etc/dinit.d/boot.d" "$ROOT/etc/op-dbus" "$ROOT/usr/local/bin"
+install -d "$ROOT/etc/dinit.d" "$ROOT/etc/dinit.d/boot.d" "$ROOT/etc/dinit.d/scripts" "$ROOT/etc/op-dbus" "$ROOT/usr/local/bin" "$ROOT/usr/local/sbin"
 install -m 0644 "$SCRIPT_DIR/op-dbus" "$ROOT/etc/dinit.d/op-dbus"
+install -m 0644 "$SCRIPT_DIR/op-session-bus" "$ROOT/etc/dinit.d/op-session-bus"
+install -m 0644 "$SCRIPT_DIR/op-ovsdb-bridge" "$ROOT/etc/dinit.d/op-ovsdb-bridge"
 install -m 0755 "$SCRIPT_DIR/op-dbus-dinit.sh" "$ROOT/usr/local/bin/op-dbus-dinit.sh"
+install -m 0755 "$SCRIPT_DIR/op-dbus-dinit.sh" "$ROOT/usr/local/sbin/op-dbus-dinit.sh"
+install -m 0755 "$SCRIPT_DIR/op-web-dinit.sh" "$ROOT/usr/local/sbin/op-web-dinit.sh"
 install -m 0755 "$SCRIPT_DIR/op-mcp-proxy-select3" "$ROOT/usr/local/bin/op-mcp-proxy-select3"
+install -m 0755 "$SCRIPT_DIR/op-session-bus.sh" "$ROOT/usr/local/sbin/op-session-bus"
+install -m 0755 "$SCRIPT_DIR/op-ovsdb-bridge-start.sh" "$ROOT/etc/dinit.d/scripts/op-ovsdb-bridge-start.sh"
 
 if [ ! -f "$ROOT/etc/op-dbus/environment" ]; then
   install -m 0644 "$SCRIPT_DIR/environment.op-dbus.template" "$ROOT/etc/op-dbus/environment"
@@ -20,9 +26,15 @@ else
 fi
 
 ln -sfn ../op-dbus "$ROOT/etc/dinit.d/boot.d/op-dbus"
+ln -sfn ../op-session-bus "$ROOT/etc/dinit.d/boot.d/op-session-bus"
+ln -sfn ../op-ovsdb-bridge "$ROOT/etc/dinit.d/boot.d/op-ovsdb-bridge"
+rm -f "$ROOT/etc/dinit.d/boot.d/stalwart" "$ROOT/etc/dinit.d/stalwart"
 
 if command -v dinitctl >/dev/null 2>&1 && [ "$ROOT" = "/" ]; then
+  dinitctl stop stalwart || true
+  dinitctl start op-session-bus || true
   dinitctl restart op-dbus || dinitctl start op-dbus || true
+  dinitctl restart op-ovsdb-bridge || dinitctl start op-ovsdb-bridge || true
 fi
 
 echo "Done."

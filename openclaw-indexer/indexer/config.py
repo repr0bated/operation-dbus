@@ -12,12 +12,15 @@ class Config:
 
     # Qdrant
     qdrant_url: str = field(default_factory=lambda: os.environ.get("QDRANT_URL", "http://127.0.0.1:6333"))
-    collection_name: str = "code_chunks"
+    collection_name: str = "code_chunks_gemini"
 
     # Embedding
-    embedding_model: str = "BAAI/bge-base-en-v1.5"
-    embedding_dim: int = 768
-    embedding_backend: str = field(default_factory=lambda: os.environ.get("EMBEDDING_BACKEND", "huggingface_api"))  # huggingface_api | local | paperspace | lightning
+    embedding_model: str = "gemini-embedding-001"
+    embedding_dim: int = 3072
+    embedding_backend: str = field(default_factory=lambda: os.environ.get("EMBEDDING_BACKEND", "gemini"))
+
+    # Gemini
+    gemini_api_key: str = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY", ""))  # huggingface_api | local | paperspace | lightning
 
     # HuggingFace
     hf_token: str = field(default_factory=lambda: os.environ.get("HF_TOKEN", ""))

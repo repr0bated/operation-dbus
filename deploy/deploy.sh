@@ -10,6 +10,7 @@ cd "$PROJECT_ROOT"
 
 # Components: "crate_name:binary_name:service_name"
 SERVICES=(
+    "op-dbus:op-dbus:op-dbus"
     "op-web:op-web-server:op-web"
     "op-services:op-services:op-services"
     "op-chat:op-chat:op-chat"
@@ -50,6 +51,33 @@ log() { echo -e "\033[0;32m[DEPLOY]\033[0m $1"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $1"; }
 error() { echo -e "\033[0;31m[ERROR]\033[0m $1"; exit 1; }
 is_started() { $DINITCTL status "$1" 2>/dev/null | grep -q "State: STARTED"; }
+enable_boot() {
+    local service="$1"
+    mkdir -p "$SERVICE_DIR/boot.d"
+    ln -sfn "../$service" "$SERVICE_DIR/boot.d/$service"
+}
+
+ensure_system_runtime_units() {
+    [ "$EUID" -eq 0 ] || return 0
+
+    log "Installing D-Bus runtime units..."
+    install -d "$SERVICE_DIR" "$SERVICE_DIR/boot.d" "$SERVICE_DIR/scripts" /usr/local/sbin
+    install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-session-bus.sh" /usr/local/sbin/op-session-bus
+    install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-dbus-dinit.sh" /usr/local/sbin/op-dbus-dinit.sh
+    install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-web-dinit.sh" /usr/local/sbin/op-web-dinit.sh
+    install -m 0644 "$PROJECT_ROOT/deploy/dinit/op-session-bus" "$SERVICE_DIR/op-session-bus"
+    install -m 0644 "$PROJECT_ROOT/deploy/dinit/op-ovsdb-bridge" "$SERVICE_DIR/op-ovsdb-bridge"
+    install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-ovsdb-bridge-start.sh" "$SERVICE_DIR/scripts/op-ovsdb-bridge-start.sh"
+
+    enable_boot op-session-bus
+    enable_boot op-ovsdb-bridge
+
+    if [ -e "$SERVICE_DIR/boot.d/stalwart" ] || [ -e "$SERVICE_DIR/stalwart" ]; then
+        log "Removing stale stalwart service from dinit boot set..."
+    fi
+    rm -f "$SERVICE_DIR/boot.d/stalwart" "$SERVICE_DIR/stalwart"
+    $DINITCTL stop stalwart >/dev/null 2>&1 || true
+}
 
 build_and_install() {
     local crate=$1
@@ -73,16 +101,47 @@ generate_service_file() {
     local file="$SERVICE_DIR/$service"
 
     log "Generating dinit service for $service..."
-    
-    # Simple, robust dinit definition
-    cat <<EOF > "$file"
+
+    case "$service" in
+        op-dbus)
+            cat <<EOF > "$file"
+type = process
+command = /usr/local/sbin/op-dbus-dinit.sh
+log-type = buffer
+smooth-recovery = true
+depends-on = op-session-bus
+EOF
+            ;;
+        op-web)
+            cat <<EOF > "$file"
+type = process
+command = /usr/local/sbin/op-web-dinit.sh
+log-type = buffer
+smooth-recovery = true
+depends-on = op-dbus
+depends-on = op-ovsdb-bridge
+EOF
+            ;;
+        op-services|op-chat)
+            cat <<EOF > "$file"
+type = process
+command = $INSTALL_DIR/$binary
+log-type = buffer
+smooth-recovery = true
+depends-on = op-web
+EOF
+            ;;
+        *)
+            cat <<EOF > "$file"
 type = process
 command = $INSTALL_DIR/$binary
 log-type = buffer
 smooth-recovery = true
 EOF
+            ;;
+    esac
 
-    # Local environment overrides
+    # Local environment overrides for user-mode deploys
     if [ "$EUID" -ne 0 ]; then
         local DATA_DIR="$PROJECT_ROOT/deploy/data"
         mkdir -p "$DATA_DIR/cache"
@@ -93,11 +152,6 @@ env = OP_DBUS_WEB_PORT=8081
 env = OP_DBUS_SESSION_BUS=1
 EOF
     fi
-
-    # Add dependencies if needed
-    if [ "$service" != "op-web" ]; then
-        echo "depends-on = op-web" >> "$file"
-    fi
 }
 
 deploy_service() {
@@ -105,6 +159,18 @@ deploy_service() {
     local binary=$2
     local service=$3
     local stopped_dependents=()
+    local dep
+
+    was_stopped() {
+        local target="$1"
+        local entry
+        for entry in "${stopped_dependents[@]}"; do
+            if [ "$entry" = "$target" ]; then
+                return 0
+            fi
+        done
+        return 1
+    }
 
     # Build & Install
     build_and_install "$crate" "$binary" "$service"
@@ -114,22 +180,32 @@ deploy_service() {
 
     # Ensure services start on boot in system mode
     if [ "$EUID" -eq 0 ]; then
-        mkdir -p "$SERVICE_DIR/boot.d"
-        ln -sf "../$service" "$SERVICE_DIR/boot.d/$service"
+        enable_boot "$service"
     fi
 
-    # op-web cannot restart while dependents are active under dinit.
-    # Stop dependents first and bring them back after op-web restarts.
-    if [ "$service" = "op-web" ]; then
-        for entry in "${SERVICES[@]}"; do
-            IFS=':' read -r _ _ dep_service <<< "$entry"
-            if [ "$dep_service" != "op-web" ] && is_started "$dep_service"; then
-                log "Stopping dependent $dep_service..."
-                $DINITCTL stop "$dep_service"
-                stopped_dependents+=("$dep_service")
-            fi
-        done
-    fi
+    # dinit will block restart if dependents are active; stop them in reverse chain.
+    case "$service" in
+        op-dbus)
+            for dep in op-chat op-services op-web op-ovsdb-bridge; do
+                if is_started "$dep"; then
+                    log "Stopping dependent $dep..."
+                    $DINITCTL stop "$dep"
+                    stopped_dependents+=("$dep")
+                fi
+            done
+            ;;
+        op-web)
+            for dep in op-chat op-services; do
+                if is_started "$dep"; then
+                    log "Stopping dependent $dep..."
+                    $DINITCTL stop "$dep"
+                    stopped_dependents+=("$dep")
+                fi
+            done
+            ;;
+        *)
+            ;;
+    esac
 
     # Restart only when already started, otherwise start
     if is_started "$service"; then
@@ -140,10 +216,13 @@ deploy_service() {
         $DINITCTL start "$service"
     fi
 
-    if [ "$service" = "op-web" ] && [ "${#stopped_dependents[@]}" -gt 0 ]; then
-        for dep in "${stopped_dependents[@]}"; do
-            log "Starting dependent $dep..."
-            $DINITCTL start "$dep"
+    # Restore dependents in dependency order.
+    if [ "${#stopped_dependents[@]}" -gt 0 ]; then
+        for dep in op-ovsdb-bridge op-web op-services op-chat; do
+            if was_stopped "$dep"; then
+                log "Starting dependent $dep..."
+                $DINITCTL start "$dep"
+            fi
         done
     fi
     
@@ -155,6 +234,8 @@ deploy_service() {
 # Check dependencies
 command -v cargo >/dev/null || error "Cargo not found"
 command -v dinitctl >/dev/null || warn "dinitctl not found"
+
+ensure_system_runtime_units
 
 # Deploy selected or all
 TARGET=$1

@@ -121,11 +121,11 @@ class QdrantStore:
         """Semantic search with optional filters."""
         conditions = []
         if repo:
-            conditions.append(FieldCondition(field_name="repo", match=MatchValue(value=repo)))
+            conditions.append(FieldCondition(key="repo", match=MatchValue(value=repo)))
         if language:
-            conditions.append(FieldCondition(field_name="language", match=MatchValue(value=language)))
+            conditions.append(FieldCondition(key="language", match=MatchValue(value=language)))
         if chunk_type:
-            conditions.append(FieldCondition(field_name="chunk_type", match=MatchValue(value=chunk_type)))
+            conditions.append(FieldCondition(key="chunk_type", match=MatchValue(value=chunk_type)))
 
         query_filter = Filter(must=conditions) if conditions else None
 
@@ -150,7 +150,7 @@ class QdrantStore:
         self.client.delete(
             collection_name=self.collection,
             points_selector=Filter(
-                must=[FieldCondition(field_name="repo", match=MatchValue(value=repo_name))]
+                must=[FieldCondition(key="repo", match=MatchValue(value=repo_name))]
             ),
         )
         console.print(f"[yellow]Deleted all chunks for repo: {repo_name}[/yellow]")
@@ -171,21 +171,24 @@ class QdrantStore:
 
     def get_repo_stats(self) -> list[dict]:
         """Get per-repo chunk counts."""
-        # Use scroll to count unique repos
+        # Use scroll to count unique repos.
         stats = {}
         offset = None
-        while True:
-            result = self.client.scroll(
-                collection_name=self.collection,
-                limit=100,
-                offset=offset,
-                with_payload=["repo"],
-            )
-            points, offset = result
-            for point in points:
-                repo = point.payload.get("repo", "unknown")
-                stats[repo] = stats.get(repo, 0) + 1
-            if offset is None:
-                break
+        try:
+            while True:
+                result = self.client.scroll(
+                    collection_name=self.collection,
+                    limit=100,
+                    offset=offset,
+                    with_payload=["repo"],
+                )
+                points, offset = result
+                for point in points:
+                    repo = point.payload.get("repo", "unknown")
+                    stats[repo] = stats.get(repo, 0) + 1
+                if offset is None:
+                    break
+        except Exception:
+            return []
 
         return [{"repo": k, "chunks": v} for k, v in sorted(stats.items())]

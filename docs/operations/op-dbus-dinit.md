@@ -41,15 +41,23 @@ The installer writes:
 
 ## OVS Boot Protocol
 
-`op-ovsdb-bridge` is **bring-up only** at boot:
+`op-ovsdb-bridge` is idempotent at boot and uses `busctl` -> `org.opdbus` only:
 
-- It does **not** create bridges.
-- It expects `PRIVACY_BRIDGE_NAME` (default `ovsbr0`) to already exist.
-- It ensures `PRIVACY_UPLINK_PORT` is attached.
-- It calls `org.opdbus.RtnetlinkV1.LinkUp` for bridge/uplink activation.
-- It runs mirror reconcile via `org.opdbus.v1` at `/org/opdbus/v1` (with legacy fallback).
+- Creates `PRIVACY_BRIDGE_NAME` (default `ovsbr0`) if missing via `org.opdbus.OvsdbV1.CreateBridge`.
+- Ensures `PRIVACY_UPLINK_PORT` is attached via `org.opdbus.OvsdbV1.AddPort`.
+- Calls `org.opdbus.RtnetlinkV1.LinkUp` for bridge/uplink and managed interfaces.
+- Optionally configures IPv4 address(es) with `RtnetlinkV1.AddIpv4Address`.
+- Optionally configures default route with `RtnetlinkV1.AddDefaultRoute`.
+- Runs mirror reconcile via `org.opdbus.v1` at `/org/opdbus/v1` (with legacy fallback).
 
-Bridge creation is a one-time bootstrap action outside dinit.
+Optional boot-time address/route environment keys:
+
+- `PRIMARY_PUBLIC_IPV4_CIDR`
+- `PRIMARY_PUBLIC_IPV4_IFACE` (default: `PRIVACY_UPLINK_PORT`)
+- `SECONDARY_PUBLIC_IPV4_CIDR`
+- `SECONDARY_PUBLIC_IPV4_IFACE` (default: `PRIVACY_BRIDGE_NAME`)
+- `DEFAULT_IPV4_GATEWAY`
+- `DEFAULT_IPV4_IFACE` (default: `PRIVACY_UPLINK_PORT`)
 
 ## Binary Paths
 

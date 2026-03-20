@@ -30,49 +30,56 @@ wait_for_opdbus() {
   return 1
 }
 
+call_dbus() {
+  busctl --system --timeout="$BUSCTL_TIMEOUT_SECS" call "$@"
+}
+
+wait_for_kernel_link() {
+  iface="$1"
+  i=0
+  while [ "$i" -lt 20 ]; do
+    if ip link show "$iface" >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+
 if ! wait_for_opdbus; then
   echo "op-ovsdb-bridge: D-Bus service $DBUS_DEST unavailable after timeout" >&2
   exit 1
 fi
 
-BRIDGE_EXISTS="$(busctl --system call "$DBUS_DEST" "$OVS_PATH" "$OVS_IFACE" BridgeExists s "$BRIDGE" 2>/dev/null || true)"
+BRIDGE_EXISTS="$(call_dbus "$DBUS_DEST" "$OVS_PATH" "$OVS_IFACE" BridgeExists s "$BRIDGE" 2>/dev/null || true)"
 if ! echo "$BRIDGE_EXISTS" | grep -q "true"; then
-  echo "op-ovsdb-bridge: bridge $BRIDGE is missing (bootstrap required)" >&2
-  echo "op-ovsdb-bridge: create bridge once outside dinit, then reboot/restart service" >&2
+  echo "op-ovsdb-bridge: missing required bridge $BRIDGE (register via OVSDB D-Bus tool before boot)" >&2
   exit 1
 fi
-echo "op-ovsdb-bridge: bridge $BRIDGE present; applying boot-time bring-up"
 
-if ip link show "$UPLINK" >/dev/null 2>&1; then
-  PORTS="$(busctl --system call "$DBUS_DEST" "$OVS_PATH" "$OVS_IFACE" ListPorts s "$BRIDGE" 2>/dev/null)"
-  if ! echo "$PORTS" | grep -F "\"$UPLINK\"" >/dev/null 2>&1; then
-    busctl --system call "$DBUS_DEST" "$OVS_PATH" "$OVS_IFACE" AddPort ss "$BRIDGE" "$UPLINK" >/dev/null
-    echo "op-ovsdb-bridge: added uplink $UPLINK to $BRIDGE"
-  else
-    echo "op-ovsdb-bridge: uplink $UPLINK already attached"
-  fi
+echo "op-ovsdb-bridge: validating uplink $UPLINK attached to $BRIDGE"
+PORTS="$(call_dbus "$DBUS_DEST" "$OVS_PATH" "$OVS_IFACE" ListPorts s "$BRIDGE" 2>/dev/null || true)"
+if echo "$PORTS" | grep -F "\"$UPLINK\"" >/dev/null 2>&1; then
+  echo "op-ovsdb-bridge: uplink $UPLINK is present"
 else
-  echo "op-ovsdb-bridge: uplink $UPLINK not present, skipping AddPort"
+  echo "op-ovsdb-bridge: missing required uplink port $UPLINK on $BRIDGE (register via OVSDB D-Bus tool before boot)" >&2
+  exit 1
 fi
 
-if busctl --system introspect "$DBUS_DEST" "$RTNET_PATH" 2>/dev/null | grep -q "$RTNET_IFACE"; then
-  busctl --system call "$DBUS_DEST" "$RTNET_PATH" "$RTNET_IFACE" LinkUp s "$BRIDGE" >/dev/null 2>&1 || true
-  echo "op-ovsdb-bridge: requested LinkUp for bridge $BRIDGE via rtnetlink D-Bus"
-
-  if ip link show "$UPLINK" >/dev/null 2>&1; then
-    busctl --system call "$DBUS_DEST" "$RTNET_PATH" "$RTNET_IFACE" LinkUp s "$UPLINK" >/dev/null 2>&1 || true
-    echo "op-ovsdb-bridge: requested LinkUp for uplink $UPLINK via rtnetlink D-Bus"
-  fi
+if wait_for_kernel_link "$BRIDGE"; then
+  echo "op-ovsdb-bridge: kernel link $BRIDGE is present"
 else
-  echo "op-ovsdb-bridge: rtnetlink interface $RTNET_IFACE unavailable, skipping LinkUp"
+  echo "op-ovsdb-bridge: kernel link $BRIDGE did not appear after OVS restore" >&2
+  exit 1
 fi
 
 # MirrorV1 does not always expose Introspectable reliably, so probe by method call.
-if busctl --system --timeout="$BUSCTL_TIMEOUT_SECS" call "$MIRROR_DEST" "$MIRROR_PATH" "$MIRROR_IFACE" GetStats >/dev/null 2>&1; then
-  busctl --system --timeout="$BUSCTL_TIMEOUT_SECS" call "$MIRROR_DEST" "$MIRROR_PATH" "$MIRROR_IFACE" Reconcile >/dev/null 2>&1 || true
-elif busctl --system --timeout="$BUSCTL_TIMEOUT_SECS" call "$DBUS_DEST" "/org/opdbus" "$MIRROR_IFACE" GetStats >/dev/null 2>&1; then
+if call_dbus "$MIRROR_DEST" "$MIRROR_PATH" "$MIRROR_IFACE" GetStats >/dev/null 2>&1; then
+  call_dbus "$MIRROR_DEST" "$MIRROR_PATH" "$MIRROR_IFACE" Reconcile >/dev/null 2>&1 || true
+elif call_dbus "$DBUS_DEST" "/org/opdbus" "$MIRROR_IFACE" GetStats >/dev/null 2>&1; then
   # Legacy fallback for older deployments where MirrorV1 lived on org.opdbus.
-  busctl --system --timeout="$BUSCTL_TIMEOUT_SECS" call "$DBUS_DEST" "/org/opdbus" "$MIRROR_IFACE" Reconcile >/dev/null 2>&1 || true
+  call_dbus "$DBUS_DEST" "/org/opdbus" "$MIRROR_IFACE" Reconcile >/dev/null 2>&1 || true
 else
   echo "op-ovsdb-bridge: mirror interface $MIRROR_IFACE unavailable on $MIRROR_DEST$MIRROR_PATH, skipping reconcile"
 fi

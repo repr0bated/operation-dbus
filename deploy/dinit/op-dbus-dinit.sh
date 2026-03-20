@@ -5,4 +5,8 @@ if [ -f /etc/op-dbus/environment ]; then
 fi
 set +a
 
+if [ -x /usr/local/sbin/op-dbus ]; then
+  exec /usr/local/sbin/op-dbus
+fi
+
 exec /usr/local/bin/op-dbus

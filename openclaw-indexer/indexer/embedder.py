@@ -273,43 +273,45 @@ class LocalEmbedder(EmbedderBackend):
 
 
 class GeminiEmbedder(EmbedderBackend):
-    """Gemini embedding via Vertex AI (gcloud ADC)."""
+    """Gemini embedding via Developer API (gemini-embedding-001, 3072d)."""
+
+    MODEL = "gemini-embedding-001"
+    # API limit: 100 texts per batchEmbedContents call
+    _API_BATCH = 100
 
     def __init__(self, config: Config):
-        self._dim = 768
-        self.batch_size = config.embed_batch_size
-        self.model = "text-embedding-004"
+        self._dim = 3072
+        self.batch_size = min(config.embed_batch_size, self._API_BATCH)
+        self.api_key = config.gemini_api_key
         self.client = httpx.Client(timeout=60.0)
-
-    def _get_token(self) -> str:
-        import subprocess
-        result = subprocess.run(
-            ["gcloud", "auth", "application-default", "print-access-token"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"gcloud ADC failed: {result.stderr}")
-        return result.stdout.strip()
 
     @property
     def dimensions(self) -> int:
         return self._dim
 
     def _call_api(self, texts: list[str]) -> list[list[float]]:
-        token = self._get_token()
-        project = os.environ.get("GCP_PROJECT", "dbus-enterprise-2026")
-        location = "us-central1"
-        url = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{self.model}:predict"
-        instances = [{"content": t} for t in texts]
-        resp = self.client.post(url, json={"instances": instances}, headers={"Authorization": f"Bearer {token}"})
-        resp.raise_for_status()
-        return [p["embeddings"]["values"] for p in resp.json()["predictions"]]
+        """Call batchEmbedContents — up to 100 texts per request."""
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.MODEL}:batchEmbedContents?key={self.api_key}"
+        )
+        requests = [
+            {"model": f"models/{self.MODEL}", "content": {"parts": [{"text": t}]}}
+            for t in texts
+        ]
+        for attempt in range(3):
+            resp = self.client.post(url, json={"requests": requests})
+            if resp.status_code == 429:
+                time.sleep(2 ** attempt)
+                continue
+            resp.raise_for_status()
+            return [e["values"] for e in resp.json()["embeddings"]]
+        raise RateLimitError("Gemini embedding rate limited")
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         all_embeddings = []
         for i in range(0, len(texts), self.batch_size):
-            batch = texts[i:i + self.batch_size]
-            all_embeddings.extend(self._call_api(batch))
+            all_embeddings.extend(self._call_api(texts[i:i + self.batch_size]))
         return all_embeddings
 
     def embed_single(self, text: str) -> list[float]:
@@ -412,7 +414,8 @@ def create_embedder(config: Config) -> EmbedderBackend:
     backend = config.embedding_backend
 
     # Explicit backend selection (no failover)
-    if backend == "gemini":
+    if backend == "gemini" or (backend == "huggingface_api" and config.gemini_api_key):
+        console.print("[green]Using Gemini embedding (gemini-embedding-001, 3072d)[/green]")
         return GeminiEmbedder(config)
     elif backend == "local":
         return LocalEmbedder(config)

@@ -1,5 +1,5 @@
 type = process
-command = /usr/local/bin/op-dbus-dinit.sh
-restart = true
-depends-on = dbus
-logfile = /var/log/op-dbus.log
+command = /usr/local/sbin/op-dbus-dinit.sh
+log-type = buffer
+smooth-recovery = true
+depends-on = op-session-bus

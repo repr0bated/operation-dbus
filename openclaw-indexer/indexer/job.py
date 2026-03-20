@@ -12,6 +12,7 @@ from .chunker import CodeChunk, chunk_file
 from .config import Config, load_config
 from .crawler import crawl_all, discover_repos, walk_repo_files
 from .embedder import create_embedder
+from .lsp_chunker import LspChunk, chunk_file_lsp, shutdown_all
 from .qdrant_store import QdrantStore
 
 console = Console()
@@ -31,13 +32,22 @@ def run_full_index(config: Config, repo_filter: str | None = None):
         console.print(f"[yellow]Filtered to repo: {repo_filter} ({len(files)} files)[/yellow]")
 
     # Chunk
-    all_chunks: list[CodeChunk] = []
-    console.print(f"Chunking {len(files)} files...")
-    for idx, file_info in enumerate(files):
-        chunks = chunk_file(file_info, config)
-        all_chunks.extend(chunks)
-        if (idx + 1) % 5000 == 0 or idx + 1 == len(files):
-            print(f"  Chunked {idx+1}/{len(files)} files ({len(all_chunks)} chunks so far)", flush=True)
+    all_chunks: list[LspChunk] = []
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("[cyan]{task.fields[chunks]} chunks"),
+        console=console,
+    ) as progress:
+        task = progress.add_task(f"Chunking {len(files)} files", total=len(files), chunks=0)
+        for file_info in files:
+            chunks = chunk_file_lsp(file_info, config)
+            all_chunks.extend(chunks)
+            progress.advance(task)
+            progress.update(task, chunks=len(all_chunks),
+                            description=f"[dim]{file_info.repo_name}[/dim] {file_info.path.name}")
 
     console.print(f"[green]Generated {len(all_chunks)} chunks from {len(files)} files[/green]")
 
@@ -64,25 +74,30 @@ def run_full_index(config: Config, repo_filter: str | None = None):
 
     batch_size = config.embed_batch_size
     total_batches = (len(all_chunks) + batch_size - 1) // batch_size
-    total_embedded = 0
-    print(f"Embedding + upserting {len(all_chunks)} chunks in {total_batches} batches (backend: {embedder.__class__.__name__})...", flush=True)
+    console.print(f"Embedding + upserting {len(all_chunks)} chunks in {total_batches} batches (backend: [cyan]{embedder.__class__.__name__}[/cyan])...")
 
-    for i in range(0, len(all_chunks), batch_size):
-        batch_chunks = all_chunks[i:i + batch_size]
-        batch_texts = [c.embed_text for c in batch_chunks]
-
-        # Embed this batch
-        embeddings = embedder.embed_batch(batch_texts)
-
-        # Upsert immediately so progress is saved
-        store.upsert_chunks(batch_chunks, embeddings)
-
-        total_embedded += len(batch_chunks)
-        batch_num = i // batch_size + 1
-        if batch_num % 50 == 0 or batch_num == total_batches:
-            print(f"  Embedded+stored {total_embedded}/{len(all_chunks)} chunks (batch {batch_num}/{total_batches})", flush=True)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("[cyan]{task.fields[stored]} stored"),
+        console=console,
+    ) as progress:
+        task = progress.add_task(f"Embedding batches", total=total_batches, stored=0)
+        total_embedded = 0
+        for i in range(0, len(all_chunks), batch_size):
+            batch_chunks = all_chunks[i:i + batch_size]
+            embeddings = embedder.embed_batch([c.embed_text for c in batch_chunks])
+            store.upsert_chunks(batch_chunks, embeddings)
+            total_embedded += len(batch_chunks)
+            batch_num = i // batch_size + 1
+            progress.advance(task)
+            progress.update(task, stored=total_embedded,
+                            description=f"Batch [bold]{batch_num}[/bold]/{total_batches}")
 
     elapsed = time.time() - t0
+    shutdown_all()
     stats = store.get_stats()
     console.print(f"\n[bold green]Index complete in {elapsed:.1f}s[/bold green]")
     console.print(f"  Points: {stats.get('points_count', 'unknown')}")
