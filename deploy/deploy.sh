@@ -61,16 +61,21 @@ ensure_system_runtime_units() {
     [ "$EUID" -eq 0 ] || return 0
 
     log "Installing D-Bus runtime units..."
-    install -d "$SERVICE_DIR" "$SERVICE_DIR/boot.d" "$SERVICE_DIR/scripts" /usr/local/sbin
+    install -d "$SERVICE_DIR" "$SERVICE_DIR/boot.d" "$SERVICE_DIR/scripts" /etc/systemd/network /usr/local/sbin
     install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-session-bus.sh" /usr/local/sbin/op-session-bus
     install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-dbus-dinit.sh" /usr/local/sbin/op-dbus-dinit.sh
+    install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-networkd-dinit.sh" /usr/local/sbin/op-networkd-dinit.sh
     install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-web-dinit.sh" /usr/local/sbin/op-web-dinit.sh
     install -m 0644 "$PROJECT_ROOT/deploy/dinit/op-session-bus" "$SERVICE_DIR/op-session-bus"
     install -m 0644 "$PROJECT_ROOT/deploy/dinit/op-ovsdb-bridge" "$SERVICE_DIR/op-ovsdb-bridge"
+    install -m 0644 "$PROJECT_ROOT/deploy/dinit/systemd-networkd" "$SERVICE_DIR/systemd-networkd"
     install -m 0755 "$PROJECT_ROOT/deploy/dinit/op-ovsdb-bridge-start.sh" "$SERVICE_DIR/scripts/op-ovsdb-bridge-start.sh"
+    install -m 0644 "$PROJECT_ROOT/deploy/systemd/networkd/10-ens3.network" /etc/systemd/network/10-ens3.network
+    install -m 0644 "$PROJECT_ROOT/deploy/systemd/networkd/20-ovsbr0.network" /etc/systemd/network/20-ovsbr0.network
 
     enable_boot op-session-bus
     enable_boot op-ovsdb-bridge
+    enable_boot systemd-networkd
 
     if [ -e "$SERVICE_DIR/boot.d/stalwart" ] || [ -e "$SERVICE_DIR/stalwart" ]; then
         log "Removing stale stalwart service from dinit boot set..."
@@ -186,7 +191,7 @@ deploy_service() {
     # dinit will block restart if dependents are active; stop them in reverse chain.
     case "$service" in
         op-dbus)
-            for dep in op-chat op-services op-web op-ovsdb-bridge; do
+            for dep in op-chat op-services op-web systemd-networkd op-ovsdb-bridge; do
                 if is_started "$dep"; then
                     log "Stopping dependent $dep..."
                     $DINITCTL stop "$dep"
@@ -218,7 +223,7 @@ deploy_service() {
 
     # Restore dependents in dependency order.
     if [ "${#stopped_dependents[@]}" -gt 0 ]; then
-        for dep in op-ovsdb-bridge op-web op-services op-chat; do
+        for dep in op-ovsdb-bridge systemd-networkd op-web op-services op-chat; do
             if was_stopped "$dep"; then
                 log "Starting dependent $dep..."
                 $DINITCTL start "$dep"

@@ -395,11 +395,11 @@ async fn main() -> Result<()> {
         let mirror_clone = mirror.clone();
         tokio::spawn(async move {
             if let Err(e) = mirror_clone.start().await {
-                tracing::error!("D-Bus mirror service failed: {}", e);
+                tracing::error!("D-Bus publication service failed: {}", e);
             }
         });
 
-        tracing::info!("1:1 D-Bus mirror initialized and started");
+        tracing::info!("1:1 D-Bus publication service initialized and started");
 
         let dbus_ovsdb = Arc::new(OvsdbClient::new());
         let sm = state_manager.clone();

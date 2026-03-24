@@ -1,10 +1,9 @@
 # ovsbr0 is the OVS local/internal interface restored from persistent OVSDB.
-# systemd-networkd only owns its MAC and L3 configuration.
+# OVS owns the bridge MAC via Bridge.other-config:hwaddr; networkd only owns L3.
 [Match]
 Name=ovsbr0
 
 [Link]
-MACAddress=fa:16:3e:f1:71:d2
 ActivationPolicy=up
 
 [Network]
@@ -13,7 +12,6 @@ LinkLocalAddressing=no
 IPv6AcceptRA=no
 ConfigureWithoutCarrier=yes
 Address=148.113.204.83/32
-Address=15.235.37.41/24
 DNS=1.1.1.1
 DNS=8.8.8.8
 

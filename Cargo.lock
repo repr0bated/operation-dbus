@@ -3826,6 +3826,7 @@ dependencies = [
  "serde",
  "sha2",
  "simd-json",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -3886,6 +3887,7 @@ dependencies = [
  "simd-json",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-stream",
  "tracing",
  "zbus 4.4.0",
 ]
@@ -3962,6 +3964,7 @@ dependencies = [
  "chrono",
  "futures",
  "gethostname",
+ "hex",
  "hyper 1.8.1",
  "image",
  "lazy_static",
@@ -3985,6 +3988,7 @@ dependencies = [
  "qrcode",
  "regex",
  "reqwest 0.11.27",
+ "ring",
  "rust-embed",
  "serde",
  "simd-json",
@@ -3999,6 +4003,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "zbus 4.4.0",
 ]
 
 [[package]]

@@ -44,12 +44,6 @@ OP_DBUS_MIRROR_PATH=/org/opdbus/v1
 OP_DBUS_MIRROR_IFACE=org.opdbus.MirrorV1
 OP_DBUS_BUSCTL_TIMEOUT_SECS=3
 
-# Optional public IPv4 bring-up at boot (CIDR notation, e.g. 15.235.37.41/24).
-# PRIMARY_PUBLIC_IPV4_CIDR=
-# PRIMARY_PUBLIC_IPV4_IFACE=ens3
-# SECONDARY_PUBLIC_IPV4_CIDR=
-# SECONDARY_PUBLIC_IPV4_IFACE=ovsbr0
-
-# Optional default route via RtnetlinkV1.AddDefaultRoute.
-# DEFAULT_IPV4_GATEWAY=
-# DEFAULT_IPV4_IFACE=ens3
+# L3 is owned by systemd-networkd on the restored OVS internal interface.
+# Ship /etc/systemd/network/10-ens3.network and /etc/systemd/network/20-ovsbr0.network,
+# then review the public IPv4, MAC, DNS, and gateway values before activation.
